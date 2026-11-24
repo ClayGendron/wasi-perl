@@ -192,9 +192,10 @@ def test_a_create_reaches_the_host(probes, probe_lib, wasmtime_cli):
 
 # Each a path the host may answer otherwise than the index would: a name in another case, which
 # a host whose names ignore case finds; a name Windows rewrites (a trailing "." or blank, a "~"
-# of a short name, a "\\" or a ":") or takes for a device (CON, NUL, COM1 and the rest); a
-# component longer than the host's 255 bytes; a byte that is not ASCII, which wasmtime refuses
-# when it is not UTF-8.
+# of a short name, a "\\" or a ":"), cannot hold (a "*", "?", "<", ">", "|" or '"', or a byte
+# below 0x20) or takes for a device (CON, NUL, COM1 and the rest, with or without blanks after
+# the stem); a component longer than the host's 255 bytes; a byte that is not ASCII, which
+# wasmtime refuses when it is not UTF-8.
 HOST_PATHS = [
     ("stat", "5.42/a.pmc"),
     ("stat", "5.42/A.PM"),
@@ -212,6 +213,23 @@ HOST_PATHS = [
     ("stat", "5.42/LPT1.x"),
     ("stat", "5.42/Nul.txt/x"),
     ("stat", "5.42/conout$"),
+    # A device name with blanks after its stem, which Windows trims.
+    ("stat", "5.42/CON .pm"),
+    ("stat", "5.42/nul  .txt"),
+    ("stat", "5.42/LPT9 .x/y"),
+    ("stat", "5.42/conin$ .pm"),
+    # A byte Windows cannot hold in a name.
+    ("stat", "5.42/A*.pm"),
+    ("stat", "5.42/A?.pm"),
+    ("stat", "5.42/A<B.pm"),
+    ("stat", "5.42/A>B.pm"),
+    ("stat", "5.42/A|B.pm"),
+    ("stat", '5.42/A"B.pm'),
+    ("read", "5.42/x*/A.pm"),
+    # A control byte, which the probe reads from "%01" and the rest.
+    ("stat", "5.42/A%01.pm"),
+    ("stat", "5.42/%09.pm"),
+    ("stat", "5.42/A%1f/x"),
     ("stat", "5.42/" + "a" * 256),
     ("stat", "a" * 300 + "/x"),
     # The byte 0xe9 alone, which the probe reads from "%e9".
@@ -234,6 +252,12 @@ def test_a_name_in_no_case_is_answered_without_the_host(probes, probe_lib, wasmt
     # In no case does the library hold these, so every host answers ENOENT or ENOTDIR.
     for op, path, want in (
         ("stat", "5.42/b.PMC", "ENOENT"),
+        # Not a device: the stem is longer, or a blank stands inside it, not after it.
+        ("stat", "5.42/CONX.pm", "ENOENT"),
+        ("stat", "5.42/CO N.pm", "ENOENT"),
+        ("stat", "5.42/COM0 .pm", "ENOENT"),
+        # A byte at or above 0x20 that Windows takes: a blank inside, "-", "=", "%" and DEL.
+        ("stat", "5.42/A B-C=D%25%7f.pm", "ENOENT"),
         ("stat", "NOPE/x", "ENOENT"),
         ("read", "5.42/A.pm/X", "ENOTDIR"),
         ("stat", "5.42/A.pm/x/y", "ENOTDIR"),

@@ -98,6 +98,7 @@ The index answers only where the host's answer is already known. Every other cal
   - the names keep their case and are sorted by their ASCII-lowercased bytes (`LC_ALL=C`), and the search compares with A to Z as a to z; `lib_index.sh` refuses two names that differ only in case;
   - the index answers ENOENT only when no name of the path, in any case, is in the index and no prefix of it is a file in any case; it answers ENOTDIR only below a file reached by its exact names; everything else goes to the host, a name the index holds in another case among it;
   - a path goes to the host whole if a component ends in `.` or a blank, or holds `~`, `\` or `:` (Windows rewrites them), has a stem (the part before its first `.`) that is a Windows device name in any case (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, `CONIN$`, `CONOUT$`; the coordinator's ruling under the owner's rule, 2026-11-24), is longer than 255 bytes (the host answers ENAMETOOLONG), or holds a byte of 0x80 or above (wasmtime answers EILSEQ for one that is not UTF-8);
+  - completed after the merge, under the same rule: a path also goes to the host whole if a component holds a byte Windows cannot hold in a name (`*`, `?`, `<`, `>`, `|`, `"` or one below 0x20), or if its stem, with the blanks at its end trimmed, is a device name (`CON .pm`);
   - the look's own stat is no longer judged. `path_open` already judges a read before the look, so the counts do not change, and a write-shaped open keeps the look's refusal of a special file.
 
 ### 4. Only the library is indexed
