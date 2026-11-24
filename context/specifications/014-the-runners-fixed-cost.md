@@ -14,18 +14,18 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
 
 ## Decisions
 
-1. **wasmtime-py's version is read once per process (L1).** Today `importlib.metadata` runs four times per call, about 1.0 ms. The wasmtime-py a process imported cannot change after the import. The tests that fake a version patch `wasmtime_version` itself, so they still apply.
-2. **`SHA256SUMS` is parsed once per stamp (L2).** It is parsed again when its `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` changes, the same rule `_artifacts.digest()` already keeps for `perl.wasm`. A parse is kept only if the stamp is the same after the read as before it. This saves 0.5 ms.
+1. **wasmtime-py's version is read once per process (L1).** Today `importlib.metadata` runs four times per call, about 1.0 ms (EXECUTED in study A, `results/phases-*.json`). The wasmtime-py a process imported cannot change after the import. The tests that fake a version patch `wasmtime_version` itself, so they still apply.
+2. **`SHA256SUMS` is parsed once per stamp (L2).** It is parsed again when its `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` changes, the same rule `_artifacts.digest()` already keeps for `perl.wasm`. A parse is kept only if the stamp is the same after the read as before it. This saves 0.5 ms (EXECUTED in study A).
 3. **Each rule's inputs are computed only when a grant can break the rule (L3).**
    - `_runtime_folders`, `_runtime_files` and `_cache.every` run only when the call has a grant that the rule binds:
      - the cache rule binds any grant;
      - the runtime rules bind a writable grant.
-   - This saves 0.85 ms on a call with no grant, and 0.36 ms with read-only grants.
+   - This saves 0.85 ms on a call with no grant, and 0.36 ms with read-only grants (EXECUTED in study A).
    - Who may grant what is unchanged.
 4. **One `InstancePre` per compiled module (L4).**
    - One `Linker` with `define_wasi` is made per module, and every call instantiates from it.
    - It is safe because `define_wasi` reads each store's own WASI context, so one linking serves every store.
-   - The saving is 50–60 µs.
+   - The saving is 50–60 µs (EXECUTED in study A, `floor.py`).
 5. **The checked `.cwasm` is mapped, not read (L7).**
    - `_cache` keeps its checks on the open descriptor: owner, mode, one name, a private folder.
    - It then gives `Module.deserialize_file` that descriptor's own name, after checking that the name opens the same inode:
@@ -33,14 +33,14 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
      - `/dev/fd/N` on macOS, as wasi-python does (READ: `wasi_python/_platform_posix.py`, `_FD_NAMES`). Study A measured Linux only, so macOS has its own check, run in CI.
    - Elsewhere, Windows included, the bytes are read through the descriptor as today.
    - The runner never writes a `.cwasm` in place: `_cache.write` renames a new file over the name. So the mapped inode is the checked one for the module's whole life.
-   - A first call saves 22–28 ms and 33 MiB of peak memory.
+   - A first call saves 22–28 ms and 33 MiB of peak memory (EXECUTED in study A, `load.py`, `results/load.jsonl`).
 6. **wasmtime-py's version comes from the one `wasmtime-*.dist-info` folder beside the imported module (L8).**
    - Only that folder's `METADATA` file is read.
    - With no such folder, or more than one, `importlib.metadata` decides, as today.
-   - A first call saves about 8 ms.
+   - A first call saves about 8 ms (EXECUTED in study A, `results/first_call.jsonl`).
 7. **The engine states the four wasmtime defaults that the speed depends on** (study B §8): `cranelift_opt_level = "speed"`, `parallel_compilation = True`, `memory_init_cow = True` and `signals_based_traps = True`.
    - Each is wasmtime 51's default today, so nothing changes now.
-   - Without each one, study B measured, in order:
+   - Without each one, study B measured (EXECUTED, `results/wall-base-<engine>-r1.json`), in order:
      - optimised code: calls 1.13–1.46× slower;
      - parallel compilation: a 3.3 s compile instead of 0.9 s;
      - copy-on-write memory: a 7.2 ms bare call instead of 3.0 ms;

@@ -31,7 +31,7 @@ Evidence:
    - Every caller already tries `/dev/urandom` first, so all three get real randomness with no patch to Perl.
    - Perl programs and modules that read `/dev/urandom` themselves work as they do natively.
 2. **What the device is.** It is a descriptor of the guest's own table that holds no host descriptor. Native Linux is the model, and every difference is listed in `docs/sandbox.md`.
-   - **Which paths are virtual.** A `path_open` whose folder descriptor is the runner's `/dev` preopen, and whose path, with `.` components dropped, is exactly `urandom` or `random`. So `/dev/urandom` and `/dev/./urandom` are virtual. A path through a grant, such as `<grant>/../dev/urandom`, is not: it goes to the host and gets today's answer.
+   - **Which paths are virtual.** A `path_open` whose folder descriptor is the runner's `/dev` preopen (the table knows it by its preopen name, `/dev`, from `fd_prestat_dir_name`), and whose path, with `.` components dropped, is exactly `urandom` or `random`. So `/dev/urandom` and `/dev/./urandom` are virtual. A path through a grant, such as `<grant>/../dev/urandom`, is not: it goes to the host and gets today's answer.
    - **Its slot.** The table entry's host descriptor is a named sentinel, `VIRTUAL_RANDOM`, beside today's `GONE`. No wrapper may hand it to the host. `release()` skips the host for it, as it does for `GONE`.
    - **The open.**
      - With `O_DIRECTORY`, or a trailing `/` (`urandom/`), it answers `ENOTDIR`.
@@ -46,9 +46,9 @@ Evidence:
    - **Waits.** `poll_oneoff` and four-argument `select` treat the descriptor as ready for reading and writing at once. The wrapper answers its subscriptions itself and sends the others to the host with a zero timeout, so the events of both come back together.
    - **Every other `fd_*` call** on it:
      - `fd_fdstat_set_flags` succeeds and changes nothing;
-     - `fd_close`, `dup`, `dup2`, `dup3` and `fcntl` work as for any table descriptor;
+     - `fd_close`, `dup`, `dup2`, `dup3`, `fd_renumber` and `fcntl` work as for any table descriptor, all inside the table;
      - `fd_readdir` answers `ENOTDIR`;
-     - everything else answers `EINVAL`: `fd_advise`, `fd_allocate`, `fd_sync`, `fd_datasync`, `fd_filestat_set_size`, `fd_filestat_set_times` and `fd_renumber` onto a host descriptor.
+     - everything else answers `EINVAL`: `fd_advise`, `fd_allocate`, `fd_sync`, `fd_datasync`, `fd_filestat_set_size`, `fd_filestat_set_times`.
      - A `path_*` call that uses it as its folder answers `ENOTDIR`.
    - **What is not virtual.** Listing `/dev` still shows only `null`, because the folder listing is the host's. That is a documented difference from native.
 3. **The special-file refusal is unchanged for the host's files.** The virtual device never reaches the host, so it is not a host special file. The `ENXIO` refusal of FIFOs, sockets and devices inside grants keeps every check of spec 010.
