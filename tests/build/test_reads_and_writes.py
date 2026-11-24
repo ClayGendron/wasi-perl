@@ -141,16 +141,17 @@ def test_a_line_read_over_a_mebibyte_makes_at_most_17_reads(wasmtime_cli, perl_w
     p, t = _traced(wasmtime_cli, perl_wasm, mebibyte, "-ne", "print if /x/", "/g/big.txt")
     assert (p.returncode, _program_stderr(p)) == (0, b"")
     assert p.stdout == b"".join(ln for ln in LINES if b"x" in ln)
-    # 16 reads of 64 KiB and one that finds the end; 128 and one with 8 KiB.
-    assert t.count("fd_read") <= 17, t.count("fd_read")
+    # 16 reads of 64 KiB and one that finds the end; 128 and one with 8 KiB. The lower bound
+    # keeps a trace that was not read from passing with no calls.
+    assert 16 <= t.count("fd_read") <= 17, t.count("fd_read")
 
 
 def test_an_in_place_edit_of_a_mebibyte_makes_at_most_17_writes(wasmtime_cli, perl_wasm, mebibyte):
     p, t = _traced(wasmtime_cli, perl_wasm, mebibyte, "-pi", "-e", "s/a/b/g", "/g/big.txt")
     assert (p.returncode, p.stdout, _program_stderr(p)) == (0, b"", b"")
     assert (mebibyte / "big.txt").read_bytes() == b"".join(LINES).replace(b"a", b"b")
-    assert t.count("fd_write") <= 17, t.count("fd_write")
-    assert t.count("fd_read") <= 17, t.count("fd_read")
+    assert 16 <= t.count("fd_write") <= 17, t.count("fd_write")
+    assert 16 <= t.count("fd_read") <= 17, t.count("fd_read")
 
 
 def test_memchr_matches_a_byte_loop(guest_engine, tmp_path):
@@ -172,8 +173,10 @@ def test_memchr_matches_a_byte_loop(guest_engine, tmp_path):
     except wt.ExitTrap as e:
         code = e.code
     # 32 start offsets, lengths 0 to 79, and every target position from before the range to
-    # two past its end: 32 * (3 + 4 + ... + 82) cases.
-    assert (code, out.read_bytes()) == (0, b"ok 108800\n")
+    # two past its end: 32 * (3 + 4 + ... + 82) cases. Then ranges that end at the last byte of
+    # linear memory: lengths 0 to 80 with every target position, the last byte found from up to
+    # a page away, and two empty ranges past the end.
+    assert (code, out.read_bytes()) == (0, b"ok 108800\nend of memory ok 13979\n")
 
 
 def _disassembly(wasm: Path, symbol: str) -> str:
@@ -299,6 +302,8 @@ def test_opening_200_files_makes_200_fewer_fdstat_calls(wasmtime_cli, perl_wasm,
     assert (p.returncode, p.stdout, _program_stderr(p)) == (0, str(want).encode(), b"")
     assert one.returncode == 0, one.stderr[-400:]
     # No file opened is asked whether it is a terminal: each costed one fd_fdstat_get before.
+    # The trace must show the opens, or the zero proves nothing.
+    assert (t.count("path_open") >= 200, t1.count("path_open") >= 1) == (True, True)
     assert t.on_opened("fd_fdstat_get") == 0
     # What is left per file is wasi-libc's look at the folder's rights: one call.
     per_199 = t.count("fd_fdstat_get") - t1.count("fd_fdstat_get")
@@ -352,6 +357,7 @@ def test_a_regular_file_is_not_asked_whether_it_is_a_terminal(wasmtime_cli, perl
     )
     p, t = _traced(wasmtime_cli, perl_wasm, folder, "-e", code)
     assert (p.returncode, p.stdout, _program_stderr(p)) == (0, b"00\n", b"")
+    assert t.count("path_open") >= 2, t.count("path_open")
     assert t.on_opened("fd_fdstat_get") == 0
 
 

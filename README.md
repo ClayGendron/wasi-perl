@@ -90,6 +90,8 @@ A grant is refused before the guest runs when its guest path is not absolute and
 
 Every call runs under limits; a call that names none has the defaults: 1 GiB of memory, 60 s, and 16 MiB of output per stream. `defaults()` and `set_defaults()` read and replace them.
 
+Each open handle holds a 64 KiB buffer once it is read or written, so a program that keeps many handles open needs more memory: 250 of them take about 16 MiB. A call stopped by a limit keeps only the output the program had flushed; `docs/sandbox.md` says how much can be lost.
+
 ```python
 from wasi_perl import run
 
