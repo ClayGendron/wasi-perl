@@ -77,3 +77,49 @@ There is no High finding. No descriptor outside the grants was reached, no wrapp
 ## Verdict
 
 Lands. The table is complete against wasip1.h and the linked module, it never invents access, and its checks compare with native perl. M1, a reused grant number that sends paths under that grant into another folder, and M2, the missing checks on the poll, two-descriptor, readdir and grant-number paths, should be fixed or answered in writing in the review round before the merge.
+
+## Round 2
+
+The same reviewer reviewed `spec/009-fd-table` at `f5199bd`. That head holds the fix commit `19711bd` and a merge of dev at `7afccfb`, which carries 003's amendment. Everything below was EXECUTED in a fresh worktree.
+
+```
+$ WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=2 scripts/build.sh
+00_download: ok / 10_native: ok / 20_target: ok / 30_library: ok (1453 files)
+$ sha256sum build/artifacts/perl.wasm
+a57bb4aa0de6a822d7bc4dc3cd8bc5add38a89678b0a2e3265e6b8bb526386b3
+$ uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q
+346 passed in 12.19s
+```
+
+### The round's answers
+
+- **M1: fixed.** I reran the reproduction: a `{ open my $fh, "<&=", 5 }` block, then `opendir "/w2"`, then `open ">", "/w1/result"`. The `opendir` now takes 7, the write lands in `/w1/result`, and `/w2` stays empty.
+  - `POSIX::close` on 3–6 answers success, and the grants keep working: a later `require Data::Dumper` and writes to both `/w1` and `/w2` succeed.
+  - `dup2` onto 3–6 and `dup2(6, 5)` give EBADF. `dup2(5, 5)` gives 5.
+  - `F_DUPFD` from 3 skips the grants and returns 9. `dup` of a grant's number, and the close of that copy, work, and the copy's number is reused.
+  - The grant numbers can no longer be freed: `release` is reached only from `close` (`recipes/wasi-fd-table.c:345`), `fd_renumber` (`:356`) and `dup_onto` (`:395`), and each of those now refuses a grant's number first. So `lowest_free` can never hand one out.
+  - The cost is a documented difference from native: `close` of a grant's number succeeds and keeps the grant. I accept it.
+- **M2: fixed.** `test_translated_paths_match_native` covers poll on a readable file and on STDOUT, a closed number beside STDOUT, rename and link between two grants, and readdir at number 0. There are also three grant-number checks. All of them compare with native or state the guest's own answer.
+- **L1: fixed.** `_poll(0, 50, POLLOUT, 1, POLLOUT)` now returns 2 with POLLNVAL on 50 alone, as natively. A number polled on its own returns 1 with POLLNVAL.
+  - One difference I found remains: polling STDOUT for POLLIN|POLLOUT fails the whole call with EBADF. 003's module does the same. It is wasmtime refusing a read subscription on a write-only stream, not the table.
+- **L2, L4, L5: fixed. L3, L6: answered** in `docs/sandbox.md`.
+- **Hostile programs rerun.** 1,100 dups give 1,017 and then EMFILE, and after closing them the next number is 7. Out-of-range numbers (-1, 1024, 2^31) give EBADF, and 1023 works. Rename and link across grants work. No program reached a descriptor it was not granted.
+
+### The dev merge
+
+- **`recipes/wasi-cc`.** I compared it with dev (`git diff 7afccfb f5199bd -- recipes/wasi-cc`). The refusal list keeps dev's new `PerlIO_openn` and `Perl_lex_start`, and drops only `dup2` and `close`. The 36 `__wasi_*` wraps, the four libc wraps and the table archive are all present.
+- **`recipes/sandbox-refusals.c`.** Compared with dev, it differs only by the removal of 003's `dup2`/`close` wrappers and of the `<fcntl.h>` and `<wasi/libc.h>` includes. Dev's `__wrap_PerlIO_openn` and `__wrap_Perl_lex_start` are kept, and so is `<string.h>`, which they need.
+- **The wraps match.** Every name in the refusal list has a `__wrap_` definition, and the `-Werror` build is clean.
+- Nothing was lost from either side.
+
+### New findings
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| R2-M1 | Medium | `recipes/wasi-fd-table.c:270-280` | **The new poll path can let the host write one event past the caller's buffer.** When a closed number is present (`nbad >= 1`) and the caller had no clock, the wrapper adds a zero clock, so it sends `k + 1` subscriptions (k open ones). It also passes `out + nbad` as the host's event buffer, which has room for only `nsubscriptions - nbad`. A host may report every ready subscription, so `nbad + k + 1 = nsubscriptions + 1` events can be written. wasi-libc's `ppoll` declares `__wasi_event_t events[nsubscriptions]` (`ppoll.c`, READ), so that one event lands past the array on the guest's stack. A C probe linked with `wasi-cc` sent one closed number and STDOUT, with an `ev[3]` canary for 2 subscriptions. On wasmtime 51 the canary was untouched: wasmtime reported the ready descriptor but not the zero clock beside it (EXECUTED). So the overflow is not reached on the pinned engine. Another WASI host could reach it. It stays inside the guest's own memory, and it is still an out-of-bounds write in the file that guards the boundary. | Give the host its own event buffer of `nsent` entries (malloc it beside `copy`), then copy every event except the added clock's into `out + nbad`. Alternatively, add the zero clock only when the caller's clock was dropped, so `nsent` never exceeds `nsubscriptions - nbad`. |
+
+No High finding.
+
+### Verdict (round 2)
+
+Lands. M1 and M2 are fixed, the Lows are fixed or answered, and the dev merge lost nothing. R2-M1 is a small change to the new poll code. It cannot be reached on wasmtime 51, and it should be fixed in the next commit to this file or answered in writing.
