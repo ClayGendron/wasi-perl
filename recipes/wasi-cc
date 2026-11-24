@@ -1,0 +1,37 @@
+#!/bin/sh
+# The one C compiler for the wasm32-wasip1 build: the pinned wasi-sdk clang with the flags
+# every object and every link must share.
+#
+# - setjmp/longjmp are lowered to WebAssembly exception handling in the standard encoding
+#   (-wasm-use-legacy-eh=false); the legacy encoding is refused by the wasmtime we target.
+#   Every object must carry the same flags, or the module links but fails at run time.
+# - wasi-libc declares signal(), getpid(), times()/clock() and mmap() only behind its
+#   _WASI_EMULATED_* switches; the matching libraries are linked at every link.
+# - Perl recurses on the C stack, so the linear-memory stack is 8 MiB.
+# - PATH holds no wasm-opt, so clang never rewrites the module wasm-ld wrote.
+#
+# WASI_SDK may point at another unpacked wasi-sdk; by default it is the one under build/tools.
+here=$(cd "$(dirname "$0")" && pwd)
+: "${WASI_SDK:=$here/../build/tools/wasi-sdk-34.0-x86_64-linux}"
+sysroot="$WASI_SDK/share/wasi-sysroot"
+PATH="$WASI_SDK/bin:/usr/bin:/bin"
+export PATH
+
+link=yes
+for a in "$@"; do
+    case "$a" in
+        -c|-E|-S|-M|-MM) link=no ;;
+    esac
+done
+
+set -- --target=wasm32-wasip1 --sysroot="$sysroot" \
+    -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false \
+    -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_GETPID \
+    -I"$here/include" -include wasi-perl-libc.h \
+    "$@"
+if [ "$link" = yes ]; then
+    set -- "$@" -lsetjmp \
+        -lwasi-emulated-signal -lwasi-emulated-process-clocks -lwasi-emulated-getpid \
+        -Wl,-z,stack-size=8388608
+fi
+exec "$WASI_SDK/bin/clang" "$@"
