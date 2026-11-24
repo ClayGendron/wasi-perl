@@ -43,3 +43,47 @@ Two related paths fail honestly and need nothing here. `POSIX::sigaction` return
 ## Verdict
 
 Lands, once M1 and M2 are fixed or answered in writing. There is no High finding. The change does what it was made for: Math::Complex and Math::Trig load and match native. The path test is careful: a lookalike folder, `site_perl`, empty, `.` and `..` steps and a spoofed `%INC` are all refused, and the runner keeps every grant out of the library's path. Neither weakness lets a guest do more than store a handler that never runs. But `use sigtrap` (M1) quietly breaks the "fail clearly" rule for honest code, and `#line` (M2) makes the amended decision's own claim untrue.
+
+## Round 2
+
+The answer to round 1 is fix commit 7ddfa59. A store is now accepted only when the innermost eval frame that is not an eval block is a `require`, the file it opened is a library file, and the statement's `CopFILE` is that file. The opened path is recorded by wrapping `PerlIO_openn` (under `OP_REQUIRE`) and `Perl_lex_start` (which ties the path to the frame about to be pushed), and a save-stack destructor drops the record when the frame ends. READ (`recipes/sandbox-refusals.c:159-263`).
+
+I built from a clean tree in a fresh worktree: all four steps ok. `pytest tests/build -q` gave **309 passed**. EXECUTED.
+
+### Round 1's bypasses, again (EXECUTED)
+
+| Attempt | Result |
+|---|---|
+| `#line` naming the library in `-e`, in a string `eval`, in a `do FILE`, and in source from an `@INC` hook | all refused |
+| `use sigtrap qw(handler my_handler INT)` | refused, at `sigtrap.pm line 28` (M1 fixed) |
+| A store right after `require Math::Complex` | refused |
+| `use Math::Trig; use Math::Complex` | loads and computes as natively |
+
+### Attacks on the new mechanism (EXECUTED)
+
+| Attempt | Result |
+|---|---|
+| Nested require: a user `Scalar/Util.pm` placed first in `@INC`, so Math::Complex's own `use Scalar::Util` loads it, and the user file stores | refused at `/work/u/Scalar/Util.pm line 1`. The innermost frame is the user file's require, which has no record |
+| The same user file with `#line 1 ".../Math/Complex.pm"` | refused. Its frame is still the user file's |
+| Library code that string-evals | refused by construction: the innermost non-block eval is then the string eval, not a require. READ (`:247-256`) |
+| `do "/usr/local/lib/perl5/5.42/Math/Complex.pm"` | Math::Complex's own `local $SIG{FPE}` is refused (`OP_DOFILE` is not a require), so a `do` of the library fails where native succeeds. This is by design and harmless; L4 |
+| An `@INC` hook returning a filehandle that the hook opened on a library file | no record is made: the hook's `open` runs under `OP_OPEN`. A later store is refused |
+| A stale pending handle: `require "Math"` opens the library *directory*, then a later `@INC` hook returns a user filehandle under `#line ".../5.42/Math"` | refused |
+| `local @INC = ("/usr/local/lib/perl5/5.42", "/work")` with a user `E.pm` | refused |
+| An `@INC` hook asked for `Scalar/Util.pm` while Math::Complex loads, storing from the hook's own `-e` code | refused |
+| **The same hook, with `#line 1 "/usr/local/lib/perl5/5.42/Math/Complex.pm"` above its store** | **accepted**. The hook runs while Math::Complex's require frame is innermost, since the frame of the require that called the hook is not pushed yet, and `#line` makes `CopFILE` equal the recorded path. The program ends with `$SIG{INT}` holding its own code ref and no message: L3 |
+
+### Findings, round 2
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| M1 | — | | **Fixed.** sigtrap's stores, at import or later, are refused. | |
+| M2 | — | | **Fixed, apart from L3.** `#line`, a string `eval`, a `do`, `@INC` hooks and `%INC` on their own no longer pass. | |
+| L1 | — | | **Fixed.** Only stores made while the file loads are accepted. | |
+| L2 | — | | **Fixed.** `test_program_stores_cannot_pass_as_the_library` covers 11 cases. | |
+| L3 | Low | `recipes/sandbox-refusals.c:258`; `docs/sandbox.md:38` | **Program code can still pass as the loading file.** It needs code that runs *inside* a library file's require (an `@INC` hook called for that file's own `use`) and that carries a `#line` naming exactly that file. The store passes because the check trusts `CopFILE`, which `#line` sets. It is deliberate and contrived: no honest code does it, and the handler never runs. But the docs' "code that names a library file in `#line` … is refused" is not quite true. | Judge the code, not its name. Record the require's eval CV (`PL_compcv` right after `lex_start`) with the frame. Accept only if walking `CvOUTSIDE` from `find_runcv(NULL)` reaches that CV. A library file's `BEGIN` blocks and subs have it as an outer scope. A hook, a `__WARN__` handler or any other program sub compiled elsewhere never does, whatever its `#line`. Add the hook case to the checks. Otherwise, qualify the docs sentence. |
+| L4 | Low | `docs/sandbox.md:38` | `do` of a library file that stores at load (for example Math::Complex) now fails where native succeeds. | One line in the docs: only `require` and `use` load such a module. |
+
+## Verdict, round 2
+
+Lands: no High or Medium finding remains. M1, M2, L1 and L2 are fixed and checked on a fresh build (309 passed). Every round-1 bypass and every new attack aimed at the frame records is refused, except one contrived `@INC`-hook-plus-`#line` combination (L3). It can only store a handler that never runs. Fix it with the `CvOUTSIDE` check or qualify the docs.
