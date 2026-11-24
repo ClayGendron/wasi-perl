@@ -324,17 +324,20 @@ __wasi_errno_t __wrap___wasi_path_symlink(const char *old_path, __wasi_fd_t fd,
     return __real___wasi_path_symlink(old_path, fd, new_path);
 }
 
-/* poll_oneoff names descriptors inside its subscriptions. A subscription on a closed number is
- * not sent to the host, which would fail the whole call; it gets its own event, EBADF with
- * its userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively.
- * The host's events follow it in `out`. */
+/* poll_oneoff names descriptors inside its subscriptions. Two kinds are answered here and not
+ * sent to the host. A subscription on a closed number gets its own event, EBADF with its
+ * userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively; the
+ * host would fail the whole call. A regular file is always ready to read and to write, as
+ * POSIX says of select and poll; the host would report it only once a read it starts in the
+ * background is done, which a zero timeout can outrun. The host's events follow these in
+ * `out`. */
 __typeof__(__wasi_poll_oneoff) __real___wasi_poll_oneoff, __wrap___wasi_poll_oneoff;
 __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi_event_t *out,
                                          __wasi_size_t nsubscriptions, __wasi_size_t *nevents)
 {
     __wasi_subscription_t *copy;
     __wasi_errno_t error = __WASI_ERRNO_SUCCESS;
-    __wasi_size_t nbad = 0, nsent = 0, nhost = 0;
+    __wasi_size_t nlocal = 0, nsent = 0, nhost = 0;
     int has_fd = 0;
     for (__wasi_size_t i = 0; i < nsubscriptions; i++)
         has_fd |= in[i].u.tag != __WASI_EVENTTYPE_CLOCK;
@@ -346,12 +349,17 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
     for (__wasi_size_t i = 0; i < nsubscriptions; i++) {
         /* fd_read and fd_write have the same layout. */
         __wasi_fd_t fd = in[i].u.u.fd_read.file_descriptor;
-        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK && !is_open((int)fd)) {
-            memset(&out[nbad], 0, sizeof out[nbad]);
-            out[nbad].userdata = in[i].userdata;
-            out[nbad].error = __WASI_ERRNO_BADF;
-            out[nbad].type = in[i].u.tag;
-            nbad++;
+        __wasi_fdstat_t st;
+        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK &&
+            (!is_open((int)fd) ||
+             (__real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0 &&
+              st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
+            memset(&out[nlocal], 0, sizeof out[nlocal]);
+            out[nlocal].userdata = in[i].userdata;
+            out[nlocal].error = is_open((int)fd) ? __WASI_ERRNO_SUCCESS : __WASI_ERRNO_BADF;
+            out[nlocal].type = in[i].u.tag;
+            out[nlocal].fd_readwrite.nbytes = 1;
+            nlocal++;
             continue;
         }
         copy[nsent] = in[i];
@@ -359,10 +367,10 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
             copy[nsent].u.u.fd_read.file_descriptor = files[slot[fd] - 1].real;
         nsent++;
     }
-    /* With a closed number there is something to report already, so the host is asked
+    /* With an event answered here there is something to report already, so the host is asked
      * whether anything else is ready without waiting: a clock subscription would make it
-     * wait, and a refused one is answered at once. */
-    if (nbad > 0) {
+     * wait. */
+    if (nlocal > 0) {
         __wasi_size_t keep = 0;
         for (__wasi_size_t i = 0; i < nsent; i++) {
             if (copy[i].u.tag != __WASI_EVENTTYPE_CLOCK)
@@ -378,20 +386,20 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
         }
     }
     if (nsent > 0)
-        error = __real___wasi_poll_oneoff(copy, out + nbad, nsent, &nhost);
+        error = __real___wasi_poll_oneoff(copy, out + nlocal, nsent, &nhost);
     free(copy);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
     /* The zero clock added above is not the caller's; its event is dropped. */
-    if (nbad > 0) {
-        __wasi_size_t keep = nbad;
-        for (__wasi_size_t i = nbad; i < nbad + nhost; i++) {
+    if (nlocal > 0) {
+        __wasi_size_t keep = nlocal;
+        for (__wasi_size_t i = nlocal; i < nlocal + nhost; i++) {
             if (out[i].userdata != UINT64_MAX || out[i].type != __WASI_EVENTTYPE_CLOCK)
                 out[keep++] = out[i];
         }
-        nhost = keep - nbad;
+        nhost = keep - nlocal;
     }
-    *nevents = nbad + nhost;
+    *nevents = nlocal + nhost;
     return __WASI_ERRNO_SUCCESS;
 }
 
