@@ -491,24 +491,35 @@ def test_a_writable_grant_cannot_plant_code_in_the_library_path(perl_set, host):
     print(inc)
 
 
-FIFO_CHILD = r"""
-import sys
-from pathlib import Path
-from wasi_perl import Artifacts, Grant, run
-folder, artifacts = sys.argv[1:3]
-done = run(["-e", 'open(my $f, "<", "/g/pipe") ? print "opened\n" : print "refused $!\n"'],
-           grants=[Grant(folder, "/g")], deadline_s=1, artifacts=Artifacts.at(artifacts))
-print(done.exit_code, done.trapped, done.stdout)
+# A host's open of a FIFO waits in the kernel for the other end, where the deadline and fuel
+# cannot reach. The guest looks at what a name is before it asks the host to open it, and
+# refuses anything that is not a folder, a regular file or a link it will not follow. Each run
+# is in a child, so a regression ends the child at its fail-safe instead of holding the suite.
+FIFO_PROGRAM = r"""
+for my $try (["read", "<"], ["write", ">"], ["append", ">>"]) {
+    my ($what, $mode) = @$try;
+    open(my $f, $mode, "pipe") ? print "$what opened\n" : print "$what refused $!\n";
+}
+symlink("pipe", "link") or die "symlink: $!";
+open(my $l, "<", "link") ? print "link opened\n" : print "link refused $!\n";
+print -e "pipe" ? "still there\n" : "gone\n";
 """
 
-
-class BlockedInHost(Exception):
-    """The guest's open of a FIFO never returned: it waits in the host, past its deadline."""
+FIFO_CHILD = r"""
+import sys
+from wasi_perl import Artifacts, Grant, run
+folder, artifacts, code = sys.argv[1:4]
+done = run(["-e", code], grants=[Grant(folder, "/g", writable=True)], cwd="/g",
+           fuel=2_000_000_000, deadline_s=5, artifacts=Artifacts.at(artifacts))
+print(done.exit_code, done.trapped, done.fuel_used is not None)
+sys.stdout.write(done.stdout.decode())
+sys.stdout.write(done.stderr.decode())
+"""
 
 
 def _child(folder: Path, perl_set) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-c", FIFO_CHILD, str(folder), str(perl_set.perl.parent)],
+        [sys.executable, "-c", FIFO_CHILD, str(folder), str(perl_set.perl.parent), FIFO_PROGRAM],
         capture_output=True,
         text=True,
         timeout=20,  # a fail-safe for the suite, not a measurement
@@ -516,25 +527,33 @@ def _child(folder: Path, perl_set) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs")
-@pytest.mark.xfail(
-    raises=BlockedInHost,
-    strict=True,
-    reason="wasmtime opens a guest's path with a blocking open(2) on the host thread, which "
-    "epoch interruption cannot stop: a FIFO in a grant holds the call past its deadline",
-)
 def test_a_fifo_in_a_grant_is_refused(perl_set, tmp_path):
-    # The control: the same child, a regular file at that name, opens it and ends.
+    # The control: the same child, a regular file at that name, opens it every way and ends.
     control = tmp_path / "control"
     control.mkdir()
     (control / "pipe").write_text("x")
     out = _child(control, perl_set)
-    assert out.returncode == 0 and "opened" in out.stdout, (out.stdout, out.stderr)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines() == [
+        "0 None True",
+        "read opened",
+        "write opened",
+        "append opened",
+        "link opened",
+        "still there",
+    ], out.stdout
     folder = tmp_path / "g"
     folder.mkdir()
     os.mkfifo(folder / "pipe")
-    try:
-        out = _child(folder, perl_set)
-    except subprocess.TimeoutExpired:
-        raise BlockedInHost("the guest is still opening the FIFO in the host") from None
+    # A hang raises TimeoutExpired here: the open reached the host.
+    out = _child(folder, perl_set)
     assert out.returncode == 0, out.stderr
-    assert "refused" in out.stdout or "deadline" in out.stdout
+    nxio = "No such device or address"
+    assert out.stdout.splitlines() == [
+        "0 None True",
+        f"read refused {nxio}",
+        f"write refused {nxio}",
+        f"append refused {nxio}",
+        f"link refused {nxio}",
+        "still there",
+    ], out.stdout
