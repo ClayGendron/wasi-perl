@@ -417,23 +417,27 @@ def test_every_call_has_its_own_seeds(perl_set):
     assert (len(seeds), len(rands)) == (20, 20), (seeds, rands)
 
 
-def test_the_random_device_is_not_writable(perl_set):
+def test_a_write_to_the_random_device_reaches_no_host_file(perl_set):
+    # As on Linux, every byte written to the device is taken and dropped. The host's /dev folder
+    # never sees the name: it still holds exactly one empty null.
     before = _digest_tree(perl_set.dev)
     done = perl(
         """
-        t("urandom>", sub { open(my $f, ">", "/dev/urandom") });
-        t("random>>", sub { open(my $f, ">>", "/dev/random") });
-        t("urandom+<", sub { open(my $f, "+<", "/dev/urandom") });
+        sub dev { open(my $f, $_[0], $_[1]) or die "$!\\n"; $f }
+        t("urandom>", sub { syswrite(dev(">", "/dev/urandom"), "x" x 10) == 10 });
+        t("random>>", sub { my $f = dev(">>", "/dev/random"); print $f "y" x 99999 and close $f });
+        t("urandom+<", sub { syswrite(dev("+<", "/dev/urandom"), "z") == 1 });
         t("unlink", sub { unlink("/dev/urandom") });
-        t("read", sub { open(my $f, "<", "/dev/urandom") or die "$!\\n"; read($f, my $b, 4) == 4 });
+        t("rename", sub { rename("/dev/urandom", "/dev/u2") });
+        t("read", sub { read(dev("<", "/dev/urandom"), my $b, 4) == 4 });
         """,
         artifacts=perl_set,
     )
-    denied = "Permission denied"
-    expect(
-        done,
-        {"urandom>": denied, "random>>": denied, "urandom+<": denied, "unlink": "", "read": "ok"},
+    want: dict[str, str | tuple[str, ...]] = dict.fromkeys(
+        ("urandom>", "random>>", "urandom+<", "read"), "ok"
     )
+    want.update({"unlink": "", "rename": ""})  # refused, by whichever text
+    expect(done, want)
     assert _digest_tree(perl_set.dev) == before
     assert sorted(p.name for p in perl_set.dev.iterdir()) == ["null"]
 
