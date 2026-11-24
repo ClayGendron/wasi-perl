@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
@@ -194,7 +195,14 @@ def test_a_writable_mount_writes_no_host_file(perl, tmp_path, monkeypatch, at) -
 def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch) -> None:
     """A guest with a writable grant over the placeholder's parent renames the call's folder and
     makes a file of its name in its place: the call returns normally, and both are still there,
-    since the clean-up is two `rmdir`s, never a tree removal."""
+    since the clean-up is two `rmdir`s, never a tree removal.
+
+    On Windows the guest cannot make the swap: the call's store holds the placeholder open as
+    each mount's preopen, wasmtime opens it without FILE_SHARE_DELETE, and Windows refuses to
+    rename a folder below which a handle is open (as it refuses a rename over a held file:
+    wasi-perl's `CHANGELOG.md` 0.1.0, and wasi-python's `tests/harness/files.py` at f9bf678).
+    There the rename is EACCES, and the clean-up removes the empty placeholder and its folder.
+    Seen on windows-2025 in CI run 45462992471, job 138692425791."""
     temp = tmp_path / "temp"
     temp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
@@ -211,6 +219,10 @@ def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch) 
         mounts=[Mount(MemoryProvider({}), "/m")],
         artifacts=perl,
     )
+    if sys.platform == "win32":
+        assert lines(done)["swap"] == "refused rename: Permission denied at -e line 24."
+        assert list(temp.iterdir()) == []
+        return
     assert lines(done)["swap"] == "ok"
     names = sorted(p.name for p in temp.iterdir())
     assert len(names) == 2 and "moved" in names

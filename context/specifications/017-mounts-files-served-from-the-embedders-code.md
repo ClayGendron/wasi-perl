@@ -461,6 +461,15 @@ CI's lint job runs the fast suite with no artifact set. There `test_a_bad_mount_
 
 The refusals still made after the set is found are host rules, not argument checks: a grant's host folder that is missing or not a folder, and a `cwd` whose folder in a grant is missing (EXECUTED: each gives `ArtifactsMissing` when there is no set). wasi-python orders them the same way: its `_run_checked` finds the set, then walks the grants (READ: `_call.py`, `_run_checked`).
 
+### Found by CI: a Windows grant answers as Windows does
+
+On windows-2025 (CI run 45462992471, job 138692425791, EXECUTED there) four checks compared a mount with a grant and met Windows' own answers. The mount answered Linux's in each; each check now asserts the mount's answer on every host and the Windows grant's own row on Windows, each row naming its source:
+
+- `test_a_mount_and_a_grant_see_the_same_wasi_calls[pi_50k]`: the grant adds the guest's rename retry, 12 calls after the first `path_rename`. Windows refuses a rename over a file the guest holds open, since wasmtime opens a Windows grant's files without FILE_SHARE_DELETE, and the guest retries (`CHANGELOG.md` 0.1.0; wasi-python's `tests/harness/files.py` note, READ).
+- `test_a_mount_answers_as_a_grant_does`: `a.txt/.` opens the file and a 256-byte component is ENOENT on a Windows grant. wasi-python's grant parity leaves both rows to the host (`HOST_ROWS`, READ).
+- `test_a_writable_mount_answers_as_a_writable_grant_does`: a Windows grant renames a folder over a file, which is wasi-python's per-system row "rename a folder over a file" (READ). It also answers EINVAL to an open of a folder for writing. wasi-python's `docs/how-to/mounts.md`, *On Windows*, says the same of opening a folder.
+- `test_the_clean_up_removes_only_an_empty_folder`: a guest on Windows cannot rename the placeholder's folder while the call holds the placeholder open as a preopen, so the swap is EACCES there. The clean-up then removes both folders, and the check asserts that. The mount code is unchanged: on Windows the swap the check guards against cannot be made.
+
 ### Counts that differ from the specification's table
 
 Each is a correction of an inference or of a prototype's count, with the guest's own calls as the reason; the review should see them (EXECUTED: `uv run pytest -m slow tests/mounts/test_mount_perl.py`).

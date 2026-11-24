@@ -14,6 +14,7 @@ import errno
 import gc
 import os
 import random
+import sys
 import tempfile
 import threading
 import warnings
@@ -322,7 +323,36 @@ def test_a_mount_and_a_grant_see_the_same_wasi_calls(
         artifacts=perl,
     )
     assert (granted.exit_code, mounted.exit_code, granted.stdout) == (0, 0, mounted.stdout)
-    assert as_grant and names == as_grant
+    want = names
+    if sys.platform == "win32" and name == "pi_50k":
+        # A Windows grant refuses `-i`'s rename over the file the guest holds open, and the
+        # guest retries once after releasing its own handles (see WINDOWS_RENAME_RETRY).
+        at = names.index("path_rename") + 1
+        want = names[:at] + WINDOWS_RENAME_RETRY + names[at:]
+    assert as_grant and as_grant == want
+
+
+# The calls the guest's rename wrapper makes on a Windows grant after its first `path_rename`
+# over a file it holds open is refused: it finds its own handles on the target, closes them,
+# renames again, and reopens them where they were. wasmtime opens every file of a Windows grant
+# without FILE_SHARE_DELETE, so Windows refuses that rename (wasi-python's `tests/harness/files.py`
+# at f9bf678, the note on its per-system write rows; wasi-perl's `CHANGELOG.md` 0.1.0, "In-place
+# editing works on every host, Windows included"). A mount accepts the first rename on every
+# host. Seen on windows-2025 in CI run 45462992471, job 138692425791.
+WINDOWS_RENAME_RETRY = [
+    "path_filestat_get",
+    "fd_filestat_get",
+    "fd_fdstat_get",
+    "path_open",
+    "fd_close",
+    "fd_tell",
+    "fd_close",
+    "path_rename",
+    "path_filestat_get",
+    "path_open",
+    "fd_filestat_get",
+    "fd_seek",
+]
 
 
 # D4 to D6: reads, a mount answering as a grant does, a mount at the root.
@@ -394,6 +424,32 @@ opendir(my $ls, "$R/d") or die "$!";
 say_("a sorted listing", join(",", sort readdir $ls));
 """
 
+
+def _rows(done) -> dict[str, str]:
+    """The guest's rows by name, in order: `NAME: ANSWER` per line."""
+    out: dict[str, str] = {}
+    for line in done.stdout.decode().splitlines():
+        name, sep, answer = line.partition(": ")
+        assert sep and name not in out, line
+        out[name] = answer
+    return out
+
+
+# Two rows a read-only grant answers as its host does, which wasi-python's grant parity leaves to
+# the host too (`HOST_ROWS`: "open 'a.txt/.'" and "open 'x' * 256", in
+# `tests/mounts/test_mount_parity.py`, ported from it). The mount answers Linux's on every host.
+MOUNT_ROWS = {
+    "a trailing slash and dot on a file": "Not a directory",
+    "a component of 256 bytes": "Filename too long",
+}
+# A Windows grant: Windows drops a trailing `.` component, so `a.txt/.` names the file; and it
+# answers a name past its 255-character limit as not found. Seen on windows-2025 in CI run
+# 45462992471, job 138692425791.
+WINDOWS_GRANT_ROWS = {
+    "a trailing slash and dot on a file": "ok",
+    "a component of 256 bytes": "No such file or directory",
+}
+
 AS_A_GRANT_TREE = {
     "/a.txt": b"hello, mount\n",
     "/b.txt": b"b\n",
@@ -414,7 +470,11 @@ def test_a_mount_answers_as_a_grant_does(perl, tmp_path) -> None:
     mounted = run(["-e", AS_A_GRANT, "/R"], mounts=[Mount(provider, "/R")], artifacts=perl)
     assert (granted.exit_code, granted.stderr) == (0, b""), granted
     assert (mounted.exit_code, mounted.stderr) == (0, b""), mounted
-    assert mounted.stdout.decode().splitlines() == granted.stdout.decode().splitlines()
+    rows = _rows(mounted)
+    for row, answer in MOUNT_ROWS.items():
+        assert rows[row] == answer, row  # Linux's answer, on every host
+    want = {**rows, **WINDOWS_GRANT_ROWS} if sys.platform == "win32" else rows
+    assert _rows(granted) == want
     assert b"Operation not permitted" in mounted.stdout  # the control: the write rows refused
     assert {k: provider.calls[k] for k in METHODS[3:]} == dict.fromkeys(METHODS[3:], 0)
 
@@ -891,6 +951,23 @@ r("remove_tree", remove_tree("$R/d") > 0);
 print "size: ", -s "$R/save.txt", "\n";
 opendir my $l, $R or die; print "listing: ", join(",", sort grep { !/^\./ } readdir $l), "\n";
 """
+# The rows a writable grant answers as its host does. The mount answers Linux's on every host.
+WRITABLE_MOUNT_ROWS = {
+    "open a folder to write": "Is a directory",
+    "rename a folder over a file": "Not a directory",
+    "listing": "a.txt,b.txt,g,h,save.txt",
+}
+# A Windows grant. It renames a folder over a file, replacing it, where POSIX and a mount answer
+# ENOTDIR: wasi-python's per-system row "rename a folder over a file" (`win32: None`, in
+# `tests/harness/files.py` at f9bf678, ported in `tests/mounts/raw.py`), so `g` is gone from the
+# listing. And it answers EINVAL to an open of a folder, where other hosts answer EISDIR, as
+# wasi-python's `docs/how-to/mounts.md`, *On Windows*, says of opening a folder. Seen on
+# windows-2025 in CI run 45462992471, job 138692425791.
+WINDOWS_WRITABLE_GRANT_ROWS = {
+    "open a folder to write": "Invalid argument",
+    "rename a folder over a file": "ok",
+    "listing": "a.txt,b.txt,h,save.txt",
+}
 WRITABLE_TREE = {"/a.txt": b"hello\n", "/b.txt": b"b\n", "/d": None, "/d/x.txt": b"x\n", "/e": None}
 
 
@@ -915,8 +992,16 @@ def test_a_writable_mount_answers_as_a_writable_grant_does(perl, tmp_path) -> No
     # remove_tree's chmod is not in WASI: both sides warn alike, and go on.
     assert granted.exit_code == mounted.exit_code == 0, (granted, mounted)
     assert mounted.stderr == granted.stderr
-    assert mounted.stdout.decode().splitlines() == granted.stdout.decode().splitlines()
-    assert on_disk(root) == provider.tree
+    rows = _rows(mounted)
+    for row, answer in WRITABLE_MOUNT_ROWS.items():
+        assert rows[row] == answer, row  # Linux's answer, on every host
+    tree = dict(provider.tree)
+    if sys.platform == "win32":
+        rows = {**rows, **WINDOWS_WRITABLE_GRANT_ROWS}
+        # the folder `g`, empty, renamed over the file `b.txt`
+        tree = {k: v for k, v in tree.items() if k != "/g"} | {"/b.txt": None}
+    assert _rows(granted) == rows
+    assert on_disk(root) == tree
 
 
 def test_links_and_times_in_a_writable_mount(perl) -> None:
