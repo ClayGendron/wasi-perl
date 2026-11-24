@@ -9,7 +9,7 @@ Labels: EXECUTED means run and seen. READ means read from a file. INFERRED means
 
 Terms, once:
 
-- **Fuel** is the guest's executed WebAssembly instructions. It is a count, the same on any machine, and it is the primary evidence.
+- **Fuel** is the guest's executed WebAssembly instructions. It is a count, the same on any machine, and it is the primary evidence. It is not exactly the same from run to run: the review's re-run of three workloads gave −0.16%, −0.07% and +0.08% against the numbers here (READ: `../reviews/018-json-csv-and-diff-pr-2026-11-24.md`, L2). Perl now seeds its hash order from the host's randomness, which moves the work a little (INFERRED). So a difference of about 0.2% is noise.
 - **Wall time** is the median of one warm call, in one process, with a warm module cache. It is secondary: the machine has 4 shared vCPUs.
 
 ## 1. The answer
@@ -69,7 +69,7 @@ EXECUTED: `uv run python -I table.py results`. The programs are study F's, named
 
 What the table shows:
 
-- **Programs that use no new module run the same instructions before and after**, to within 0.5% (`load_none`, 1,605,996 against 1,613,692; the rest within 0.2%). Their wall times moved by up to 27% (`json_small`, 22.7 against 28.8 ms, for the same 102 M instructions). That is the machine's noise, as F saw (§3.1); prefer fuel.
+- **Programs that use no new module run the same instructions before and after**, within the noise of run to run: to within 0.5% (`load_none`, 1,605,996 against 1,613,692; the rest within 0.2%). Their wall times moved by up to 27% (`json_small`, 22.7 against 28.8 ms, for the same 102 M instructions). That is the machine's noise, as F saw (§3.1); prefer fuel.
 - **The selectors work as F found.** `use JSON::MaybeXS` now gets Cpanel by itself; it loads 42 M instructions more than `use Cpanel::JSON::XS`. `use Text::CSV` gets Text::CSV_XS, and runs within 0.2% of it.
 - **Agreement with F.** Every fuel count is within 1.5% of F's set A (F §3.1: 372 M, 580 M, 376 M, 1,525 M, 1,527 M; the diff, 214 M against 211 M, is the largest gap). F's numbers were taken on an older `dev` (`32dfb73`), before specification 016 changed PerlIO's buffer and `memchr` (INFERRED as the reason for the small differences).
 
@@ -81,12 +81,14 @@ What the table shows:
 
 ## 4. A limit found on the way
 
-Cpanel::JSON::XS's decoder recurses in C once per nesting level. With its default `max_depth` of 512, deeper input is refused with a Perl error, which check 2 covers. A program that raises `max_depth` can go deeper:
+Cpanel::JSON::XS's decoder and encoder recurse in C once per nesting level. With the default `max_depth` of 512, deeper input is refused with a Perl error, which check 2 covers. A program that raises `max_depth` can go deeper:
 
 - the guest decodes 1,719 levels; at 1,720 its stack runs out and the call ends as trapped, with the reason "stack overflow";
-- native perl decodes 10,000 levels and dies of a segmentation fault at 100,000.
+- the guest encodes 1,923 levels and traps at 1,924;
+- after either trap, the next call in the same process runs and answers as usual;
+- native perl decodes 10,000 levels and dies of a segmentation fault at 100,000; it encodes 100,000.
 
-EXECUTED: `uv run python -I deep.py`, `results/deep.txt`. The trap is wasmtime's stack limit, so the guest ends cleanly and the host is not touched (INFERRED: a trap is how the runner reports any guest that exhausts its stack). The default is safe, and `docs/modules.md` says to keep it.
+EXECUTED: `uv run python -I deep.py`, `results/deep.txt`, on the build of this branch after the review. The review found the encoder's limit between 1,500 and 2,000 (READ: `../reviews/018-json-csv-and-diff-pr-2026-11-24.md`, L1). The default has a margin of more than 3× on both sides. The stack stays at 8 MiB: it is reserved in linear memory for every call, so a larger one would cost every one-liner. `docs/modules.md` says to keep the default.
 
 ## 5. How it was run
 

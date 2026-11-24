@@ -24,7 +24,7 @@ Five distributions that are not in Perl's own tarball are built in, each from a 
 - **One difference from JSON::PP.** Cpanel::JSON::XS writes a number held as a float with a whole value as `5.0`; JSON::PP writes `5`. Python's `json` writes `5.0` too.
 - Their booleans are `JSON::PP::Boolean` objects, as JSON::PP's are.
 - Hostile input ends in an error the program can catch: JSON nested deeper than 512 levels, truncated, or with trailing garbage; CSV with a broken quote.
-- **Keep Cpanel::JSON::XS's `max_depth` at its default of 512.** Its decoder recurses in C once per level. Raised, it runs out of the guest's stack at about 1,700 levels, and the call ends as trapped. Native perl gets further, and crashes at 100,000.
+- **Keep Cpanel::JSON::XS's `max_depth` at its default of 512.** Its decoder and its encoder recurse in C once per level. Raised, they run out of the guest's stack at about 1,700 and 1,900 levels, and the call ends as trapped. A trap ends only that call; the next one runs as usual. Native perl gets further: its decoder crashes at 100,000.
 
 ## Left out
 

@@ -128,8 +128,8 @@ def test_the_selectors_pick_the_linked_parsers(guest):
     ]
 
 
-# Hostile input: each case must end in a Perl error the program
-# catches, or a result, exactly as natively.
+# Hostile input: each case must end in a Perl error the program catches, or a result, exactly
+# as natively.
 HOSTILE = r"""
 use strict; use warnings; use Cpanel::JSON::XS (); use Text::CSV_XS (); use Text::CSV ();
 my $j = Cpanel::JSON::XS->new; my $u = Cpanel::JSON::XS->new->utf8;
