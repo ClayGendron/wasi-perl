@@ -63,5 +63,6 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 ## Differences from native that remain
 
 - **Descriptor numbers start higher.** Each granted folder holds a descriptor from 3 up, so the first file a program opens gets a number above them, not 3. New descriptors still take the lowest free number.
-- **At most 1,024 open descriptors.** Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").
+- **A granted folder's number always names that folder.** `open my $fh, '<&=', 3` succeeds on it, where natively it gives EBADF. Closing it succeeds and leaves the folder granted. `dup2` or `dup3` onto it fails with EBADF, and no `open` or `dup` is given it.
+- **At most 1,024 open descriptors.** The standard streams and the granted folders count against them. Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
