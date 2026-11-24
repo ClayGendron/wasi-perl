@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import DEV_GUEST, NATIVE_PERL
+from _build_helpers import DEV_GUEST, NATIVE_PERL
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs")
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import BUILD, NATIVE_PERL, ROOT, Guest, default_grants
+from _build_helpers import BUILD, NATIVE_PERL, ROOT, Guest, default_grants
 
 TARGET = BUILD / "target"
 SHOW = "show:\n\t@echo '$(perlmain_objs)|$(static_ext)|$(LLIBPERL)|$(libs)|$(CLDFLAGS)'\n"

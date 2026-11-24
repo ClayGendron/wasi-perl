@@ -25,6 +25,7 @@ from _build_helpers import (
     PERL_WASM,
     ROOT,
     WASMTIME_CLI,
+    Guest,
     Result,
     default_grants,
 )
@@ -55,57 +56,6 @@ def wasmtime_cli() -> Path:
 def native_perl() -> Path:
     _need(NATIVE_PERL, "scripts/10_native.sh")
     return NATIVE_PERL
-
-
-class Guest:
-    """Runs perl.wasm once per call, in a fresh store, with only the grants given."""
-
-    def __init__(self, module_path: Path) -> None:
-        import wasmtime
-
-        self.wasmtime = wasmtime
-        config = wasmtime.Config()
-        config.wasm_exceptions = True
-        self.engine = wasmtime.Engine(config)
-        self.module = wasmtime.Module.from_file(self.engine, str(module_path))
-
-    def run(
-        self,
-        *args: str,
-        env: dict[str, str] | None = None,
-        grants: list[tuple[Path, str, bool]] | None = None,
-        tmp: Path,
-    ) -> Result:
-        wt = self.wasmtime
-        if grants is None:
-            grants = default_grants()
-        out, err = tmp / "guest.stdout", tmp / "guest.stderr"
-        wasi = wt.WasiConfig()
-        wasi.argv = ["perl", *args]
-        wasi.env = sorted((env or {}).items())
-        wasi.stdout_file = str(out)
-        wasi.stderr_file = str(err)
-        for host, guest, writable in grants:
-            wasi.preopen_dir(str(host), guest, writable)
-        store = wt.Store(self.engine)
-        store.set_wasi(wasi)
-        linker = wt.Linker(self.engine)
-        linker.define_wasi()
-        code: int | None = 0
-        error = ""
-        instance = linker.instantiate(store, self.module)
-        exports = instance.exports(store)
-        try:
-            exports["_start"](store)
-        except wt.ExitTrap as e:
-            code = e.code
-        except (wt.Trap, wt.WasmtimeError) as e:
-            code, error = None, str(e)
-        status_fn = (
-            exports.get("wasi_perl_exit_status") if hasattr(exports, "get") else None
-        )
-        status = status_fn(store) if status_fn is not None else None
-        return Result(code, out.read_bytes(), err.read_bytes(), error, status)
 
 
 @pytest.fixture(scope="session")
