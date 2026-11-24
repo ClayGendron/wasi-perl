@@ -1,0 +1,42 @@
+{
+ "hello": {
+  "fuel": 1695673,
+  "stdout": "hello"
+ },
+ "sum_csv": {
+  "fuel": 1241274962,
+  "stdout": "1000605790"
+ },
+ "grep_log": {
+  "fuel": 647944461,
+  "stdout": "28572"
+ },
+ "inplace": {
+  "fuel": 846064383,
+  "stdout": "28572"
+ },
+ "json": {
+  "fuel": 11246727502,
+  "stdout": "20000"
+ },
+ "loop": {
+  "fuel": 603764547,
+  "stdout": "333333833333500000"
+ },
+ "subcall": {
+  "fuel": 533696697,
+  "stdout": "300000"
+ },
+ "eval_die": {
+  "fuel": 147803922,
+  "stdout": "50000"
+ },
+ "destroy": {
+  "fuel": 412617704,
+  "stdout": "100000"
+ },
+ "sort": {
+  "fuel": 911925549,
+  "stdout": "10006"
+ }
+}

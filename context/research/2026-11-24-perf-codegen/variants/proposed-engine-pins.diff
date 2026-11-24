@@ -1,0 +1,16 @@
+--- a/src/wasi_perl/_engines.py	2026-11-24 12:06:32.736276520 +0000
++++ b/src/wasi_perl/_engines.py	2026-11-24 12:06:32.747015174 +0000
+@@ -88,6 +88,13 @@
+             cfg.wasm_exceptions = True
+             cfg.epoch_interruption = True
+             cfg.consume_fuel = metered
++            # wasmtime's defaults, stated so that a change of default cannot slow every call:
++            # optimised code, compiled on every core, memory images mapped copy-on-write, and
++            # out-of-bounds accesses caught by guard pages rather than checked one by one.
++            cfg.cranelift_opt_level = "speed"
++            cfg.parallel_compilation = True
++            cfg.memory_init_cow = True
++            cfg.signals_based_traps = True
+             _engines[metered] = wt.Engine(cfg)
+         return _engines[metered]
+ 

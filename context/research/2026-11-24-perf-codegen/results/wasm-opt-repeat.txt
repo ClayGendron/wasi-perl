@@ -1,0 +1,5 @@
+$ flock machine.lock sh -c "date +%s.%N; wasm-opt build/variants/base.wasm -o build/variants/woO3-again.wasm -O3; date +%s.%N"
+wasm-opt -O3 alone, lock held: 5.286654039 s
+$ sha256sum
+0879d733244e4016273c995dc408b0c35372948b45486a5043175e02cff8dd95  woO3.wasm
+0879d733244e4016273c995dc408b0c35372948b45486a5043175e02cff8dd95  woO3-again.wasm

@@ -1,0 +1,10 @@
+--- a/recipes/wasi-cc	2026-11-24 11:23:49.727634505 +0000
++++ b/recipes/wasi-cc	2026-11-24 11:23:49.731634505 +0000
+@@ -65,6 +65,6 @@
+     [ -f "$refusals" ] && set -- "$@" "$refusals"
+     set -- "$@" -lsetjmp \
+         -lwasi-emulated-signal -lwasi-emulated-process-clocks -lwasi-emulated-getpid \
+-        -Wl,-z,stack-size=8388608
++        -Wl,-z,stack-size=1048576
+ fi
+ exec "$sdk/bin/clang" "$@"
