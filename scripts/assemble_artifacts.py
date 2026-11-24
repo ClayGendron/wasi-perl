@@ -1,14 +1,15 @@
 """Copy the built artifact set into the package, so `uv build` puts it in the wheel.
 
-The set is build/artifacts/: perl.wasm, the library folder lib/, the dev/ folder holding the empty
-null file, MANIFEST and SHA256SUMS. Perl's licence notices, Artistic and Copying, come from the
+The set is build/artifacts/: perl.wasm, perl-reactor.wasm (which a preload image the embedder
+makes starts from), the library folder lib/, the dev/ folder holding the empty null file, MANIFEST
+and SHA256SUMS. Perl's licence notices, Artistic and Copying, come from the
 target tree build/target/, or from the pinned tarball when that tree is gone.
 
-Nothing is copied unless SHA256SUMS hashes every file of the set (perl.wasm, MANIFEST and every
-file under lib/ and dev/), each file matches, none is left unlisted and none is a symbolic link:
-the same rules the runner applies to a set before it uses one. The copy is checked again in
-place, so a wheel never carries bytes the build did not hash. The licence notices sit beside the
-set, outside SHA256SUMS, since Perl never reads them.
+Nothing is copied unless SHA256SUMS hashes every file of the set (perl.wasm, perl-reactor.wasm,
+MANIFEST and every file under lib/ and dev/), each file matches, none is left unlisted and none
+is a symbolic link: the same rules the runner applies to a set before it uses one. The copy is
+checked again in place, so a wheel never carries bytes the build did not hash. The licence
+notices sit beside the set, outside SHA256SUMS, since Perl never reads them.
 
 Run with `uv run --no-project python scripts/assemble_artifacts.py`.
 """
@@ -25,7 +26,7 @@ import unicodedata
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
-SET_PARTS = ("perl.wasm", "lib", "dev", "MANIFEST", "SHA256SUMS")
+SET_PARTS = ("perl.wasm", "perl-reactor.wasm", "lib", "dev", "MANIFEST", "SHA256SUMS")
 LICENCES = ("Artistic", "Copying")
 LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
 # Names Windows cannot hold, whatever follows a dot (`nul.pm` is `NUL`), and the characters it
@@ -109,7 +110,7 @@ def verify(base: Path) -> int:
         raise Refused(f"{links[0]} is a symbolic link; the set holds plain files only")
 
     sums = read_sums(base / "SHA256SUMS")
-    for needed in ("perl.wasm", "MANIFEST", "dev/null"):
+    for needed in ("perl.wasm", "perl-reactor.wasm", "MANIFEST", "dev/null"):
         if needed not in sums:
             raise Refused(f"SHA256SUMS does not hash {needed}")
     check(base, sums, "SHA256SUMS")
@@ -118,7 +119,7 @@ def verify(base: Path) -> int:
         for folder in ("lib", "dev")
         for p in (base / folder).rglob("*")
         if p.is_file()
-    } | {"perl.wasm", "MANIFEST"}
+    } | {"perl.wasm", "perl-reactor.wasm", "MANIFEST"}
     unlisted = sorted(on_disk - sums.keys())
     if unlisted:
         raise Refused(f"{unlisted[0]} is in the set but not in SHA256SUMS ({len(unlisted)} such)")

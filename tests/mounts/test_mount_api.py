@@ -82,12 +82,14 @@ def test_the_mount_api_is_wasi_pythons() -> None:
         assert mine[0] in theirs["run"], param
     assert names.index("mounts") == names.index("grants") + 1
     assert names.index("max_file_calls") == names.index("artifacts") + 1
-    # Completed's record, right after `truncated`, as in wasi-python
+    # Completed's record, right after `truncated`, as in wasi-python; the preload image's
+    # `image_sha256` follows it, as wasi-python's does once its `tools` is left out
     files = "  field files: FileRecord | None = None"
     assert files in theirs["Completed"]
     completed = ours["Completed"]
-    assert completed[-1] == files and completed[-2].startswith("  field truncated:")
-    assert theirs["Completed"].index(files) == theirs["Completed"].index(completed[-2]) + 1
+    assert completed[-2] == files and completed[-3].startswith("  field truncated:")
+    assert completed[-1] == "  field image_sha256: str | None = None"
+    assert theirs["Completed"].index(files) == theirs["Completed"].index(completed[-3]) + 1
     # Defaults: wasi-python's block with whole lines absent and none changed
     assert ours["Defaults"][0] == theirs["Defaults"][0]
     assert _subsequence(ours["Defaults"], theirs["Defaults"])
@@ -506,3 +508,53 @@ def test_importing_wasi_perl_loads_no_wasmtime() -> None:
 def test_the_limit_check_is_the_integer_rule() -> None:
     assert _limits.integer_limit("max_file_calls", 0) == 0
     assert _limits.integer_limit("max_file_calls", None) is None
+
+
+# The preload image's API against wasi-python's listing. Each allowed difference is a row of the
+# table "Where wasi-perl differs from wasi-python" in the image's decision record, named here.
+RENAMED_ORIGIN = {  # row 8: three neutral names, each in the place of wasi-python's
+    "snapshot_sha256": "binary_sha256",
+    "stdlib_zip_sha256": "library_sha256",
+    "wasi_python": "runtime_version",
+}
+ABSENT_KEYWORDS = ("root", "import_path", "host", "max_open_files")  # row 6
+CWD_LINE = "  param cwd: str | None = None  keyword-only"  # row 13
+
+
+def test_the_snapshot_api_is_wasi_pythons() -> None:
+    theirs = api.blocks(_theirs())
+    ours = api.blocks(api.listing(wasi_perl))
+    for name in ("Snapshot", "SnapshotFailed", "SnapshotMismatch"):
+        assert ours[name] == theirs[name], name
+    renamed = []
+    for line in theirs["SnapshotOrigin"]:
+        for old, new in RENAMED_ORIGIN.items():
+            if line.startswith(f"  field {old}:"):
+                line = line.replace(f"field {old}:", f"field {new}:")
+        renamed.append(line)
+    assert ours["SnapshotOrigin"] == renamed
+    for name in ("make_snapshot", "make_package_snapshot"):
+        kept = [
+            line
+            for line in theirs[name]
+            if not any(line.startswith(f"  param {k}:") for k in ABSENT_KEYWORDS)
+        ]
+        env = next(i for i, line in enumerate(kept) if line.startswith("  param env:"))
+        assert ours[name] == [*kept[: env + 1], CWD_LINE, *kept[env + 1 :]], name
+    # run's snapshot line: wasi-python's, after stdin and before cwd (row 1 is its meaning)
+    snapshot = "  param snapshot: bool | Snapshot = True  keyword-only"
+    assert snapshot in theirs["run"]
+    names = [line.split()[1].rstrip(":") for line in ours["run"][1:]]
+    assert snapshot in ours["run"]
+    assert names.index("snapshot") == names.index("stdin") + 1 == names.index("cwd") - 1
+    # Completed's image_sha256: wasi-python's line, the last field, after files
+    image = "  field image_sha256: str | None = None"
+    assert image in theirs["Completed"]
+    assert ours["Completed"][-1] == image and ours["Completed"][-2].startswith("  field files:")
+    # Artifacts: an optional reactor as its last field (row 14)
+    fields = [line for line in ours["Artifacts"] if line.startswith("  field ")]
+    assert fields[-1] == "  field reactor: Path | None = None"
+    for name in ("Snapshot", "SnapshotFailed", "SnapshotMismatch", "SnapshotOrigin"):
+        assert name in wasi_perl.__all__
+    for name in ("make_snapshot", "make_package_snapshot"):
+        assert name in wasi_perl.__all__

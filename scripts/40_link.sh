@@ -9,13 +9,20 @@
 # the descriptor table's archive. Every other input of the rule is up to date, so make runs only
 # the link. Its result is build/link/perl.wasm, wasm-ld's own output, kept to compare with.
 #
-# binaryen's wasm-opt -O3 then runs once over it, and its output is build/artifacts/perl.wasm:
+# Before it, the same rule links the same objects once more as a WASI reactor, with the reactor's
+# entry (recipes/wasi-reactor.c, compiled by 20_target.sh) in place of perlmain.o:
+# build/link/perl-reactor.wasm, which a preload image the embedder makes starts from. It wraps
+# six Perl functions so that a second parse keeps what the first loaded, and the clock, which
+# the making pins. The tree's perl is then linked again as the command.
+#
+# binaryen's wasm-opt -O3 then runs once over each, and its outputs are build/artifacts/perl.wasm
+# and build/artifacts/perl-reactor.wasm:
 # about 2 to 3% fewer instructions on every workload. -O4 is not used: its flatten pass does not
 # take try_table and aborts. --converge adds nothing. The pass is deterministic, so its output is
 # as reproducible as the link's. It drops the name section, since no -g is given.
 #
 # build/artifacts/SHA256SUMS is "<sha256>  <path>" for every file of the set but itself
-# (perl.wasm, MANIFEST, lib/ and dev/), written last, after every link.
+# (perl.wasm, perl-reactor.wasm, MANIFEST, lib/ and dev/), written last, after every link.
 . "$(dirname "$0")/lib.sh"
 LOG="$LOGS/40_link.log"
 SRC="$BUILD/target"
@@ -52,36 +59,48 @@ stamp=$({
     printf '%s\n' "$BINARYEN_NAME" "$BINARYEN_TARBALL" "$binaryen_pin" $PASS $FEATURES
 } | sha256sum | cut -d' ' -f1)
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/SHA256SUMS" ] \
-    && [ -f "$ART/perl.wasm" ]; then
+    && [ -f "$ART/perl.wasm" ] && [ -f "$ART/perl-reactor.wasm" ]; then
     echo "40_link: up to date"
     exit 0
 fi
 
+REACTOR_O="$BUILD/stubs/wasi-reactor.o"
+[ -f "$REACTOR_O" ] || fail "$REACTOR_O is missing; run scripts/20_target.sh"
 : >"$LOG"
-rm -rf "$INDEX" "$LINK" "$ART/perl.wasm" "$ART/SHA256SUMS" "$STAMP"
+rm -rf "$INDEX" "$LINK" "$ART/perl.wasm" "$ART/perl-reactor.wasm" "$ART/SHA256SUMS" "$STAMP"
 
 # The index of the library as it is laid out.
 mkdir -p "$INDEX"
 run "$LOG" sh "$(dirname "$0")/lib_index.sh" "$ART/lib/perl5" "$INDEX/lib-index.c"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$INDEX/lib-index.c" -o "$INDEX/lib-index.o"
 
-# The relink: the perl rule alone, with the index first in its libs. One make, with no -j:
+# The relinks: the perl rule alone, with the index first in its libs. One make each, with no -j:
 # nothing but the link is out of date, so there is nothing to run beside it.
 libs=$(sed -n "s/^libs='\(.*\)'\$/\1/p" "$SRC/config.sh")
 [ -n "$libs" ] || fail "build/target/config.sh names no libs"
+cldflags=$(sed -n 's/^CLDFLAGS = //p' "$SRC/Makefile")
+[ -n "$cldflags" ] || fail "build/target/Makefile names no CLDFLAGS"
+WRAPS='-Wl,--wrap=Perl_newSVpvn_share,--wrap=Perl_boot_core_PerlIO,--wrap=Perl_boot_core_UNIVERSAL,--wrap=Perl_boot_core_builtin,--wrap=Perl_boot_core_mro,--wrap=Perl_newXS,--wrap=__wasi_clock_time_get'
+mkdir -p "$LINK"
 cd "$SRC"
+rm -f perl
+run "$LOG" make perl "perlmain_objs=$REACTOR_O" "libs=$INDEX/lib-index.o $libs" \
+    "CLDFLAGS=$cldflags -mexec-model=reactor $WRAPS"
+[ -f perl ] || fail "make did not link the reactor (see $LOG)"
+cp perl "$LINK/perl-reactor.wasm"
 rm -f perl
 run "$LOG" make perl "libs=$INDEX/lib-index.o $libs"
 [ -f perl ] || fail "make did not link perl (see $LOG)"
-mkdir -p "$LINK"
 cp perl "$LINK/perl.wasm"
 
 # Into the set, through the pass. BINARYEN_CORES caps its threads as WASI_PERL_JOBS caps make's;
 # the output is the same bytes for any number.
 [ -f "$WASM_OPT" ] || fail "$WASM_OPT is missing; run scripts/00_download.sh"
-same_features "$WASM_OPT" "$LINK/perl.wasm" $FEATURES
-run "$LOG" env BINARYEN_CORES="$JOBS" "$WASM_OPT" $PASS $FEATURES "$LINK/perl.wasm" -o "$ART/perl.wasm"
-[ -f "$ART/perl.wasm" ] || fail "wasm-opt wrote no $ART/perl.wasm (see $LOG)"
+for module in perl.wasm perl-reactor.wasm; do
+    same_features "$WASM_OPT" "$LINK/$module" $FEATURES
+    run "$LOG" env BINARYEN_CORES="$JOBS" "$WASM_OPT" $PASS $FEATURES "$LINK/$module" -o "$ART/$module"
+    [ -f "$ART/$module" ] || fail "wasm-opt wrote no $ART/$module (see $LOG)"
+done
 
 # SHA256SUMS, last.
 cd "$ART"

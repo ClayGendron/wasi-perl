@@ -32,7 +32,14 @@ _linking = threading.Lock()  # one linking at a time; linking is once per module
 _linkers: dict[Any, Any] = {}
 _mount_linkers: dict[Any, Any] = {}
 _trampolines: dict[Any, Any] = {}
-_counts = {"compiled": 0, "loaded": 0, "written": 0}
+_counts = {
+    "compiled": 0,
+    "loaded": 0,
+    "written": 0,
+    "snapshots_made": 0,
+    "snapshots_restored": 0,
+}
+IMAGE_KEY = b"wasi-perl image module 1\0"  # the image module's bytes, named by what makes them
 
 
 WASMTIME_FLOOR = 51  # the major version the runner is tested on, and the first without the
@@ -152,8 +159,15 @@ def _version_beside(site: Path | None) -> str | None:
 
 
 def counts() -> dict[str, int]:
+    """This process's counts: modules compiled, loaded from the disk cache and written to it,
+    preload images made, and calls started from one."""
     with _lock:
         return dict(_counts)
+
+
+def count(name: str) -> None:
+    with _lock:
+        _counts[name] += 1
 
 
 def forget() -> None:
@@ -288,6 +302,53 @@ def module(metered: bool, binary: Path, want: str | None, cache: Path | None) ->
         return mod
 
 
+def image_key(reactor_digest: str, image_sha256: str) -> str:
+    """The name of an image module: its bytes are a pure function of the reactor and the image."""
+    data = IMAGE_KEY + reactor_digest.encode() + b"\0" + image_sha256.encode()
+    return hashlib.sha256(data).hexdigest()
+
+
+def image_module(
+    metered: bool,
+    reactor: Path,
+    reactor_digest: str,
+    image: bytes,
+    image_sha256: str,
+    cache: Path | None,
+) -> Any:
+    """The compiled image module of `image` over `reactor`: from this process, else the disk
+    cache, else written from one read of the reactor held to `reactor_digest`, compiled and
+    cached. A process that finds the `.cwasm` never writes the module. One thread compiles;
+    others wait for it."""
+    wt = wasmtime()
+    eng = engine(metered)
+    key = (metered, "image:" + image_key(reactor_digest, image_sha256))
+    with _lock:
+        found = _modules.get(key)
+        guard = _compiling.setdefault(key, threading.Lock())
+    if found is not None:
+        return found
+
+    def written() -> bytes:
+        from wasi_perl import _image_module
+
+        data = reactor.read_bytes()
+        if hashlib.sha256(data).hexdigest() != reactor_digest:
+            raise ArtifactsMissing(f"{reactor} changed after it was hashed; it is not used")
+        module, _ = _image_module.write(data, image)
+        return module
+
+    with guard:
+        with _lock:
+            found = _modules.get(key)
+        if found is not None:
+            return found
+        mod = _miss(wt, eng, metered, reactor, key[1].removeprefix("image:"), cache, written)
+        with _lock:
+            _modules[key] = mod
+        return mod
+
+
 def _miss(
     wt: Any,
     eng: Any,
@@ -295,7 +356,10 @@ def _miss(
     binary: Path,
     digest: str,
     cache: Path | None,
+    source: Any = None,
 ) -> Any:
+    """`source`, when given, makes the module's bytes (an image module's, named by `digest`);
+    else they are `binary`'s, held to `digest`."""
     cwasm = None
     version = wasmtime_version()
     if cache is not None and version is not None:
@@ -317,12 +381,24 @@ def _miss(
             with _lock:
                 _counts["loaded"] += 1
             return mod
-    # Compiled from one read, held to the digest: a file changed between its hash and its
-    # compile is never compiled, so it is never cached under a digest it does not have.
-    data = binary.read_bytes()
-    if hashlib.sha256(data).hexdigest() != digest:
-        raise ArtifactsMissing(f"{binary} changed after it was hashed; it is not compiled")
-    mod = wt.Module(eng, data)
+    if source is not None:
+        data = source()
+        try:
+            mod = wt.Module(eng, data)
+        except wt.WasmtimeError as e:
+            # The writer copies the reactor's code unread: a code section that indexes a data
+            # segment the image module dropped does not validate, which is the build's fault.
+            raise ArtifactsMissing(
+                f"the image module written from {binary} does not compile, so the reactor is "
+                f"not of the form an image needs: {' '.join(str(e).split())[:400]}"
+            ) from None
+    else:
+        # Compiled from one read, held to the digest: a file changed between its hash and its
+        # compile is never compiled, so it is never cached under a digest it does not have.
+        data = binary.read_bytes()
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise ArtifactsMissing(f"{binary} changed after it was hashed; it is not compiled")
+        mod = wt.Module(eng, data)
     with _lock:
         _counts["compiled"] += 1
     if cwasm is not None and may_write and _cache.write(mod.serialize(), cwasm):

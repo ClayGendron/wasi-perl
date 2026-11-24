@@ -15,6 +15,7 @@ from typing import BinaryIO
 
 ARTIFACTS_ENV = "WASI_PERL_ARTIFACTS"
 SUMS = "SHA256SUMS"
+REACTOR = "perl-reactor.wasm"
 _WHEEL_DIR = Path(__file__).resolve().parent / "artifacts"
 
 
@@ -59,6 +60,9 @@ class Artifacts:
         dev: The folder holding one empty file, null, which every guest sees read-only at /dev.
         manifest: MANIFEST: every pinned source and recipe hash the build used.
         sums: SHA256SUMS: the SHA-256 of every other file of the set.
+        reactor: perl-reactor.wasm, the same Perl linked as a WASI reactor, which a preload
+            image starts from (`make_snapshot`); `None` for a set without one, which runs every
+            call but those from a `Snapshot`.
     """
 
     perl: Path
@@ -66,12 +70,22 @@ class Artifacts:
     dev: Path
     manifest: Path
     sums: Path
+    reactor: Path | None = None
 
     @classmethod
     def at(cls, folder: str | os.PathLike[str]) -> Artifacts:
-        """The set laid out in `folder` as the build writes it."""
+        """The set laid out in `folder` as the build writes it; `reactor` is `None` when the
+        folder holds no perl-reactor.wasm."""
         d = Path(folder)
-        return cls(d / "perl.wasm", d / "lib" / "perl5", d / "dev", d / "MANIFEST", d / SUMS)
+        reactor = d / REACTOR
+        return cls(
+            d / "perl.wasm",
+            d / "lib" / "perl5",
+            d / "dev",
+            d / "MANIFEST",
+            d / SUMS,
+            reactor if reactor.is_file() else None,
+        )
 
 
 def artifact_dir() -> Path:
@@ -269,3 +283,46 @@ def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
         raise ArtifactsMissing(f"{root / 'dev'} must hold exactly one empty file, null")
     if os.stat(root / "dev" / "null").st_size != 0:
         raise ArtifactsMissing(f"{root / 'dev' / 'null'} must be empty")
+
+
+def _no_reactor(found: Artifacts) -> ArtifactsMissing:
+    return ArtifactsMissing(
+        f"{found.perl.parent} has no {REACTOR}: a preload image starts from it, and this set "
+        "predates images or was given without one; use a set built with it"
+    )
+
+
+def library_digest(sums: dict[str, str]) -> str:
+    """The SHA-256 of the SHA256SUMS lines that name a file under lib/, in the list's order: the
+    library a preload image binds to, named by one digest."""
+    h = hashlib.sha256()
+    for name, want in sums.items():
+        if name.startswith("lib/"):
+            h.update(f"{want}  {name}\n".encode())
+    return h.hexdigest()
+
+
+def image_digests(found: Artifacts, checked_set: bool) -> tuple[str, str]:
+    """The reactor's digest and the library's, which a preload image binds to. For a set the
+    runner found and checked (`checked_set`), the reactor is checked against SHA256SUMS as
+    perl.wasm is; a set passed is used as given, its reactor hashed now and its library named
+    by its own SHA256SUMS.
+
+    Raises:
+        ArtifactsMissing: The set has no reactor, or its reactor or SHA256SUMS cannot be read,
+            or a found set's reactor does not match its SHA256SUMS.
+    """
+    if found.reactor is None:
+        raise _no_reactor(found)
+    sums, _ = _read_sums(found)
+    try:
+        got = digest(found.reactor)
+    except OSError as e:
+        raise ArtifactsMissing(f"{found.reactor} cannot be read ({e})") from None
+    if checked_set:
+        want = sums.get(found.reactor.name)
+        if want is None:
+            raise ArtifactsMissing(f"{found.reactor} is not listed in {found.sums}")
+        if got != want:
+            raise _refuse(found.reactor, found.sums, got, want)
+    return got, library_digest(sums)

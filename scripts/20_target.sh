@@ -114,5 +114,14 @@ run "$LOG" make -j"$JOBS" perl utils/Makefile
 run "$LOG" make -C utils PERL=../miniperl REALPERL=../miniperl
 run "$LOG" make -j"$JOBS"
 [ -f perl ] || fail "make did not produce perl (see $LOG)"
+# The reactor's entry, which 40_link.sh links into perl-reactor.wasm in place of perlmain.o. It
+# includes the perlmain.c that make has just written, so it is compiled only now, with the
+# command Perl gives perlmain.o. perlmain.c's xs_init names its own file (__FILE__) in every
+# newXS: make compiles it as "perlmain.c", but included from recipes/ it is found by its
+# absolute path, so the two prefix maps keep the build host's folders out of the module.
+# shellcheck disable=SC2046
+run "$LOG" $(sh cflags "optimize='-O2'" perlmain.o) -Werror -Wno-c++-keyword -I"$SRC" \
+    -fmacro-prefix-map="$SRC/=" -fmacro-prefix-map="$ROOT/recipes/=" \
+    "$ROOT/recipes/wasi-reactor.c" -o "$STUBS/wasi-reactor.o"
 echo "$stamp" >"$STAMP"
 echo "20_target: ok ($SRC/perl)"

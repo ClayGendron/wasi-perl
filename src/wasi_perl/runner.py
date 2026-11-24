@@ -25,14 +25,15 @@ import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import wasi_perl
-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop
+from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _snapshot, _stop
 from wasi_perl._artifacts import Artifacts
 from wasi_perl._fs_memory import EBADF, EIO, STAGING_CEILING
 from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
 from wasi_perl._limits import UNSET
+from wasi_perl._snapshot import Snapshot
 from wasi_perl.mounts import FileRecord, Mount
 
 if TYPE_CHECKING:
@@ -112,6 +113,9 @@ class Completed:
         truncated: The streams ("stdout", "stderr") whose output passed the limit.
         files: For a call with mounts, its provider calls, faults and refused writes; else
             `None`.
+        image_sha256: For a call that started from a `Snapshot`, its image's SHA-256; `None`
+            otherwise, and for a call given one that ran perl.wasm instead (its environment
+            named a variable the image cannot honour).
     """
 
     exit_code: int | None
@@ -121,6 +125,7 @@ class Completed:
     fuel_used: int | None
     truncated: tuple[str, ...] = ()
     files: FileRecord | None = None  # the mounts' record, for a call with mounts
+    image_sha256: str | None = None
 
 
 class _Stream:
@@ -244,6 +249,8 @@ def _runtime_files(found: Artifacts) -> _grants.RuntimeFiles:
 
     tops = (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent, found.lib)
     singles = (found.perl, found.manifest, found.sums, found.dev / "null")
+    if found.reactor is not None:
+        singles += (found.reactor,)
     return _grants.runtime_scan(tops, singles)
 
 
@@ -254,6 +261,7 @@ def run(
     mounts: Iterable[Mount] = (),
     env: Mapping[str, str] | None = None,
     stdin: bytes | bytearray | memoryview | None = None,
+    snapshot: bool | Snapshot = True,
     cwd: str | None = None,
     fuel: int | None = None,
     deadline_s: float | None = UNSET,
@@ -263,7 +271,8 @@ def run(
     artifacts: Artifacts | None = None,
     max_file_calls: int | None = UNSET,
 ) -> Completed:
-    """Run one Perl program in a fresh, sealed perl.wasm and return how it ended.
+    """Run one Perl program in a fresh, sealed perl.wasm, or from a preload image, and return
+    how it ended.
 
     The guest sees the library read-only at /usr/local/lib/perl5, an empty `null` read-only at
     /dev, the folders `grants` names and the providers' files `mounts` names, nothing else.
@@ -278,6 +287,11 @@ def run(
             served from your code, read-only unless it says `writable=True`.
         env: The guest's whole environment (plus `PWD` from `cwd`); nothing of the host's.
         stdin: The guest's standard input, whole; `None` is empty.
+        snapshot: `True` (the default) and `False` both run perl.wasm, the set's default start.
+            A `Snapshot` starts the call from that preload image, with the modules its code
+            loaded already compiled, unless `env` names `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`
+            or `PERL_JSON_PP_USE_B`, which an image cannot honour: that call runs perl.wasm.
+            Pass an image to calls that load modules, not to bare one-liners.
         cwd: The guest's working folder: a guest path inside a grant or a mount. `None` leaves
             it at /, which no grant serves, so relative paths fail unless a mount is at /. In a
             mount it is checked by its text; the guest's start-up asks the provider, and stays
@@ -297,7 +311,10 @@ def run(
     Raises:
         TypeError: An argument has the wrong type.
         ValueError: An argument is out of range, or a grant or a mount breaks a rule.
-        ArtifactsMissing: There is no usable artifact set.
+        ArtifactsMissing: There is no usable artifact set, or a call from a `Snapshot` has a
+            set with no perl-reactor.wasm.
+        SnapshotMismatch: The `Snapshot` was made with another set, or `memory_bytes` is below
+            its image.
         ImportError: wasmtime-py cannot load, or is older than 51.
         OSError: A host filesystem call failed while the call was prepared.
         TooManyCalls: This process's live calls already hold its budget of host descriptors.
@@ -305,6 +322,42 @@ def run(
         BaseException: A provider's own, that is not an Exception, raised once the guest is
             stopped; nothing is written back.
     """
+    return _run(
+        argv, grants, mounts, env, stdin, snapshot, cwd, fuel, deadline_s, memory_bytes,
+        output_bytes, cache_dir, artifacts, max_file_calls,
+    )  # fmt: skip
+
+
+class Made(NamedTuple):
+    """A making's end: its `Completed`, and when `prepare` returned 0, the image and how many
+    descriptors the code left open; and the reactor's and the library's digests."""
+
+    completed: Completed
+    captured: tuple[bytes, int] | None
+    digests: tuple[str, str]
+    guest_paths: tuple[str, ...]
+
+
+def _run(
+    argv: Any,
+    grants: Any,
+    mounts: Any,
+    env: Any,
+    stdin: Any,
+    snapshot: Any,
+    cwd: Any,
+    fuel: Any,
+    deadline_s: Any,
+    memory_bytes: Any,
+    output_bytes: Any,
+    cache_dir: Any,
+    artifacts: Any,
+    max_file_calls: Any,
+    *,
+    making: bool = False,
+) -> Any:
+    """`run`'s checks and its call; with `making`, `make_snapshot`'s: the reactor's `prepare`
+    instead of a program, and a `Made` instead of a `Completed`."""
     wt = _engines.wasmtime()
     d = DEFAULTS
     inputs = _limits.check_inputs(argv, env, stdin)
@@ -316,6 +369,7 @@ def run(
     )
     if artifacts is not None and not isinstance(artifacts, Artifacts):
         raise TypeError(f"artifacts must be an Artifacts, or None; got {type(artifacts).__name__}")
+    start = None if making else _snapshot.start(snapshot, limits.memory_bytes)
     asked = _grants.check(grants)
     mounted = _grants.check_mounts(mounts, asked)
     file_calls = _limits.integer_limit(
@@ -342,22 +396,101 @@ def run(
     guest_env = dict(inputs.env)
     if cwd_guest is not None:
         guest_env["PWD"] = cwd_guest
+    digests = None
+    if making or start is not None:
+        # The image's set is checked whatever the environment, so a wrong image fails the same
+        # way on every call.
+        digests = (
+            _artifacts.image_digests(found, artifacts is None)
+            if making
+            else _snapshot.same_set(start, found, artifacts is None)  # type: ignore[arg-type]
+        )
+        if start is not None and _snapshot.falls_back(inputs.env):
+            start = None
     slot = object()  # this call's reservation, released in the finally whatever interrupts
     try:
         _limits.reserve_descriptors(slot)  # TooManyCalls, before any work
         _grants.hold(placed, slot)  # until the store, which holds the grants open, is closed
         try:
             metered = limits.fuel is not None
-            module = _engines.module(metered, found.perl, want, cache.folder)
+            how = _How()
+            if making:
+                assert found.reactor is not None and digests is not None
+                module = _engines.module(metered, found.reactor, digests[0], cache.folder)
+                how = _How(enter=_prepare, after=_capture)
+            elif start is not None:
+                assert found.reactor is not None and digests is not None
+                module = _engines.image_module(
+                    metered, found.reactor, digests[0], start.image, start.sha256, cache.folder
+                )
+                how = _How(enter=_from_image, image_sha256=start.sha256)
+            else:
+                module = _engines.module(metered, found.perl, want, cache.folder)
             engine = _engines.engine(metered)
             pre = _engines.linked(metered, module, mounts=bool(mounted))
-            return _call(
-                wt, engine, pre, found, placed, inputs, guest_env, limits, mounted, file_calls
-            )
+            if start is not None:
+                _engines.count("snapshots_restored")
+            done = _call(
+                wt, engine, pre, found, placed, inputs, guest_env, limits, mounted, file_calls,
+                how,
+            )  # fmt: skip
         finally:
             _grants.let_go(slot)
     finally:
         _limits.release_descriptors(slot)
+    if not making:
+        return done
+    assert digests is not None
+    paths = tuple(p.guest for p in placed) + tuple(m.guest for m in mounted)
+    return Made(done, how.captured, digests, paths)
+
+
+def _start(store: Any, instance: Any) -> int | None:
+    """perl.wasm's entry: the command's `_start`, which ends by exit or returns."""
+    instance.exports(store)["_start"](store)
+    return None
+
+
+def _from_image(store: Any, instance: Any) -> int | None:
+    """The image module's entry, `run`, which ends by exit as `_start` does."""
+    instance.exports(store)["run"](store)
+    return None
+
+
+def _prepare(store: Any, instance: Any) -> int | None:
+    """The making: the reactor's constructors, then `prepare`, whose answer is Perl's status."""
+    exports = instance.exports(store)
+    exports["_initialize"](store)
+    status = exports["prepare"](store)
+    return status if isinstance(status, int) else None
+
+
+def _capture(store: Any, instance: Any) -> tuple[bytes, int]:
+    """After a `prepare` that returned 0: the descriptors the code left open, and the whole
+    linear memory, in one copy into `bytes` through wasmtime-py's public pointer."""
+    import ctypes
+
+    exports = instance.exports(store)
+    left = exports["wasi_perl_open_files"](store)
+    memory = exports["memory"]
+    return ctypes.string_at(memory.data_ptr(store), memory.data_len(store)), int(left)
+
+
+class _How:
+    """How a call enters its instance: `enter` runs the guest and returns its status, or `None`
+    for an end without one; `after`, given, runs after a status of 0 and its answer is kept in
+    `captured`; `image_sha256` is the call's `Completed.image_sha256`."""
+
+    def __init__(
+        self,
+        enter: Callable[[Any, Any], int | None] = _start,
+        after: Callable[[Any, Any], Any] | None = None,
+        image_sha256: str | None = None,
+    ) -> None:
+        self.enter = enter
+        self.after = after
+        self.image_sha256 = image_sha256
+        self.captured: Any = None
 
 
 def _set_up(
@@ -485,7 +618,9 @@ def _call(
     limits: _limits.Limits,
     mounts: tuple[Mount, ...] = (),
     file_calls: int | None = None,
+    how: _How | None = None,
 ) -> Completed:
+    how = how or _How()
     metered = limits.fuel is not None
     out = _Stream("stdout", limits.output_bytes)
     err = _Stream("stderr", limits.output_bytes)
@@ -518,13 +653,15 @@ def _call(
             _set_up(wt, store, found, placed, inputs, guest_env, out, err, mounts, where)
         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
             files = None if table is None else table.record()
-            return Completed(None, b"", b"", _error_words(str(e)), None, (), files)
+            return Completed(
+                None, b"", b"", _error_words(str(e)), None, (), files, how.image_sha256
+            )
         _stop.arm(store, stop)
         store.set_epoch_deadline(stop.first())
         _engines.TICKER.enter()
         try:
             with _stop.watching_ctrl_c(stop):
-                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits, call)
+                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits, call, how)
         finally:
             _engines.TICKER.leave()
         if table is not None:
@@ -542,22 +679,32 @@ def _call(
     if stop.interrupted:
         raise KeyboardInterrupt  # Ctrl-C ended the guest; the store is closed
     truncated = tuple(s.name for s in (out, err) if s.dropped)
-    return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated, files)
+    return Completed(
+        exit_code, out.value(), err.value(), trapped, fuel_used, truncated, files,
+        how.image_sha256,
+    )  # fmt: skip
 
 
 def _drive(
-    wt: Any, store: Any, pre: Any, limits: _limits.Limits, call: _Call | None = None
+    wt: Any,
+    store: Any,
+    pre: Any,
+    limits: _limits.Limits,
+    call: _Call | None = None,
+    how: _How | None = None,
 ) -> tuple[int | None, str | None, int | None]:
     """Instantiate and run the guest; how it ended: (exit code, trap, fuel used). A call with
     mounts is on this thread's stack while its guest runs, its trampoline bound after the
     instance and before the fuel cap. What a host function caught and recorded comes first: a
     trap or an error is the call's result, and any other exception (a provider's own
     BaseException) is raised here."""
+    how = how or _How()
     metered = limits.fuel is not None
     exit_code: int | None = None
     trapped: str | None = None
     fuel_used: int | None = None
     is_metered = False
+    returned = False  # the entry returned, rather than exiting or trapping
     instance = None
     read_status = False  # whether the guest's own record of its exit status is asked for
     stack = _stack()
@@ -570,8 +717,8 @@ def _drive(
         if metered:
             store.set_fuel(limits.fuel)
             is_metered = True
-        instance.exports(store)["_start"](store)
-        exit_code = 0
+        status = how.enter(store, instance)
+        exit_code, returned = (0 if status is None else status), True
     except wt.ExitTrap as e:
         exit_code, read_status = e.code, True
     except wt.Trap as e:  # fuel, the deadline, or the guest's own fault: never an exit
@@ -619,6 +766,12 @@ def _drive(
         status = _exit_status(wt, store, instance)
         if status is not None:
             exit_code, trapped = status, None
+    elif how.after is not None and returned and exit_code == 0 and trapped is None:
+        # The making's capture, once the fuel is read, on a budget of its own.
+        if is_metered:
+            store.set_fuel(UNMETERED)
+        store.set_epoch_deadline(_limits.NO_DEADLINE)
+        how.captured = how.after(store, instance)
     return exit_code, trapped, fuel_used
 
 

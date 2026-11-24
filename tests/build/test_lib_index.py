@@ -338,13 +338,18 @@ def test_the_relink_runs_only_the_link(perl_wasm):
     log = BUILD / "logs" / "40_link.log"
     if not log.exists():
         pytest.skip("build/logs/40_link.log is missing; run scripts/build.sh")
-    # Every command make runs with the target's compiler names recipes/wasi-cc.
+    # Every command make runs with the target's compiler names recipes/wasi-cc: one link of the
+    # reactor, then one of the command, and no compile.
     commands = [ln for ln in log.read_text().splitlines() if "recipes/wasi-cc" in ln]
-    assert len(commands) == 1, commands
-    words = commands[0].split()
-    assert "-o" in words and words[words.index("-o") + 1] == "perl", commands[0]
-    assert "-c" not in words, commands[0]
-    assert str(BUILD / "index" / "lib-index.o") in words, commands[0]
+    assert len(commands) == 2, commands
+    for command in commands:
+        words = command.split()
+        assert "-o" in words and words[words.index("-o") + 1] == "perl", command
+        assert "-c" not in words, command
+        assert str(BUILD / "index" / "lib-index.o") in words, command
+    reactor, command = (c.split() for c in commands)
+    assert "-mexec-model=reactor" in reactor and str(BUILD / "stubs" / "wasi-reactor.o") in reactor
+    assert "-mexec-model=reactor" not in command and "perlmain.o" in command
 
 
 def _link_stamp_of(root: Path) -> str:
@@ -384,10 +389,11 @@ def test_the_link_step_is_stamped_by_its_own_inputs_the_library_and_the_pass(per
     assert '"$BUILD/.target.stamp"' in (scripts / "30_library.sh").read_text()
 
 
-def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
+@pytest.mark.parametrize("module", ["perl.wasm", "perl-reactor.wasm"])
+def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path, module):
     """40_link.sh in a scratch checkout whose stamp matches: up to date only while the set holds
-    perl.wasm. Without it the step runs again, and here stops at the compiler, which the scratch
-    checkout lacks."""
+    perl.wasm and perl-reactor.wasm. Without either the step runs again, and here stops at the
+    reactor's object or the compiler, which the scratch checkout lacks."""
     root = tmp_path / "checkout"
     shutil.copytree(ROOT / "scripts", root / "scripts")
     shutil.copytree(ROOT / "recipes", root / "recipes")
@@ -397,7 +403,7 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
     art = build / "artifacts"
     (art / "lib" / "perl5" / "5.42").mkdir(parents=True)
     (art / "lib" / "perl5" / "5.42" / "A.pm").write_text("1;\n")
-    for f in ("MANIFEST", "SHA256SUMS", "perl.wasm"):
+    for f in ("MANIFEST", "SHA256SUMS", "perl.wasm", "perl-reactor.wasm"):
         (art / f).write_text("")
     (build / "target").mkdir()
     (build / "target" / "perl").write_text("")
@@ -413,7 +419,7 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
 
     p = step()
     assert (p.returncode, p.stdout) == (0, "40_link: up to date\n"), p
-    (art / "perl.wasm").unlink()
+    (art / module).unlink()
     p = step()
     assert p.returncode == 1 and "up to date" not in p.stdout, p
     assert p.stderr.startswith("FAILED: "), p
