@@ -16,6 +16,7 @@ change in any release. Importing this module never loads wasmtime-py; `run` does
 from __future__ import annotations
 
 from wasi_perl._artifacts import Artifacts, ArtifactsMissing, artifacts
+from wasi_perl._limits import TooManyCalls
 from wasi_perl.runner import Completed, Defaults, Grant, defaults, run, set_defaults
 
 __version__ = "0.1.0"
@@ -26,6 +27,7 @@ __all__ = [
     "Completed",
     "Defaults",
     "Grant",
+    "TooManyCalls",
     "__version__",
     "artifacts",
     "defaults",

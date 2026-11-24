@@ -20,7 +20,9 @@ $ wasi-perl run -- -e 'print "hello, WebAssembly\n"'
 {"exit_code": 0, "fuel_used": null, "stderr": "", "stdout": "hello, WebAssembly\n", "trapped": null, "truncated": []}
 ```
 
-Requires Python 3.11 or later and installs `wasmtime` (`>=51,<52`). The first call compiles `perl.wasm` and keeps the compiled module in a cache folder of your own (`~/.cache/wasi_perl` on Linux, `~/Library/Caches/wasi_perl` on macOS, `%LOCALAPPDATA%\wasi_perl\cache` on Windows, or `$WASI_PERL_CACHE`).
+Requires Python 3.11 or later and installs `wasmtime` (`>=51,<52`). The first call compiles `perl.wasm` and keeps the compiled module in a cache folder of your own (`~/.cache/wasi_perl` on Linux, `~/Library/Caches/wasi_perl` on macOS, `%LOCALAPPDATA%\wasi_perl\cache` on Windows, or `$WASI_PERL_CACHE`). Never point `cache_dir` or `$WASI_PERL_CACHE` at a folder you grant to a guest, in any process: a compiled module is native code. Within one process the runner refuses to use a cache at, inside or above any folder it has granted writable.
+
+Installed by uv, whose default on Linux and Windows links each file from its cache by hard link, wasmtime's native library has a second name in uv's cache. A writable grant that holds such a second name is refused, and a writable grant too large to search (100,000 entries) is refused while one exists. Install with `UV_LINK_MODE=copy` to have no second names.
 
 # From Python
 
@@ -114,13 +116,16 @@ out of fuel
 $ wasi-perl run --grant /logs=./logs -- -ne 'print if /ERROR/' /logs/app.log
 ```
 
-The command exits 0 when the call returned (the JSON says how the program ended), 1 when `run` refused it (one JSON line with `error` and `kind`), 2 for a usage error and 130 for Ctrl-C.
+The command exits 0 when the call returned (the JSON says how the program ended), 1 when `run` refused it (one JSON line with `error` and `kind`), 2 for a usage error and 130 for Ctrl-C, which stops a computing guest at once. From Python, Ctrl-C during `run` on the main thread stops the guest and raises `KeyboardInterrupt`.
 
 # Not protected
 
 - A FIFO (named pipe) inside a grant: a guest that opens one waits inside the host's own `open`, beyond the deadline's reach, until something writes to it. Grant folders that hold no FIFO.
 - Symbolic links a guest leaves in a writable grant. The guest cannot follow one out of the grant, but your own program, reading the folder afterwards, can.
 - A host folder swapped by another writer between the runner's check and wasmtime's own open of it. Within one process the runner keeps a registry of the grants of the calls running now, and refuses a grant at, inside or above another live call's writable grant (and a writable grant over another live call's grant), so no guest of this process can do it; another process, or another guest of another process, with write access to a folder on the way still could.
+- Host descriptors. Each running call is counted as 256 of the process's descriptors, and a call past half the soft open-file limit (4,096 on Windows) raises `TooManyCalls` before it starts. The count is the runner's; a `perl.wasm` without the descriptor table's own cap can still hold more, and then another call's start fails as its trap.
+- On Windows, the module cache is trusted by its kind (a folder, a file with one name, no link) and the folder's access list, not by its owner: keep `cache_dir` in a folder only you can write, as `%LOCALAPPDATA%` is.
+- `SHA256SUMS` proves the set is whole, not who made it, and the library is hashed once per process: a library file changed while a process runs is seen by the next process.
 - Disk use inside a writable grant, and anything a writable grant holds that a later call reads.
 - Timing, the real clock and entropy.
 

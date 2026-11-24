@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import wasi_perl
-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits
+from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop
 from wasi_perl._artifacts import Artifacts
 from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
 from wasi_perl._limits import UNSET
@@ -210,8 +211,25 @@ def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
     own = [Path(paths[k]) for k in keys if k in paths]
     if site.ENABLE_USER_SITE:
         own.append(Path(site.getusersitepackages()))
+    # The base interpreter: the folder of the real executable (a venv's python is a link to it)
+    # and the base prefix's scripts, which a venv's own paths above do not name.
+    own.append(Path(os.path.realpath(sys.executable)).parent)
+    own.append(Path(sys.base_prefix) / ("Scripts" if os.name == "nt" else "bin"))
     folders += [d for d in own if d.is_dir()]  # one not there holds no code to rewrite
     return tuple(dict.fromkeys(Path(os.path.abspath(f)) for f in folders))
+
+
+def _runtime_files(found: Artifacts) -> list[Path]:
+    """The files a writable grant may not hold a second name of: wasmtime-py's (its native
+    library above all), this package's, and the artifact set's, the library tree included."""
+    import wasmtime
+
+    files: list[Path] = []
+    for top in (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent):
+        files += [p for p in top.rglob("*") if p.is_file()]
+    files += [found.perl, found.manifest, found.sums, found.dev / "null"]
+    files += [p for p in found.lib.rglob("*") if p.is_file()]
+    return files
 
 
 def run(
@@ -256,8 +274,10 @@ def run(
         TypeError: An argument has the wrong type.
         ValueError: An argument is out of range, or a grant breaks a rule.
         ArtifactsMissing: There is no usable artifact set.
-        ImportError: wasmtime-py cannot load.
+        ImportError: wasmtime-py cannot load, or is older than 51.
         OSError: A host filesystem call failed while the call was prepared.
+        TooManyCalls: This process's live calls already hold its budget of host descriptors.
+        KeyboardInterrupt: Ctrl-C, on the main thread: the guest is stopped first.
     """
     wt = _engines.wasmtime()
     d = DEFAULTS
@@ -277,21 +297,58 @@ def run(
         found, want = _artifacts.checked()
     else:
         found, want = artifacts, None
+    writing = any(g.writable for g in asked)
     placed, cwd_guest = _grants.judge(
-        asked, cwd_guest, caches=_cache.every(cache), runtime=_runtime_folders(found)
+        asked,
+        cwd_guest,
+        caches=_cache.every(cache),
+        runtime=_runtime_folders(found),
+        runtime_files=_runtime_files(found) if writing else (),
     )
     guest_env = dict(inputs.env)
     if cwd_guest is not None:
         guest_env["PWD"] = cwd_guest
-    metered = limits.fuel is not None
-    module = _engines.module(metered, found.perl, want, cache.folder)
-    engine = _engines.engine(metered)
-
-    token = _grants.hold(placed)  # until the store, which holds the grants open, is closed
+    _limits.reserve_descriptors()  # TooManyCalls, before any work
     try:
-        return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
+        token = _grants.hold(placed)  # until the store, which holds the grants open, is closed
+        try:
+            metered = limits.fuel is not None
+            module = _engines.module(metered, found.perl, want, cache.folder)
+            engine = _engines.engine(metered)
+            return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
+        finally:
+            _grants.let_go(token)
     finally:
-        _grants.let_go(token)
+        _limits.release_descriptors()
+
+
+def _set_up(
+    wt: Any,
+    store: Any,
+    engine: Any,
+    found: Artifacts,
+    placed: tuple[_grants.Placed, ...],
+    inputs: _limits.Inputs,
+    guest_env: dict[str, str],
+    out: _Stream,
+    err: _Stream,
+) -> Any:
+    """The store's WASI context and the linker. wasmtime opens each grant here, and raises
+    WasmtimeError for a folder it cannot open; the caller reports that as the call's trap."""
+    wasi = wt.WasiConfig()
+    wasi.argv = [ARGV0, *inputs.argv]
+    wasi.env = sorted(guest_env.items())
+    wasi.stdout_custom = _writer(out)
+    wasi.stderr_custom = _writer(err)
+    _set_stdin(wt, wasi, inputs.stdin)
+    wasi.preopen_dir(str(found.lib), LIBRARY_GUEST, False)
+    wasi.preopen_dir(str(found.dev), DEV_GUEST, False)
+    for p in placed:
+        wasi.preopen_dir(str(p.host), p.guest, p.writable)
+    store.set_wasi(wasi)
+    linker = wt.Linker(engine)
+    linker.define_wasi()
+    return linker
 
 
 def _call(
@@ -307,67 +364,71 @@ def _call(
     metered = limits.fuel is not None
     out = _Stream("stdout", limits.output_bytes)
     err = _Stream("stderr", limits.output_bytes)
+    stop = _stop.Stop(None if limits.deadline_s is None else _limits.ticks(limits.deadline_s))
     store = wt.Store(engine)
-    exit_code: int | None = None
-    trapped: str | None = None
-    fuel_used: int | None = None
     try:
         if metered:
             store.set_fuel(UNMETERED)
         if limits.memory_bytes is not None:
             store.set_limits(memory_size=limits.memory_bytes)
-        store.set_epoch_deadline(_limits.ticks(limits.deadline_s))
-        wasi = wt.WasiConfig()
-        wasi.argv = [ARGV0, *inputs.argv]
-        wasi.env = sorted(guest_env.items())
-        wasi.stdout_custom = _writer(out)
-        wasi.stderr_custom = _writer(err)
-        _set_stdin(wt, wasi, inputs.stdin)
-        wasi.preopen_dir(str(found.lib), LIBRARY_GUEST, False)
-        wasi.preopen_dir(str(found.dev), DEV_GUEST, False)
-        for p in placed:
-            wasi.preopen_dir(str(p.host), p.guest, p.writable)
-        store.set_wasi(wasi)
-        linker = wt.Linker(engine)
-        linker.define_wasi()
-        ticking = limits.deadline_s is not None
-        if ticking:
-            _engines.TICKER.enter()
-        is_metered = False
-        instance = None
-        read_status = False  # whether the guest's own record of its exit status is asked for
         try:
-            instance = linker.instantiate(store, module)
-            if metered:
-                store.set_fuel(limits.fuel)
-                is_metered = True
-            instance.exports(store)["_start"](store)
-            exit_code = 0
-        except wt.ExitTrap as e:
-            exit_code, read_status = e.code, True
-        except wt.Trap as e:  # fuel, the deadline, or the guest's own fault: never an exit
-            trapped = _trap_name(wt, e)
-            e.__traceback__ = None
-        except wt.WasmtimeError as e:
-            trapped = _error_words(str(e))
-            read_status = INVALID_EXIT in str(e)
-            e.__traceback__ = None
+            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
+        except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
+            return Completed(None, b"", b"", _error_words(str(e)), None, ())
+        _stop.arm(store, stop)
+        store.set_epoch_deadline(stop.first())
+        _engines.TICKER.enter()
+        try:
+            with _stop.watching_ctrl_c(stop):
+                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits)
         finally:
-            if ticking:
-                _engines.TICKER.leave()
-        if metered and trapped != "deadline":
-            # Read before the status export runs, which spends a little fuel of its own.
-            fuel_used = limits.fuel - store.get_fuel() if is_metered else 0  # type: ignore[operator]
-        if read_status and instance is not None:
-            # The guest may have reached its exit with no fuel or time left; the export gets a
-            # budget of its own, so it answers rather than trapping. A trap never reaches here.
-            if is_metered:
-                store.set_fuel(UNMETERED)
-            store.set_epoch_deadline(_limits.NO_DEADLINE)
-            status = _exit_status(wt, store, instance)
-            if status is not None:
-                exit_code, trapped = status, None
+            _engines.TICKER.leave()
     finally:
         store.close()
+    if stop.interrupted:
+        raise KeyboardInterrupt  # Ctrl-C ended the guest; the store is closed
     truncated = tuple(s.name for s in (out, err) if s.dropped)
     return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated)
+
+
+def _drive(
+    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits
+) -> tuple[int | None, str | None, int | None]:
+    """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
+    metered = limits.fuel is not None
+    exit_code: int | None = None
+    trapped: str | None = None
+    fuel_used: int | None = None
+    is_metered = False
+    instance = None
+    read_status = False  # whether the guest's own record of its exit status is asked for
+    try:
+        instance = linker.instantiate(store, module)
+        if metered:
+            store.set_fuel(limits.fuel)
+            is_metered = True
+        instance.exports(store)["_start"](store)
+        exit_code = 0
+    except wt.ExitTrap as e:
+        exit_code, read_status = e.code, True
+    except wt.Trap as e:  # fuel, the deadline, or the guest's own fault: never an exit
+        trapped = _stop.word(e.message) or _trap_name(wt, e)
+        e.__traceback__ = None
+    except wt.WasmtimeError as e:
+        text = str(e)
+        trapped = _stop.word(text) or _error_words(text)
+        read_status = trapped not in (_stop.DEADLINE, _stop.INTERRUPTED) and INVALID_EXIT in text
+        e.__traceback__ = None
+    if metered and trapped not in (_stop.DEADLINE, _stop.INTERRUPTED):
+        # Read before the status export runs, which spends a little fuel of its own.
+        fuel_used = limits.fuel - store.get_fuel() if is_metered else 0  # type: ignore[operator]
+    if read_status and instance is not None:
+        # The guest may have reached its exit with no fuel or time left; the export gets a
+        # budget of its own, so it answers rather than trapping. A trap never reaches here.
+        if is_metered:
+            store.set_fuel(UNMETERED)
+        store.set_epoch_deadline(_limits.NO_DEADLINE)
+        status = _exit_status(wt, store, instance)
+        if status is not None:
+            exit_code, trapped = status, None
+    return exit_code, trapped, fuel_used

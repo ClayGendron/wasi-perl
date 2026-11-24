@@ -30,6 +30,7 @@ def test_the_public_api():
             "Completed",
             "Defaults",
             "Grant",
+            "TooManyCalls",
             "__version__",
             "artifacts",
             "defaults",

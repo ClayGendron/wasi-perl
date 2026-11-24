@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 import numbers
 import operator
+import threading
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
 
@@ -125,6 +126,59 @@ def check_inputs(argv: Any, env: Any, stdin: Any) -> Inputs:
                     f"stdin must be bytes-like, or None; got {type(stdin).__name__}"
                 ) from None
     return Inputs(args, plain_env, data)
+
+
+GUEST_DESCRIPTORS = 256  # the host descriptors each live call reserves: the guest table's cap
+WINDOWS_DESCRIPTORS = 4096  # Windows' budget, which has no soft limit to halve
+
+
+class TooManyCalls(RuntimeError):
+    """Raised by `run` before any work when this process's live calls already hold as many host
+    descriptors as its budget allows: half its soft RLIMIT_NOFILE on POSIX (4,096 on Windows),
+    each call counted at 256. The rest are the embedder's own. Retry once a call has ended."""
+
+
+_descriptor_lock = threading.Lock()
+_descriptors = 0
+
+
+def descriptor_budget() -> int:
+    """The host descriptors this process's live calls may hold in all: half the soft
+    RLIMIT_NOFILE, read at each call, so an embedder that raises it is seen."""
+    try:
+        import resource
+    except ImportError:
+        return WINDOWS_DESCRIPTORS
+    soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    if soft == resource.RLIM_INFINITY or soft < 0:
+        return 1 << 20
+    return soft // 2
+
+
+def descriptors_reserved() -> int:
+    with _descriptor_lock:
+        return _descriptors
+
+
+def reserve_descriptors() -> None:
+    """Count one more live call's descriptors, or TooManyCalls when the budget is spent."""
+    global _descriptors
+    budget = descriptor_budget()
+    with _descriptor_lock:
+        if _descriptors + GUEST_DESCRIPTORS > budget:
+            raise TooManyCalls(
+                f"wasi_perl: {_descriptors // GUEST_DESCRIPTORS} calls are running, each holding "
+                f"up to {GUEST_DESCRIPTORS} host descriptors, and one more would pass this "
+                f"process's budget of {budget} (half its soft open-file limit); retry once a "
+                "call has ended, or raise the limit"
+            )
+        _descriptors += GUEST_DESCRIPTORS
+
+
+def release_descriptors() -> None:
+    global _descriptors
+    with _descriptor_lock:
+        _descriptors -= GUEST_DESCRIPTORS
 
 
 class _Unset:

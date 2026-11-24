@@ -60,7 +60,7 @@ def test_dev_null_must_be_empty(found):
     import subprocess
     import sys
 
-    from conftest import REPO
+    from standin_sets import REPO
 
     subprocess.run(
         [sys.executable, str(REPO / "scripts" / "write_sums.py"), str(found)], check=True
