@@ -84,6 +84,16 @@ jobs:
           key: downloads-${{ hashFiles('downloads/SHA256SUMS') }}
       - name: Build from the pins
         run: scripts/build.sh
+      # A step's failure is one line naming its log, and the logs are an artifact; the end of the
+      # newest log is printed here too, so the cause shows in the job's own output.
+      - name: The end of the failing step's log
+        if: failure()
+        run: |
+          log=$(ls -t build/logs/*.log 2>/dev/null | head -n 1)
+          if [ -n "$log" ]; then
+            echo "the last 60 lines of $log:"
+            tail -n 60 "$log"
+          fi
       - name: The checks on the built perl.wasm
         run: uv run pytest tests/build -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/build-junit.xml"
       # The checks of the CPAN modules need the build tree, the native install in build/native-cpan
