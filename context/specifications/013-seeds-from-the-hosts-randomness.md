@@ -100,29 +100,62 @@ Evidence:
 
 ## Landing notes
 
-Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/013-seeds-from-the-hosts-randomness`, from the amended specification (`dea44fa`, merged), Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root. **Blocked: decision 1 cannot be built as written.** Not reviewed.
-
-### The blocker
-
-Decision 1 says every caller of `Perl_seed` already tries `/dev/urandom` first, so all three get real randomness with no patch to Perl. In this guest they do not reach the device:
-
-- `Perl_seed` opens the device with flags `0`: `fd = PerlLIO_open_cloexec(PERL_RANDOM_DEVICE, 0);` (READ: `build/target/util.c` 4730; `Perl_PerlLIO_open_cloexec` passes `flag | O_CLOEXEC` to `open`, `doio.c` 277–288).
-- On Linux `0` is `O_RDONLY`. In wasi-libc it is no access mode: `O_RDONLY` is `0x04000000` (READ: the sysroot's `include/wasm32-wasip1/__header_fcntl.h` line 19), and `open` with no access mode fails with EINVAL before any WASI call.
-- EXECUTED, on the built guest: `sysopen(my $f, "/dev/urandom", 0)` and `sysopen(my $g, "/dev/null", 0)` both print "Invalid argument"; `printf "%x", O_RDONLY` prints `4000000`.
-- EXECUTED: under the probe linker of `tests/build/test_randomness.py`, a run of the seed line calls `random_get` 0 times and two runs with the same pattern print different seeds; a program that opens `/dev/urandom` with `open` and reads 8 bytes calls it once and prints `0102030405060708`.
-
-So the device works, and Perl's seeds still come from the clock. Two hypotheses were tested on the device side (an open with no rights read as a read, and the shadowed `random_get` itself); neither is the cause, since the open never reaches the table. The choice of fix is the owner's:
-
-1. **Wrap `open` (and `openat`) in the descriptor table, mapping an open with no access mode to `O_RDONLY`.** Recommended. A recipe, no patch to Perl. It also makes a Perl program's `sysopen(F, $path, 0)` open for reading as natively, where today it fails with EINVAL: a second visible change, toward native.
-2. **A patch to `util.c`** passing `O_RDONLY` in `Perl_seed`. One line, but a patch under `recipes/patches/`, which decision 1 meant to avoid.
-3. **Accept the clock seed** and keep only the device. Leaves the finding of `../research/2026-11-24-perf-startup.md` §6 open.
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/013-seeds-from-the-hosts-randomness`, from the amended specification (`dea44fa`, merged) and decision 7, Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise.
 
 ### What was built
 
-`recipes/wasi-fd-table.c`, as decision 2 says (commit `54716b3`): the `VIRTUAL_RANDOM` sentinel, the exact virtual paths, the open's answers, reads from `random_get`, writes counted and dropped, seek and tell 0, the stat with `/dev`'s dev and times, waits answered in the guest, EINVAL for the listed calls, ENOTDIR for a path call through it, and the header comment corrected for the new `random_get` import. Two choices the specification left open, each Linux's answer: the socket calls on it answer ENOTSOCK, and the preopen calls EBADF (not a preopen). `fd_fdstat_get` reports `FD_READ` and `FD_WRITE` as the open asked, not both always, so `fcntl(F_GETFL)` reads back the open's mode; `FD_SEEK` and `FD_TELL` are always there, so `-t` is false. The two devices have different fixed inode numbers, far above a host's.
+- **The device** (`recipes/wasi-fd-table.c`), as decision 2 says. A `path_open` whose folder is the `/dev` grant (found at start by its prestat name, trailing slashes dropped) and whose path, with `.` and empty components dropped, is exactly `urandom` or `random` binds a table entry whose host descriptor is `VIRTUAL_RANDOM`. `release()` skips the host for it. `TO_REAL_OR` returns a per-call answer for it, so no wrapper hands it to the host: EINVAL for the calls decision 2 lists, ENOTDIR for `fd_readdir` and for every `path_*` call that uses it as its folder.
+- **Reads, writes, seeks and stat.** Reads fill every buffer from `__wasi_random_get`. Writes are counted and dropped. `fd_seek` and `fd_tell` answer 0. `fd_fdstat_get` answers a character device, and the stat uses `/dev`'s dev and times, read from the host at the stat. `poll_oneoff` answers it ready at once, and the other subscriptions go to the host with a zero timeout. The `random_get` import is in the header comment.
+- **Decision 7.** `open` and `openat` are wrapped (`recipes/wasi-cc`). When `flags & O_ACCMODE` is 0, `O_RDONLY` is added. The mode argument is read only with `O_CREAT`.
+- **Choices the specification left open,** each Linux's answer:
+  - The socket calls on the device answer ENOTSOCK, and the preopen calls EBADF (not a preopen).
+  - `fd_fdstat_get` reports `FD_READ` and `FD_WRITE` as the open asked, not both always, so `fcntl(F_GETFL)` reads back the open's mode. A read on a write-only open, or the reverse, is EBADF. `FD_SEEK` and `FD_TELL` are always present, so `-t` is false.
+  - `fd_renumber` of the device onto a host descriptor answers EINVAL, as decision 2 lists.
+  - The two devices have different fixed inode numbers, `UINT64_MAX - 9` and `- 8`, far above any inode a host gives.
+- **A finding the specification did not have:** `Perl_seed` opens the device with flags `0` (READ: `build/target/util.c` 4730). wasi-libc refuses that with EINVAL, because its `O_RDONLY` is `0x04000000` (READ: the sysroot's `__header_fcntl.h` line 19). So the device alone did not seed Perl: under the probe, `random_get` was called 0 times. Decision 7 was added for this.
 
 ### The checks
 
-`tests/build/test_randomness.py` and two checks in `tests/escapes/test_escapes.py`, seen failing on the earlier build (EXECUTED: `WASI_PERL_ARTIFACTS=../perf-base/build/artifacts uv run pytest tests/build/test_randomness.py tests/escapes/test_escapes.py -k "randomness or seeds or random_device"`: 6 failed, 6 passed). On this build (EXECUTED: `uv run pytest tests/build tests/escapes`): 439 passed, 1 failed, the failure being `test_the_seeds_come_from_random_get`, for the reason above. `uv run pytest -m "not slow"`: 444 passed, 2 skipped. The device's every line but its times and `/dev/random`'s readiness to write equals native perl's on Linux (EXECUTED: the `DEVICE` program under `build/native-install/bin/perl`). Check 2 (20 calls, 20 seeds) passed before the change too, since a clock seed moves every microsecond; it guards against a fixed seed.
+`tests/build/test_randomness.py` (14 checks) and two in `tests/escapes/test_escapes.py`:
+- `test_every_call_has_its_own_seeds` (20 calls, 20 seeds and 20 `rand` values);
+- `test_a_write_to_the_random_device_reaches_no_host_file`.
 
-Not run yet: the one-liner oracle against the assembled wheel and Perl's whole `t/` suite. They wait for the fix above.
+Each was seen failing on the earlier build, except the controls noted below:
+- The device checks: `WASI_PERL_ARTIFACTS=../perf-base/build/artifacts uv run pytest tests/build/test_randomness.py tests/escapes/test_escapes.py -k "randomness or seeds or random_device"` gave 6 failed and 6 passed.
+- The decision 7 checks: on the device-only build, `test_an_open_with_no_access_mode_reads`, `test_perls_seed_reaches_the_device` and `test_the_seeds_come_from_random_get` failed.
+
+These were controls, passing before and after:
+- the 20-seed check, since a clock seed moves every microsecond;
+- `PERL_HASH_SEED=0` and the `srand`/`PERL_HASH_SEED` checks;
+- the checks that nothing else became openable;
+- the FIFO named `urandom`.
+
+The device program's output equals native perl's on Linux, line for line, except two lines. The stat's times are `/dev`'s, and `/dev/random` is ready to write (`build/native-install/bin/perl -e "$DEVICE" /dev/urandom …`). The `sysopen(…, 0)` program equals native's, with the same files written.
+
+Two checks were corrected before the code passed, each to native's answer:
+- `tell` after 64 buffered bytes is 64, not 0;
+- `F_GETFL`'s mode is compared with `O_RDONLY` by name, since wasi-libc's `O_RDONLY` is not 0.
+
+### Results
+
+```
+$ uv run pytest tests/build tests/escapes                        # build/artifacts
+442 passed in 48.66s
+$ uv run python tests/perl_t/run_suite.py --quiet --list-failures --jobs 4
+perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6,
+platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)
+$ uv run --no-project python -I scripts/assemble_artifacts.py
+assembled 1455 files, 32196381 bytes, into src/wasi_perl/artifacts
+$ WASI_PERL_ARTIFACTS=$PWD/src/wasi_perl/artifacts uv run pytest tests/runner tests/escapes tests/oneliners -ra
+649 passed, 1 skipped                 # 178 runner, 24 escape, 448 one-liner checks collected
+$ uv run pytest -m "not slow"
+445 passed, 1 skipped, 244 deselected
+$ uv run ruff check && uv run ruff format --check
+All checks passed!
+38 files already formatted
+```
+
+- The one skip is `test_arguments.py:208`, which cannot run as root.
+- The assembled `perl.wasm` is SHA-256 `3403447480e636a631cc3c5ad8978a51bafcab55219f6fd4827b8c0b2c54ff8d`, the same as `build/artifacts/perl.wasm`.
+- No exclusion existed because `/dev/urandom` was missing (READ: `grep -i 'urandom\|random\|seed' tests/perl_t/exclusions.toml` finds none), so none was removed. The suite's score is the same as 0.1.0's.
+- The one-liner oracle here is native perl, `build/native-install/bin/perl`, not the recorded JSON CI uses. INFERRED: the same answers, since CI records them with the same perl.
