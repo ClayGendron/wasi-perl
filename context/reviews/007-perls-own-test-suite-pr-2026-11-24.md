@@ -72,3 +72,41 @@ I checked all 184 entries by comparing them with native perl, and read about 35 
 ## Verdict
 
 Does not land. The harness is sound: its parser, its limits, its isolation and its determinism hold, and the scoreboard reproduces exactly. But one exclusion hides an interpreter defect (H1, `times` off by 10^7) under `platform` with a wrong note, so the landing notes' bug list is incomplete and Acceptance 2 does not hold. Re-file H1 and the three entries in M2 in one commit, with notes that say what was seen. Update the landing notes' counts. Then it lands. M1 and M3 can be follow-ups the owner agrees to.
+
+## Round 2
+
+- **Branch:** `spec/007-perl-t` at `2dfe2a2`. This round covers the fix commit `6e79be0`, which changes the harness, the build and the spec, and the exclusions commit `2dfe2a2`, which changes the exclusions alone.
+- **Build:** the author's `build/artifacts` and `build/target`, copied. Their worktree is clean at `2dfe2a2`, and the copied files were built after its last recipe edit. `perl.wasm` SHA-256 `36094df4…7cef1a`. The pristine tree was unpacked fresh, with a hash check.
+
+### What was run (EXECUTED)
+
+| Command | Result |
+|---|---|
+| `uv run python tests/perl_t/run_suite.py --jobs 3 --quiet --list-failures` | `616 run, 433 passed, 183 excluded (subprocess 140, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 12), 0 failed, 0 stale exclusions, 0 regressed (18424 guarded oks)`, 83 s. This matches the landing notes. |
+| guest: `times` around a 2e7-iteration loop; `POSIX::times` | wall 0.968 s, `times` user 0.970 s (it was 9,501,317 s in round 1). `POSIX::times` is in ticks too. |
+| `uv run pytest -q tests/build -k times`; `pytest -m "not slow" tests/perl_t`; `ruff check`; `ruff format --check` | 1 passed; 36 passed and 1 skipped; clean; clean |
+| the guards, in a scratch copy of the harness and exclusion list, with `--only` on four files. The copy was removed afterwards and the edited tree was unpacked again. | All four went red and the run exited 1. (a) op/sort.t's `ok_at_least` raised from 164 to 165: "REGRESSED op/sort.t: 164 ok, fewer than the 165 recorded". (b) re/substT.t's `shows` changed so it no longer matches: "no what its entry shows". (c) `die "boom"` put at the top of op/waitpid.t, a `refused` file with `ok_at_least = 0`: "no a refusal in its output". (d) op/each.t made to die just before its first `fresh_perl`, so it keeps its ok count but loses the refusal: "no a refusal in its output". |
+| t/TEST in the pinned tarball, lines 501 and 600 | `benchmark/` runs only with `--benchmark` or `PERL_BENCHMARK`, as the harness now does |
+
+### The findings, one by one
+
+| # | Status | Seen |
+|---|---|---|
+| H1 | Fixed | `times` is wrapped at link time (`recipes/config.sh` ldflags, `recipes/wasi-stubs.c` `__wrap_times`) and converted to `_SC_CLK_TCK` ticks. A ratio check against `Time::HiRes::clock` covers it. benchmark/ now follows t/TEST: it runs only with `PERL_BENCHMARK`. The project counts operations, not time, so this is not hiding a failure, and with `times` fixed the file has no known defect behind it. |
+| M1 | Fixed | `ok_at_least` on every entry, and a refusal pattern (or `shows`) on every subprocess, signals and refused entry. Both go red, as shown above. 18,424 oks are guarded. |
+| M2 | Fixed | op/pack.t is `subprocess` (ok_at_least 4177); op/waitpid.t and io/pvbm.t are `refused`. |
+| M3 | Fixed, partly answered | There is an empty `t/perl` stand-in. Partial counting is left to the owner, which is acceptable. |
+| L1 | Partly fixed | A stamp now ties the unpacked tree to the pinned tarball hash. Edits inside the unpacked tree still go unnoticed: the guard test above ran my edited op/waitpid.t from `build/perl-5.42.3/` without complaint. This is residual and Low. |
+| L2–L9 | Fixed | The tarball is found through the git common dir and `WASI_PERL_DOWNLOAD_CACHE`. Strict TAP outside lib/; `Bail out!` matched with any case; no spec numbers left in `exclusions.toml`; op/taint.t's note names `kill`; `not-this-platform`; the nine reclassify-commit additions named in the landing notes; skip reasons stripped properly; the slow test fails without a build under `CI`. |
+
+### New, all Low
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| R2-1 | Low | `tests/perl_t/exclusions.toml:193-228` | Seventeen porting, platform, not-this-platform and bug entries have `ok_at_least = 0` and no failure signature. Such a file could start trapping, or fail for a new reason, and still count as excluded. For example, op/hash-clear-placeholders.t is meant to fail at a dup; nothing would notice if it began to trap instead. | Allow `shows` on any reason, and give these entries the message their note quotes. |
+| R2-2 | Low | `tests/perl_t/run_suite.py:286-288` | The stamp checks the tarball, not the tree it unpacked (L1, residual). | Store a hash of the file listing and sizes beside the stamp, or always unpack into a fresh directory. |
+| R2-3 | Low | `tests/perl_t/run_suite.py` (the `regressed` message in `scoreboard`) | The message reads "no a refusal" and "no what its entry shows". | "no refusal in its output" / "its output lacks the entry's `shows` pattern". |
+
+### Verdict, round 2
+
+Lands. The scoreboard reproduces, `times` is fixed at its root and checked, and the four mislabelled entries are re-filed. The new guards catch a file that falls short of its ok count, and one that stops showing its refusal. Each finding from round 1 is fixed or answered in writing. What remains is Low.
