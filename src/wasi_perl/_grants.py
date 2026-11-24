@@ -9,7 +9,6 @@ by spelling, so `~/LIBRARY/CACHES` on a case-insensitive disk is `~/Library/Cach
 
 from __future__ import annotations
 
-import itertools
 import os
 import stat
 import threading
@@ -214,8 +213,7 @@ class Placed(NamedTuple):
 # writable grants while another call is between its walk and wasmtime's own open, so one call's
 # writable grant must never be on another live call's way, nor hold another's read-only grant.
 _live_lock = threading.Lock()
-_live: dict[int, tuple[tuple[str, Placed], ...]] = {}
-_tokens = itertools.count(1)
+_live: dict[object, tuple[tuple[str, Placed], ...]] = {}
 
 
 def live_count() -> int:
@@ -223,11 +221,13 @@ def live_count() -> int:
         return len(_live)
 
 
-def hold(placed: Sequence[Placed]) -> int:
+def hold(placed: Sequence[Placed], slot: object) -> None:
     """Register a starting call's grants, once each is checked against every live call's: a grant
     at, inside or above a live writable grant is refused, and a writable grant at, inside or above
     any live grant. The check and the registration are one step under the lock, so of two calls
-    that start at once, the second sees the first. Returns the token `let_go` takes."""
+    that start at once, the second sees the first. `slot` is the caller's, made before its `try`,
+    so `let_go(slot)` in its `finally` lets go whatever interrupts: the registration is one
+    dictionary store."""
     with _live_lock:
         for i, p in enumerate(placed):
             for others in _live.values():
@@ -242,14 +242,16 @@ def hold(placed: Sequence[Placed]) -> int:
                             "change it, or it theirs; grant a folder apart from it, or wait for "
                             "that call to end"
                         )
-        token = next(_tokens)
-        _live[token] = tuple((f"grant at {p.guest}", p) for p in placed)
-        return token
+        for p in placed:
+            if p.writable:
+                _ever_writable[p.chain[0]] = (str(p.host), p.chain)
+        _bound_ever_writable()
+        _live[slot] = tuple((f"grant at {p.guest}", p) for p in placed)
 
 
-def let_go(token: int) -> None:
+def let_go(slot: object) -> None:
     with _live_lock:
-        _live.pop(token, None)
+        _live.pop(slot, None)
 
 
 def judge(
@@ -258,6 +260,7 @@ def judge(
     *,
     caches: Iterable[Path],
     runtime: Iterable[Path],
+    runtime_files: Iterable[Path] = (),
 ) -> tuple[tuple[Placed, ...], str | None]:
     """Each grant resolved and held to the rules: no grant at or inside a module cache, no
     writable grant above one; no writable grant at, inside or above a runtime folder; no
@@ -289,6 +292,7 @@ def judge(
                     )
         placed.append(Placed(host, g.guest, g.writable, mine))
         chains.append(mine)
+    _refuse_second_names(placed, runtime_files)
     for i, p in enumerate(placed):
         if p.writable:
             continue
@@ -299,6 +303,124 @@ def judge(
                     f"grants[{j}] at {w.guest}, so the guest could change it there"
                 )
     return tuple(placed), _judge_cwd(cwd, placed)
+
+
+MAX_WALK = 100_000  # the most entries the writable grants of one call are walked through
+
+
+def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]) -> None:
+    """No writable grant holds a second name (a hard link) of a runtime file. A folder rule
+    cannot see one: uv installs packages by hard link from its cache, so wasmtime-py's native
+    library has other names there, and a writable grant of that cache would let a guest rewrite
+    the library the next host process loads. Only a file with more than one name needs looking
+    for; then the writable grants are walked, at most MAX_WALK entries in all, and one too large
+    to walk is refused, since its second names cannot be ruled out."""
+    writable = [p for p in placed if p.writable]
+    if not writable:
+        return
+    linked: dict[Identity, Path] = {}
+    for f in runtime_files:
+        try:
+            st = os.lstat(f)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+            linked[(st.st_dev, st.st_ino)] = f
+    if not linked:
+        return
+    seen = 0
+    for i, p in enumerate(placed):
+        if not p.writable:
+            continue
+
+        def unsearchable(error: OSError, i: int = i, p: Placed = p) -> None:
+            raise ValueError(
+                f"grants[{i}] at {p.guest}: the runner cannot search {error.filename} for "
+                f"second names of the runtime's files ({error.strerror}), and one of them has "
+                "more than one name; grant a folder the runner can read, or reinstall with "
+                "UV_LINK_MODE=copy"
+            )
+
+        for dirpath, dirnames, filenames in os.walk(p.host, onerror=unsearchable):
+            # Never into a link, a junction or another reparse point: they lead out of the grant,
+            # where the guest cannot follow either.
+            dirnames[:] = [d for d in dirnames if not _redirects(os.path.join(dirpath, d))]
+            seen += len(dirnames) + len(filenames)
+            if seen > MAX_WALK:
+                some = next(iter(linked.values()))
+                raise ValueError(
+                    f"grants[{i}] at {p.guest}: {p.host} is too large to walk ({MAX_WALK} "
+                    f"entries) for second names of the runtime's files, and {some} has more "
+                    "than one name (a hard link, as uv installs by default); grant a smaller "
+                    "folder, or reinstall with UV_LINK_MODE=copy"
+                )
+            for name in filenames:
+                try:
+                    st = os.lstat(os.path.join(dirpath, name))
+                except OSError:
+                    continue
+                target = linked.get((st.st_dev, st.st_ino))
+                if target is not None:
+                    raise ValueError(
+                        f"grants[{i}] at {p.guest}: {os.path.join(dirpath, name)} is a hard link "
+                        f"to the runtime's {target}, which a guest could rewrite through it; "
+                        "grant it read-only, or reinstall with UV_LINK_MODE=copy"
+                    )
+
+
+def _redirects(path: str) -> bool:
+    """Whether a folder entry leads elsewhere: a symbolic link, a Windows junction, or any other
+    reparse point."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return True  # gone or unreadable: not entered
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    if isjunction is not None and isjunction(path):
+        return True
+    return bool(getattr(st, "st_file_attributes", 0) & _REPARSE)
+
+
+# Every folder this process has granted writable, by identity, with its chain, for the process's
+# life: a guest may have left anything there, so no module cache is ever loaded at, inside or
+# above one, even after the call ended.
+_ever_writable: dict[Identity, tuple[str, tuple[Identity, ...]]] = {}  # with its path
+EVER_WRITABLE_MAX = 10_000  # entries; about 1.2 KB each, so about 12 MB at most
+_ever_overflowed = False  # past the bound: no module cache is used for the process's life
+
+
+def _bound_ever_writable() -> None:
+    """Under `_live_lock`: past EVER_WRITABLE_MAX entries, those whose path no longer names that
+    folder are dropped (a folder that is gone holds no .cwasm); if that is not enough, the disk
+    cache is turned off for the process, which is safe, and the set freed."""
+    global _ever_overflowed
+    if len(_ever_writable) <= EVER_WRITABLE_MAX:
+        return
+    for identity, (path, _) in list(_ever_writable.items()):
+        try:
+            st = os.stat(path)
+            if (st.st_dev, st.st_ino) == identity:
+                continue
+        except OSError:
+            pass
+        del _ever_writable[identity]
+    if len(_ever_writable) > EVER_WRITABLE_MAX:
+        _ever_overflowed = True
+        _ever_writable.clear()
+
+
+def granted_writable(path: Path) -> bool:
+    """Whether `path` (or its deepest existing ancestor) is at, inside or above a folder this
+    process has granted writable; always, once the registry has passed its bound."""
+    mine = chain(path)
+    me = _exists(path)
+    with _live_lock:
+        if _ever_overflowed:
+            return True
+        ever = [(w, w_chain) for w, (_, w_chain) in _ever_writable.items()]
+    return any(w in mine or (me is not None and me in w_chain) for w, w_chain in ever)
 
 
 def _judge_cwd(cwd: str | None, placed: Sequence[Placed]) -> str | None:

@@ -10,7 +10,11 @@ way of folders no other user can change. On Windows, which has no mode bits: a f
 file with one name, neither a link nor a junction. Anything else is not used, with a warning,
 and the module is compiled in the process; a refused file is replaced by the runner's own. That
 stops a file someone else put there; the guard against a guest is that no grant reaches any
-cache."""
+cache, and that no cache is used at, inside or above a folder this process granted writable.
+
+On Windows no owner is compared and no access list read: the check trusts the folder's access
+list to keep other users out, as `%LOCALAPPDATA%`'s does, and the README says to keep the cache
+in such a folder."""
 
 from __future__ import annotations
 
@@ -165,6 +169,15 @@ def _way(folder: Path) -> None:
 def folder(cache: Path) -> Path | None:
     """The cache folder, made at 0700 if missing, or None (with a warning) when it or the way to
     it is not as the runner makes it."""
+    from wasi_perl import _grants
+
+    if _grants.granted_writable(cache):
+        _warn(
+            cache,
+            "it is at, inside or above a folder this process granted writable to a guest, which "
+            "may have left a .cwasm there",
+        )
+        return None
     try:
         existing = cache.parent
         while not existing.exists() and existing != existing.parent:

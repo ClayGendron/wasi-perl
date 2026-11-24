@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from _set_helpers import REPO, write_set
+from standin_sets import write_set
 
+REPO = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 BUILT = REPO / "build" / "fixtures"
 SJLJ = ["-mllvm", "-wasm-enable-sjlj", "-mllvm", "-wasm-use-legacy-eh=false"]

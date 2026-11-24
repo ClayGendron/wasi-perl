@@ -22,8 +22,32 @@ _compiling: dict[tuple[bool, str], threading.Lock] = {}
 _counts = {"compiled": 0, "loaded": 0, "written": 0}
 
 
+WASMTIME_FLOOR = 51  # the major version the runner is tested on, and the first without the
+# drive-relative escape on Windows (GHSA-f2pq-268w-886c); wasmtime>=51,<52 in pyproject.toml
+
+
 def wasmtime() -> Any:
-    """wasmtime-py, or one ImportError whatever stopped it loading, its own error the cause."""
+    """wasmtime-py, or one ImportError whatever stopped it loading, its own error the cause. A
+    wasmtime-py older than 51, which an embedder's environment or `--no-deps` can bring, is
+    refused by its version before it is imported."""
+    found = wasmtime_version()
+    if found is not None:
+        try:
+            major = int(found.split(".")[0])
+        except ValueError:
+            major = 0
+        if major < WASMTIME_FLOOR:
+            raise ImportError(
+                f"wasi_perl.run needs wasmtime-py {WASMTIME_FLOOR} (wasmtime>=51,<52); found "
+                f"{found}, under which a drive-relative name on Windows reaches outside its "
+                "grant (GHSA-f2pq-268w-886c). Install wasmtime>=51,<52."
+            )
+        if major > WASMTIME_FLOOR:
+            raise ImportError(
+                f"wasi_perl.run is built and tested on wasmtime-py {WASMTIME_FLOOR} "
+                f"(wasmtime>=51,<52); found {found}, whose private C bindings, which the runner "
+                "calls, may differ. Install wasmtime>=51,<52."
+            )
     try:
         import wasmtime as wt
     except (ImportError, RuntimeError, OSError) as e:
@@ -147,14 +171,16 @@ atexit.register(_release_at_exit)
 
 
 class _Ticker:
-    """While at least one call with a deadline runs, one thread per process advances every
-    engine's epoch once per TICK_S of monotonic time elapsed, catching up when a sleep runs long,
-    so a deadline of n ticks ends close to n * TICK_S."""
+    """While at least one call runs, one thread per process advances every engine's epoch once
+    per TICK_S of monotonic time elapsed, catching up when a sleep runs long, and counts the ticks
+    in `count`, which each call's epoch callback compares with its own deadline. Every call is
+    ticked, deadline or not, so Ctrl-C reaches a guest that computes."""
 
     def __init__(self) -> None:
         self.cond = threading.Condition()
         self.active = 0
         self.thread: threading.Thread | None = None
+        self.count = 0  # ticks advanced so far; read without the lock, a race reads one behind
 
     def enter(self) -> None:
         with self.cond:
@@ -186,6 +212,7 @@ class _Ticker:
                 for _ in range(due - done):
                     for eng in engines:
                         eng.increment_epoch()
+                    self.count += 1
                 done = due
                 time.sleep(TICK_S / 4)
 

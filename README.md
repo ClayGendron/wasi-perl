@@ -20,7 +20,9 @@ $ wasi-perl run -- -e 'print "hello, WebAssembly\n"'
 {"exit_code": 0, "fuel_used": null, "stderr": "", "stdout": "hello, WebAssembly\n", "trapped": null, "truncated": []}
 ```
 
-Requires Python 3.11 or later and installs `wasmtime` (`>=51,<52`). The first call compiles `perl.wasm` and keeps the compiled module in a cache folder of your own (`~/.cache/wasi_perl` on Linux, `~/Library/Caches/wasi_perl` on macOS, `%LOCALAPPDATA%\wasi_perl\cache` on Windows, or `$WASI_PERL_CACHE`).
+Requires Python 3.11 or later and installs `wasmtime` (`>=51,<52`). The first call compiles `perl.wasm` and keeps the compiled module in a cache folder of your own (`~/.cache/wasi_perl` on Linux, `~/Library/Caches/wasi_perl` on macOS, `%LOCALAPPDATA%\wasi_perl\cache` on Windows, or `$WASI_PERL_CACHE`). Never point `cache_dir` or `$WASI_PERL_CACHE` at a folder you grant to a guest, in any process: a compiled module is native code. Within one process the runner refuses to use a cache at, inside or above any folder it has granted writable.
+
+Installed by uv, whose default on Linux and Windows links each file from its cache by hard link, wasmtime's native library has a second name in uv's cache. A writable grant that holds such a second name is refused, and a writable grant too large to search (100,000 entries) is refused while one exists. Install with `UV_LINK_MODE=copy` to have no second names.
 
 # From Python
 
@@ -114,13 +116,17 @@ out of fuel
 $ wasi-perl run --grant /logs=./logs -- -ne 'print if /ERROR/' /logs/app.log
 ```
 
-The command exits 0 when the call returned (the JSON says how the program ended), 1 when `run` refused it (one JSON line with `error` and `kind`), 2 for a usage error and 130 for Ctrl-C.
+The command exits 0 when the call returned (the JSON says how the program ended), 1 when `run` refused it (one JSON line with `error` and `kind`), 2 for a usage error and 130 for Ctrl-C, which stops a computing guest at once. From Python, Ctrl-C during `run` on the main thread stops the guest and raises `KeyboardInterrupt`.
 
 # Not protected
 
 - A FIFO (named pipe) inside a grant: a guest that opens one waits inside the host's own `open`, beyond the deadline's reach, until something writes to it. Grant folders that hold no FIFO.
 - Symbolic links a guest leaves in a writable grant. The guest cannot follow one out of the grant, but your own program, reading the folder afterwards, can.
 - A host folder swapped by another writer between the runner's check and wasmtime's own open of it. Within one process the runner keeps a registry of the grants of the calls running now, and refuses a grant at, inside or above another live call's writable grant (and a writable grant over another live call's grant), so no guest of this process can do it; another process, or another guest of another process, with write access to a folder on the way still could.
+- A guest `sleep` (and `select` with a timeout, `Time::HiRes::sleep`) waits inside the host, where the deadline cannot reach it, so a guest that sleeps longer than its deadline holds `run` until it wakes. This holds until the build whose guest cuts its waits into short slices (spec 011) is released.
+- Host descriptors. The runner raises the process's soft open-file limit toward its hard limit once, then counts each running call as 256 descriptors, the guest's own table's cap from spec 011's build. A call alone is never refused; a call beside others past half the soft limit (4,096 on Windows) raises `TooManyCalls` before it starts. A `perl.wasm` without that table can hold more than 256, and then another call's start can fail, as its trap ("failed to add preopen dir").
+- On Windows, the module cache is trusted by its kind (a folder, a file with one name, no link) and the folder's access list, not by its owner: keep `cache_dir` in a folder only you can write, as `%LOCALAPPDATA%` is.
+- `SHA256SUMS` proves the set is whole, not who made it, and the library is hashed once per process: a library file changed while a process runs is seen by the next process.
 - Disk use inside a writable grant, and anything a writable grant holds that a later call reads.
 - Timing, the real clock and entropy.
 

@@ -1,6 +1,5 @@
-"""Helpers the checks import by name. They live here, not in a conftest.py, because every
-conftest.py is a module named `conftest` and `from conftest import ...` finds whichever folder's
-was loaded first."""
+"""Scratch artifact sets for the runner's checks, importable by name from any test folder; the
+name `conftest` is not, since every test folder has one and the first imported wins."""
 
 from __future__ import annotations
 
