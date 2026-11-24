@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Mounts: `run(argv, mounts=[Mount(provider, "/work")])` serves the guest's files from the embedder's own code, read-only unless `writable=True`. The API, the provider protocol, the limits and the record are wasi-python's, name for name: `Mount`, `FileProvider`, `WritableFileProvider`, `Errno`, `Stat`, `FileFault`, `RefusedWrite`, `FileRecord`, `run(max_file_calls=)`, `Defaults.file_calls` (10,000) and `Completed.files`. The code is adapted from wasi-python at f9bf678, trimmed only of what wasi-perl does not have. `cwd` may lie in a mount. A mount writes no host file and adds no import; a call without mounts is unchanged. `perl.wasm` is unchanged. Specification 017; `docs/mounts.md` says what each Perl operation costs a provider, and `context/research/2026-11-24-mounts-beside-wasi-python.md` lists every difference from wasi-python.
+
 ### Security
 
 - Perl's seeds now come from the host's randomness. Before, the guest had no `/dev/urandom`, so Perl seeded its hash order, its internal random state and `srand` from the time of day, which can be guessed from when a call started; that weakened Perl's defence against hash flooding. Now the guest serves `/dev/urandom` and `/dev/random` itself, from WASI's `random_get`, which `perl.wasm` now imports; the host never sees the name. The device answers as Linux's does. An open with no access mode, as Perl's seed makes, now reads as on Linux, so `sysopen(F, $path, 0)` opens a handle for input where it failed with EINVAL. `docs/sandbox.md` lists what differs from native.

@@ -37,7 +37,7 @@ print(done.exit_code, done.stdout.decode())
 0 2,4,6,8,10
 ```
 
-`run` returns a `Completed` with `exit_code`, `stdout`, `stderr` (bytes), `trapped` (`None`, `"deadline"`, `"out of fuel"`, or wasmtime's words for another trap), `fuel_used` and `truncated`. An uncaught `die` is exit code 255, as in native Perl. Nothing the program does makes `run` raise.
+`run` returns a `Completed` with `exit_code`, `stdout`, `stderr` (bytes), `trapped` (`None`, `"deadline"`, `"out of fuel"`, `"out of file calls"`, or wasmtime's words for another trap), `fuel_used`, `truncated` and `files`, the record of a call with mounts. An uncaught `die` is exit code 255, as in native Perl. Nothing the program does makes `run` raise.
 
 # Grants
 
@@ -85,6 +85,10 @@ run(
 What the guest always sees, read-only: the Perl library at `/usr/local/lib/perl5` and an empty `/dev/null`. There is no `/`, no `/tmp` and no `HOME` unless you grant them. The guest's environment is exactly `env=` (plus `PWD` from `cwd=`); nothing of your own environment reaches it.
 
 A grant is refused before the guest runs when its guest path is not absolute and normalized, is `/`, or is at, under or above `/usr/local/lib/perl5` or `/dev`; when two grants share a guest path; when a read-only grant lies inside a writable one; when any grant reaches a module cache; when a writable grant reaches the artifact set, this package or wasmtime; and when a symbolic link on the way lies in a folder you can write.
+
+# Mounts
+
+A `Mount` serves the guest's files from your own Python code instead of a host folder: rows in a database, an object store, or a permission layer of your own. Your provider answers `stat`, `list` and `read` on normalized paths, and, for a writable mount, `write`, `mkdir`, `remove`, `rmdir` and `rename`. Every provider call is counted in `done.files` and bounded by `max_file_calls`. The API is wasi-python's, name for name. [docs/mounts.md](docs/mounts.md) shows a provider, what each Perl operation costs it, and the limits.
 
 # Limits
 
