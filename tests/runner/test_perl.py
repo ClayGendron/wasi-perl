@@ -59,21 +59,11 @@ def test_cwd(perl, tmp_path):
     assert (done.exit_code, done.stdout) == (0, b"x\n")
 
 
-# The build's exit wrapper is to keep the status as Perl's exit does, masked to 0..255, with -1
-# only for "never exited". Until it does, wasmtime refuses these and the export holds the raw value.
-MASKED = pytest.mark.xfail(
-    strict=True,
-    reason="the build's exit wrapper does not yet mask the status to 0..255 in the guest",
-)
-
-
-@MASKED
 def test_exit_256_is_0(perl):
     done = run(["-e", "exit 256"], artifacts=perl)
     assert (done.exit_code, done.trapped) == (0, None)
 
 
-@MASKED
 def test_exit_minus_1_is_255(perl):
     done = run(["-e", "exit -1"], artifacts=perl)
     assert (done.exit_code, done.trapped) == (255, None)

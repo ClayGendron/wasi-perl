@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from _build_paths import (
+from _build_helpers import (
     ARTIFACTS,
     BUILD,
     DEV,
@@ -26,23 +25,9 @@ from _build_paths import (
     PERL_WASM,
     ROOT,
     WASMTIME_CLI,
+    Result,
+    default_grants,
 )
-
-
-@dataclass
-class Result:
-    """How one run ended.
-
-    code is the exit status the host reported, None when it reported an error instead.
-    status is what the module's wasi_perl_exit_status export returned after the run: the status
-    the program exited with, -1 if it never exited, None if the export is missing.
-    """
-
-    code: int | None
-    stdout: bytes
-    stderr: bytes
-    error: str = ""
-    status: int | None = None
 
 
 def _need(path: Path, script: str) -> None:
@@ -121,10 +106,6 @@ class Guest:
         )
         status = status_fn(store) if status_fn is not None else None
         return Result(code, out.read_bytes(), err.read_bytes(), error, status)
-
-
-def default_grants() -> list[tuple[Path, str, bool]]:
-    return [(LIBRARY, LIBRARY_GUEST, False), (DEV, DEV_GUEST, False)]
 
 
 @pytest.fixture(scope="session")

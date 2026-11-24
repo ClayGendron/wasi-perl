@@ -10,6 +10,8 @@ LOGS="$BUILD/logs"
 PERL_VERSION=5.42.3
 WASI_SDK_NAME=wasi-sdk-34.0-x86_64-linux
 WASMTIME_NAME=wasmtime-v51.0.0-x86_64-linux
+# WASI_PERL_JOBS caps make's parallelism when other builds share the machine.
+JOBS=${WASI_PERL_JOBS:-$(nproc)}
 mkdir -p "$LOGS"
 
 # run <log> <command...>: runs the command with its output in the log; on failure prints one line.

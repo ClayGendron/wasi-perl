@@ -1,0 +1,67 @@
+# The sandbox: what is refused and what works
+
+wasi-perl runs Perl inside WebAssembly with WASI preview1. WASI preview1 has no processes and no signals. So the operations that would start a process or handle a signal are refused. A refusal is an ordinary Perl `die`, never a crash.
+
+## The refusal
+
+Every refusal dies with one message:
+
+    <what> is not available in the wasi-perl sandbox at FILE line N.
+
+- `eval` catches it, and `$@` holds the message.
+- Uncaught, it ends the program with exit status 255 and the message on stderr.
+- `$!` is 0 after a refusal.
+
+## Refused operations
+
+| Perl code | `<what>` in the message |
+|---|---|
+| `fork` | `fork` |
+| `exec` (any form) | `exec` |
+| `system` (any form) | `system` |
+| `` `…` ``, `qx//`, `readpipe` | `backticks` |
+| `open` with `\|`, `-\|`, `\|-`, or a list form | `pipe open` |
+| `pipe` | `pipe` |
+| `wait` | `wait` |
+| `waitpid` | `waitpid` |
+| `kill` | `kill` |
+| `alarm` | `alarm` |
+| `CORE::dump` | `dump` |
+| a store into `%SIG` for a signal, e.g. `$SIG{INT} = 'IGNORE'` | `signal handler for SIGINT` |
+
+About `%SIG`:
+
+- A store of any value for a real signal dies, `'IGNORE'`, `'DEFAULT'` and `undef` included. A script that relies on a handler must not run on believing it has one.
+- `local $SIG{ALRM}` dies where it is written. When its scope ends, the old value is put back quietly.
+- Reading `%SIG` works, and so do names that are not signals (Perl warns about those, as natively).
+- `delete $SIG{INT}` works: it puts back the default, which installs nothing.
+- `$SIG{__WARN__}` and `$SIG{__DIE__}` are hooks, not signals. They work exactly as natively.
+
+`system("true") == 0 or die` dies with the `system` refusal: `system` never returns a status to compare.
+
+## What still works
+
+- `$$`. It is always 42, wasi-libc's stand-in process ID.
+- `getppid`. It returns 0: the parent is the host, outside the sandbox, as for a Linux process whose parent is in another PID namespace.
+- `times`, `sleep`, and `select(undef, undef, undef, $seconds)`. They use WASI's clock.
+- `exit`, `END` blocks, `die` and `warn`.
+- Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
+
+## Exit statuses
+
+The exit status is the one native perl on Linux gives.
+
+- `exit N` ends with the low eight bits of N: `exit 256` ends with 0, `exit -1` with 255.
+- A `die` takes its status from `$!`, then from `$? >> 8`, then 255, as natively. The `$!` part uses Linux's errno numbers: `open my $f, '<', 'nope' or die "$!\n"` ends with 2 (ENOENT), as on Linux.
+- `$!` as a number stays WASI's own. `$! + 0` after a missing file is 44, not 2. `$!` as text is the usual message ("No such file or directory").
+- WASI's ENOTCAPABLE ("the sandbox did not grant this") has no Linux number. Its exit status is 13 (EACCES).
+- A number the script puts into `$!` is read as a WASI errno too: `$! = 2; die` ends with 13, because WASI's 2 is EACCES. Natively it ends with 2.
+
+wasmtime refuses an exit status of 126 or more and reports an error instead. The module keeps the real status in its `wasi_perl_exit_status` export, which the runner reads.
+
+## Differences from native that remain
+
+- **No descriptor duplication.** WASI preview1 cannot copy a file descriptor. `open(STDERR, '>&', \*STDOUT)`, `open(my $save, '>&STDOUT')` and the `>&=` forms (`open STDERR, '>&=STDOUT'`, `open STDOUT, '>&=', $h`) fail with `$!` "Not supported", and every handle keeps writing where it did. Reopening a standard handle onto a file works: see above.
+- **`dup2` moves, and only an unshared descriptor.** wasi-perl's `dup2` moves the descriptor (WASI's `fd_renumber`) when exactly one Perl handle holds it, which is what Perl's own reopen of STDIN, STDOUT and STDERR needs. A descriptor another handle shares is not moved: `dup2` fails with "Not supported". After a move, the old number is closed; using it gets EBADF.
+- **Descriptor numbers differ.** The granted folders hold descriptors 3 to 5, and a freed number is not reused. So the first `open` gets 6, not 3, and after `close STDOUT; open STDOUT, '>', 'f'` `fileno(STDOUT)` is 6, not 1. Output still goes where it should; only code that reads `fileno` sees the difference.
+- **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
