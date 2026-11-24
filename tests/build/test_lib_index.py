@@ -31,7 +31,8 @@ FLAGS = ["-O2", "-Wall", "-Wextra", "-Werror"]
 
 def _names_of(source: str) -> list[str]:
     """The names array of a C source lib_index.sh wrote, in its order."""
-    return re.findall(r'^\s*"([^"]*)",$', source, re.M)
+    array = source.split("names[] = {", 1)[1].split("};", 1)[0]
+    return re.findall(r'^\s*"([^"]*)",$', array, re.M)
 
 
 def _marker_of(source: str) -> str:
