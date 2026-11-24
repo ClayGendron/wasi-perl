@@ -62,11 +62,14 @@ Study D measured or bounds three ways.
 - (a) is refused because the embedder's install step would need a binary the wheel does not carry. `make_snapshot(code)` could then not be a Python call checked by `run`'s rules.
 - (b) is refused because it pays about 2.7 ms of copying on every call. That is 60% of the gain on "five". It also holds a private 15 MiB per live call.
 - Security is the same in (b) and (c). Both start the reactor's checked code over memory the runner captured. In (c) the code section is copied byte for byte from the checked reactor. Only the memory's size, the data and two exports change, so the engine compiles no code that `SHA256SUMS` does not pin.
+- > **Amended 2026-11-24 (A11, `../research/2026-11-24-preload-image-prototype.md` §5.2 item 2).** The image is as trusted as its prelude. A prelude cannot escape the sandbox, but it decides every later call's Perl: it can redefine a core function through `CORE::GLOBAL::`, set `$SIG{__DIE__}` or `$SIG{__WARN__}`, queue END blocks, and leave any package variable set. Every call from the image runs whatever it left. So `make_snapshot` is to be given only code the embedder would run in every call, never a program from the party the sandbox guards against. `docs/snapshots.md` states this trust point, and so does `make_snapshot`'s docstring; `docs/sandbox.md` points to it.
 - What (c) adds is one compile per image: about 0.9 s (INFERRED: the code section is the reactor's, which is perl.wasm's size; study B §8 measured 0.9 s with parallel compilation). It is paid at the making and then cached. A `.cwasm` from the cache loads as any other does (spec 014).
 
 **How the runner writes the image module** (`_image_module.py`):
 1. It reads the reactor's bytes once and holds them to the checked digest, as `_engines` holds perl.wasm's.
-2. It walks the section headers. It does not decode the code.
+2. It decodes every section but the code, which it copies as bytes. That is the import, memory, global and export sections, and every data segment's header.
+
+   > **Amended 2026-11-24 (A13, `../research/2026-11-24-preload-image-prototype.md` §6).** The text said "it walks the section headers; it does not decode the code". That undersold the work: the form check decodes the four sections named and each segment's header.
 3. It refuses, with `ArtifactsMissing`, a reactor that does not have the form below. This is a build fault, not a caller's:
    - one memory, defined and exported as `memory`;
    - every data segment active, in memory 0, at an `i32.const` offset;
@@ -77,6 +80,8 @@ Study D measured or bounds three ways.
    A data-count section is allowed. `wasm-opt` writes one when bulk memory is on, though the code uses no segment: over perl.wasm, `-O3` adds one, and the code holds no `memory.init` and no `data.drop` (EXECUTED: spec 021, Decision 5). The reactor is linked from the same objects, so it is expected to be the same (INFERRED; reactor check 1 confirms it).
 4. It writes a module from those sections, in order:
    - The memory section's initial size is the image's pages, and its maximum is kept. An image past the maximum raises `SnapshotMismatch`.
+
+     > **Amended 2026-11-24 (A12, `../research/2026-11-24-preload-image-prototype.md` §5.2 item 4).** Today's reactor has no maximum: wasm-ld writes none (EXECUTED in the memo: `memory_max: null`). So the image's only bound is the store's `memory_bytes`, which is `SnapshotMismatch`'s second case (Decision 6). The check of a maximum stays, for a reactor that gains one, and the image-module check covers it with a stand-in.
    - The data section holds the image, as active segments (step 5).
    - A data-count section is dropped. `memory.init` and `data.drop` do not validate without one: wasmparser answers "data count section required" (READ: `wasmparser-0.263.0/src/validator/operators.rs:1905-1911`, the version wasmtime 51 pins at its `Cargo.toml:375`). So a reactor whose code indexes a segment fails to compile, and that error is raised as `ArtifactsMissing`. It never runs against segments that are gone.
    - The export section drops `_initialize` and `prepare`, so neither can run over the image.
@@ -95,6 +100,7 @@ Study D measured or bounds three ways.
 - `make_snapshot` compiles the unmetered flavour before it returns, and the metered one too when it was given `fuel`. So the install step pays the compile.
 - `Snapshot.load` compiles nothing, so it stays a read and a check.
 - A call in a cold cache compiles its flavour once.
+- > **Amended 2026-11-24 (A8, `../research/2026-11-24-preload-image-prototype.md` §4).** The prototype measured, on Linux, under the machine lock (EXECUTED there): the restore by instantiation is 0.006 ms; "five" runs in 4.2–5.2 ms against 21.4–24.7 ms on perl.wasm; `-MPOSIX -e 1` in 4.1 against 13.0 ms; `-e 1` costs 0.43–0.48 ms more from the image, with 292–300 page faults against 81; the image module's compile takes 0.85–0.88 s unmetered and 1.18–1.24 s metered. These replace the Linux INFERRED figures of the table above, and the acceptance memo measures them again on the final build. A making also pays the reactor's own compile once, about 1.0 s, on a cold cache; it is cached as perl.wasm's is. A cache that holds both flavours of one image holds about 35 MB: each `.cwasm` was 17,579,152 bytes.
 
 **Copy-on-write is Linux's only.** wasmtime builds a copy-on-write memory image only from a source it can map (READ, in the v51.0.0 clone: `crates/wasmtime/src/runtime/vm/cow.rs:105-145`):
 - a module loaded from a mapped file (`MemoryImageSource::from_file`);
@@ -114,6 +120,8 @@ Spec 014's Decision 5 gives wasmtime a mapped file only on Linux, its sealed `me
 
 **If wasmtime declines copy-on-write** on Linux for an image past its dense-image limit (INFERRED: a larger prelude than the default), the call is still correct. It then pays an eager copy, as (b) would. The acceptance memo records which one the default image gets.
 
+> **Amended 2026-11-24 (A9, `../research/2026-11-24-preload-image-prototype.md` §4.2).** The trigger is sparseness, not size. wasmtime 51 builds a static image when the span from the first to the last initialised byte is under twice the segments' bytes, at any size, or under 16 MiB at any density (READ there: `crates/environ/src/compile/module_environ.rs:1340-1450`, `try_static_init`; `crates/wasmtime/src/config.rs:303`). The writer drops zero blocks, so a heap as dense as Perl's stays mapped: the default image's span is 8.2 MB and its segments hold 8.1 MB. Acceptance 4's evidence is the memo's method: `/proc/self/maps` gaining `memfd:wasm-memory-image` or `memfd:wasi-perl-module` while an instance lives, and 0 page faults at instantiation.
+
 ### 2. A second binary, `perl-reactor.wasm`, and no wizer anywhere
 
 - `perl.wasm` stays a WASI command (a module that exports `_start`). Other hosts run it, and the wasmtime CLI runs it with no flags. Every call without an image still runs it.
@@ -121,7 +129,8 @@ Spec 014's Decision 5 gives wasmtime a mapped file only on Linux, its sealed `me
 - So the build links the same objects a second time, with Perl's `perlmain.o` replaced by `recipes/wasi-reactor.c`'s object. The result is `perl-reactor.wasm`, a WASI reactor: a module with no `_start` that the host enters through its exports.
 - **Where, in spec 019's build order (its Decision 5):**
   - step 1, `20_target.sh`: the reactor's object is compiled after the final `make` (today `20_target.sh:75`), with the command Perl's own objects get (Decision 3). It cannot come earlier: it includes Perl's generated `perlmain.c`, which only `make` writes, by the rule `perlmain.c: $(MINIPERL_EXE) ext/ExtUtils-Miniperl/pm_to_blib` (READ: the built tree's `Makefile:347`);
-  - step 4, `40_link.sh`, after the index and before the relink of `perl.wasm`: `build/target/perl` is removed, and `make perl` runs with three variables set. `perlmain_objs` is the reactor's object, `libs` is the index object followed by the configured `libs`, and `CLDFLAGS` is the configured one plus `-mexec-model=reactor` and Decision 3's `--wrap` flags. The result is copied to `build/link/perl-reactor.wasm`. Step 5's relink then leaves the tree's `perl` the command;
+  - step 4, `40_link.sh`, after the index and before the relink of `perl.wasm`: `build/target/perl` is removed, and `make perl` runs with three variables set. `perlmain_objs` is the reactor's object, `libs` is the index object followed by the configured `libs`, and `CLDFLAGS` is the configured one plus `-mexec-model=reactor`, the six Perl wraps of Decision 3, and `--wrap=__wasi_clock_time_get` for its clock pin. The result is copied to `build/link/perl-reactor.wasm`. Step 5's relink then leaves the tree's `perl` the command;
+    > **Amended 2026-11-24 (A1, `../research/2026-11-24-preload-image-prototype.md` §2.1 and §6).** The text named only "Decision 3's `--wrap` flags", which are Perl's six. Decision 3's step 2 pins the clocks through a seventh, `--wrap=__wasi_clock_time_get`, so `CLDFLAGS` names it too.
   - step 6: 021's pass, once 021 is built, writes it to `build/artifacts/`. Until then, a copy;
   - step 7: `SHA256SUMS` pins it, with every other file of the set.
 - **`MANIFEST` is unchanged.** It stays `<sha256>  <path>` for every file under `lib/` and `dev/` (`scripts/30_library.sh:62-69`; `tests/build/test_modules.py:529-550`, READ). The reactor is pinned by `SHA256SUMS` alone, as `perl.wasm` is.
@@ -138,6 +147,8 @@ Spec 014's Decision 5 gives wasmtime a mapped file only on Linux, its sealed `me
 
 `recipes/wasi-reactor.c` is written for this project. It follows study D's prototype, which needed no change to Perl's source (D §2). `AGENTS.md` allows a patch only for an unavoidable source change, and this one is avoidable. It includes Perl's generated `perlmain.c` for its `xs_init`, with `main` renamed away, and is compiled with the command Perl's own objects get.
 
+> **Amended 2026-11-24 (A2, `../research/2026-11-24-preload-image-prototype.md` §2.2).** The compile adds `-fmacro-prefix-map=<build/target>/=` and `-fmacro-prefix-map=<recipes>/=`. `perlmain.c`'s `xs_init` names its own file through `__FILE__` in every `newXS`. Perl's make compiles it as `perlmain.c`, from the tree; included from `recipes/`, it is found by its absolute `-I` path, and the build host's folders would be in `perl-reactor.wasm`, which ships. The prefix maps keep the relative name (EXECUTED there: one occurrence of the build root, then none). Reactor check 1 adds that the reactor holds no byte string of the build root.
+
 Its exports:
 - **`_initialize`**: wasi-libc's, which runs the C constructors.
 - **`prepare() -> i32`**: the making. It runs once per instance, and a second call aborts.
@@ -145,10 +156,16 @@ Its exports:
   2. It pins the clocks: `__wasi_clock_time_get` is wrapped to answer a fixed realtime of 1767225600 s and a monotonic 0, as wasi-python's `prepare` does. Then no time the image holds lies in a later call's future. **Entropy is not pinned** (decision 7).
   3. It runs `PERL_SYS_INIT3`, `perl_alloc` and `perl_construct`. The hash seed is drawn here, from `/dev/urandom` (spec 013), which is `random_get`.
   4. It runs `perl_parse` with `xs_init` and the argv, then `perl_run`, with `PERL_EXIT_DESTRUCT_END` set. So the code's END blocks stay queued and run at the end of every call, as if the two were one script.
-  5. It stores Perl's status. Anything other than 0 is returned at once.
-  6. It unpins the clocks and flushes PerlIO.
+  5. It unpins the clocks, and flushes PerlIO and C's stdio (`PerlIO_flush(NULL)`, `fflush(NULL)`).
+  6. It stores Perl's status. Anything other than 0 is returned now.
+
+     > **Amended 2026-11-24 (A3, `../research/2026-11-24-preload-image-prototype.md` §6).** Steps 5 and 6 are swapped, and C's `fflush(NULL)` joins `PerlIO_flush`. Returning a status first could lose, still buffered, the text `SnapshotFailed("exit")` quotes. The prototype flushed first, and the `die` making's message arrived (EXECUTED there).
   7. It counts the descriptors the code left open in the guest's table: not 0–2 and not a preopen. `wasi_perl_open_files` answers that count.
-  8. It empties the guest's descriptor table (`wasi_perl_fd_table_reset`, added to `recipes/wasi-fd-table.c`) and wasi-libc's preopen table. The reset also forgets the two preopens the table finds by name: the `/dev` preopen of spec 013 and the library's preopen of spec 019. Each is found again, from this instance's preopens, at its first use. It drops wasi-libc's copy of the environment.
+  8. It empties the guest's descriptor table (`wasi_perl_fd_table_reset`, added to `recipes/wasi-fd-table.c`) and wasi-libc's preopen table. The reset also forgets the two preopens the table finds by name: the `/dev` preopen of spec 013 and the library's preopen of spec 019. Each is found again, from this instance's preopens, at its first use. It zeroes the environment's strings, then drops wasi-libc's copy of the environment. It sets wasi-libc's working folder back to `/`.
+
+     > **Amended 2026-11-24 (A4, `../research/2026-11-24-preload-image-prototype.md` §3.4).** Decision 4 said the working folder is "not kept", but its mechanism kept it: `run` repeats `chdir($PWD)` only when the call sets `PWD`, so a call with no `cwd` started in the making's folder. `chdir("/")` cannot undo it, since no grant serves `/` (EXECUTED there). So step 8 replaces wasi-libc's `__wasilibc_cwd` with an allocated `"/"` and frees the making's copy, which `chdir` allocated; wasi-libc's next `chdir` frees the new one. This couples the reactor to wasi-libc's `chdir.c` and `getcwd.c` (READ: wasi-libc 2e6fb9d, the commit wasi-sdk 34 names: `__wasilibc_cwd` is global, and `chdir` frees what it pointed to once it has allocated one). The coupling is pinned as the Perl coupling is: `wasi-reactor.c` does not compile unless wasi-sdk is 34 (`__wasi_sdk_major__`). A new reset check: a making with `cwd="/data"`, then a call with no `cwd`, prints `/` for `Cwd::getcwd`.
+
+     > **Amended 2026-11-24 (A10, `../research/2026-11-24-preload-image-prototype.md` §5.2 item 1).** Freed is not erased. The making's environment value was in the image twice: once in `%ENV`, and once in the environment block that wasi-libc's `__wasilibc_deinitialize_environ` dropped but did not zero (EXECUTED there). wasi-libc keeps the strings of the environment it read in one block it never frees, and its `clearenv` frees only what `setenv` made (READ: wasi-libc 2e6fb9d, `__wasilibc_initialize_environ.c:60-79,146-153`). So `prepare` zeroes every string `environ` names before it drops the environment. The value then stays once, in `%ENV`, where Decision 5 already says it stays. `docs/snapshots.md` says that anything the prelude read can stay in the image and its `.cwasm`, even after the prelude dropped it. A new seed check: a making with a marker in `env` gives an image that holds the marker exactly once.
   9. It checks that the stack-pointer global, read with `global.get __stack_pointer`, equals its value at entry. If not, it aborts.
   10. It returns 0.
 - **`run()`**: one call from the image (decision 4), then `perl_destruct`, `perl_free` and `exit`, as `perlmain.c` ends.
@@ -164,6 +181,9 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 - The `newSVpvn_share` wrapper acts only when it is armed and finds `PL_defstash` a new, empty hash. Otherwise it aborts.
 - The `boot_core_PerlIO` wrapper acts only when it finds `PL_isarev` new and empty. Otherwise it aborts.
 - A call that aborts traps, and the drift suite fails, so a silent misorder cannot ship.
+- After the second parse, `run` aborts if either wrapper has not acted, but only when the parse returned 0.
+
+  > **Amended 2026-11-24 (A7, `../research/2026-11-24-preload-image-prototype.md` §6).** The rule "both wrappers have acted" holds for a parse that returned 0 only. A parse that ends early, as for `-Q` or `-v`, never reaches `boot_core_PerlIO`. Aborting there would trap where perl.wasm exits 29, or 0 for `-v`. The prototype aborts only after a parse that returned 0, and both cases are equal (EXECUTED there).
 
 ### 4. What is reset on every call, and how
 
@@ -171,7 +191,7 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 |---|---|---|---|
 | argv, `$0`, `@ARGV`, switches | the making's `-e <code>` | reads argv from this instance's WASI; the second `perl_parse` sets the rest | drift `argv_0`, every switch case |
 | environment, `%ENV` | dropped at the end of `prepare` | `__wasilibc_initialize_environ`, then the parse builds `%ENV` | drift `env` |
-| working folder | not kept | `chdir($PWD)` when `PWD` is absolute, as `wasi-stubs.c`'s constructor does for perl.wasm | drift `pwd` |
+| working folder | not kept: `prepare`'s step 8 sets wasi-libc's back to `/` (A4) | `chdir($PWD)` when `PWD` is absolute, as `wasi-stubs.c`'s constructor does for perl.wasm | drift `pwd`; reset check 9 |
 | time, `$^T` | the clocks were pinned, then unpinned | nothing: the parse reads the real clock | drift `basetime`; reset check 6 |
 | the descriptor table and wasi-libc's preopens | emptied | filled again on first use, from this instance's preopens | drift `n_file`, `p_i`; reset check 4 |
 | PerlIO's `STDIN`, `STDOUT`, `STDERR` | flushed; no other handle is open (decision 5) | clears each one's end-of-file and error flags | reset check 5 |
@@ -182,6 +202,21 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 | `main::`, `PL_isarev`, `%INC`, compiled subs | the code's | kept, by design: that is the preload | drift's visibility cases |
 | locale | set up at the making, under no `LC_*` | not redone; under wasi-libc's C and C.UTF-8 it agrees with perl.wasm (D §2.1) | drift `locale`, `lang_utf8` |
 | the exit status that `wasi_perl_exit_status` keeps | −1, since `prepare` never exits | nothing | runner tests of exit codes |
+| errno at the second parse (A5) | what the making's last call left | set to what `perl_construct` left, then `isatty` and `lseek` asked of descriptors 0–2, before `perl_parse` | drift `bad_switch`, `no_code_e` |
+| punctuation and per-handle variables the parse does not set (A6) | the code's | set to perl.wasm's start values before the parse: the list below | drift `punctuation` |
+
+> **Amended 2026-11-24 (A5, `../research/2026-11-24-preload-image-prototype.md` §3.3).** A croak while `perl_parse` reads the switches exits with errno. perl.wasm opens its three standard PerlIO handles at their first use, inside that croak's write to stderr, and the buffer layer asks each descriptor `isatty` and `lseek`, which leave `ESPIPE` (Linux 29). The image's handles were opened at the making. So `run` sets errno to what `perl_construct` left, then asks the same two questions of this instance's descriptors 0–2. Without it, `perl -Q -e 1` exited 2 or 255 where perl.wasm exits 29 (EXECUTED there). The drift suite adds `bad_switch` (`-Q -e 1`) and `no_code_e` (a bare `-e`), both expected equal.
+
+> **Amended 2026-11-24 (A6, `../research/2026-11-24-preload-image-prototype.md` §3.4).** The second parse resets `$@`, `$!`, `$?`, `$/`, `$"`, `$0`, `@ARGV`, `$^W`, `$^T`, `$^X` and `select`, but not every variable a prelude can set (READ: `perl.c` 5.42.3, `perl_parse`, `S_init_main_stash`, `S_init_predump_symbols`; EXECUTED there for `$, $\ $_`, which kept the prelude's values in every `print`). The owner's rule is that a call from an image behaves as a call from perl.wasm. So `run` sets, before the parse, each variable of `perlvar` that has a built-in meaning, that perl.wasm starts with a fixed value, and that the parse does not set:
+>
+> - `$_` and `@_` (main's) to undef and empty; `$,` and `$\` to undef; `$;` to `"\034"`;
+> - `$^I` (in-place editing) to undef; `$^R` to undef; `$^A` (the format accumulator) to empty; `$^L` to `"\f"`; `$:` to `" \n-"`; `$^F` to 2; `$^P`, `$^C` and `$^D` to 0;
+> - `$.` and `${^LAST_FH}`, by forgetting the last read handle; the last successful match, so `$&`, `$1` and `${^LAST_SUCCESSFUL_PATTERN}` start unset;
+> - `$ARGV` to undef, and the `ARGV` handle to its first state;
+> - the per-handle state of `STDIN`, `STDOUT` and `STDERR`: `$|`, the line count of `$.`, and the format variables `$%`, `$-`, `$=`, `$~` and `$^`;
+> - `${^UTF8CACHE}`, `${^RE_TRIE_MAXBUF}`, `${^RE_COMPILE_RECURSION_LIMIT}` and `${^MAX_NESTED_EVAL_BEGIN_BLOCKS}` to their defaults, where a prelude made them.
+>
+> Variables with no built-in meaning, `$a`, `$b` and `@F` among them, are package variables, and stay frozen as every package variable does (Decision 5). So do `%SIG`'s `__DIE__` and `__WARN__` hooks and `%{^HOOK}`, which are code, under A11's trust point. A drift case, `punctuation`, has a prelude that sets every variable of the list, and calls that print each; they are expected equal to perl.wasm's.
 
 ### 5. The making: `make_snapshot` and `make_package_snapshot`
 
@@ -329,7 +364,7 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 7. A second process with the same cache loads the `.cwasm` and never writes the module: the writer is patched to count.
 
 **The reactor** (`tests/build/`)
-1. `perl-reactor.wasm` has the form of decision 1, step 3, and exactly the six exports. An image module written from it and a one-page image compiles, so its code indexes no data segment.
+1. `perl-reactor.wasm` has the form of decision 1, step 3, and exactly the six exports. An image module written from it and a one-page image compiles, so its code indexes no data segment. It holds no byte string of the build root (A2).
 2. `SHA256SUMS` lists `perl-reactor.wasm`; `MANIFEST` does not, and `tests/build/test_modules.py`'s check of `MANIFEST` passes unchanged.
 3. Compiling `recipes/wasi-reactor.c` against a stand-in `patchlevel.h` that says 5.42.4 fails on its `#error`.
 4. The artifact set holds no file that begins with the snapshot magic. No script runs `wizer`.
@@ -339,6 +374,8 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 2. The image of `make_package_snapshot()` differs in exactly `{no_use_posix, defined_sub, inc_keys, hash_seed}`.
 3. The cases `hash_seed_env` and `hash_order_env` match perl.wasm's output, and their `Completed.image_sha256` is `None`. So do three new cases: `PERL_PERTURB_KEYS=0` alone, `PERL_JSON_PP_USE_B=1` with `-MJSON::PP`, and `PERL_HASH_SEED` set to empty.
 4. The sets are exact. A new difference fails, and so does an expected one that disappears, so the docs and the test change together.
+5. `bad_switch` (`-Q -e 1`) and `no_code_e` (a bare `-e`) are equal on both images (A5).
+6. `punctuation`: an image whose prelude sets every variable of A6's list gives calls equal to perl.wasm's (A6).
 
 **No leak between calls** (`tests/snapshot/test_isolation.py`)
 1. Study D's `leak_set` then `leak_check` sees neither the planted variable nor the new `POSIX::floor`.
@@ -355,6 +392,7 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 6. A call's `$^T` is not 1767225600, and is at most `time`.
 7. The prelude `srand(42)`: twenty calls give twenty different `rand()` values. A call with `PERL_RAND_SEED=7` gives perl.wasm's sequence for that seed.
 8. The prelude `END { print "pre\n" }` with the call `END { print "call\n" }` prints `call`, then `pre`, as one script would.
+9. A making with `cwd="/data"`, then a call with no `cwd`: `Cwd::getcwd` prints `/` (A4).
 
 **The seed** (`tests/snapshot/test_seed.py`)
 1. Five makings give five different `hash_seed()` values. Twenty calls from one image give one value.
@@ -362,6 +400,7 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 3. With that probe, two calls from one image print the same key order and `rand()`. Under the real runner, twenty calls show more than one key order. So the per-call bits come from the call's own `random_get`.
 4. `make_snapshot` refuses each of the three names in `env` with `ValueError`, before any instance is made.
 5. On POSIX, a saved file has mode 0600, and `load` refuses it at 0640 and at 0606 with `PermissionError`.
+6. A making with a marker in `env` gives an image that holds the marker exactly once, in `%ENV` (A10).
 
 **The API** (`tests/snapshot/test_api.py`)
 1. `Snapshot()` raises `TypeError`, pickling raises `TypeError`, and setting an attribute raises `AttributeError`.
