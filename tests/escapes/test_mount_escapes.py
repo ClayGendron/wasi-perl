@@ -243,18 +243,20 @@ MOVE_BY_SYSTEM = {
 # Setting the placeholder aside renames the very folder the store holds open as a preopen.
 # - Windows refuses it, for the same reason as the move (seen on windows-2025 in CI run for
 #   aaf2c50, job 138823344362).
-# - macOS, as BSD does, needs write permission on a folder to rename it to another name, since
-#   its `..` entry is rewritten, and the placeholder is 0500; so a guest that is not the
-#   superuser is refused (seen on macos-15 in the same run, job 138823344564, which is not root).
+# - macOS refuses a guest that is not the superuser (seen on macos-15 in the same run, job
+#   138823344564, which is not root). The cause is not verified: the placeholder is 0500, and in
+#   a rename within one folder its `..` entry does not change, so BSD's rule for a folder moved
+#   to another parent does not explain it. The row records the answer observed. Its superuser
+#   branch ("ok") has never been run on macOS.
 # - Linux needs write permission only on the folder that holds the name.
 ASIDE_BY_SYSTEM = {
     "linux": "ok",
     "darwin": "ok" if SUPERUSER else "refused aside: Permission denied",
     "win32": "refused aside: Permission denied",
 }
-# Removing the placeholder: Windows will not remove a folder the store holds open (INFERRED
-# from its refusal to rename one; the first Windows run of this case confirms it). POSIX
-# removes an open folder's name.
+# Removing the placeholder: Windows will not remove a folder the store holds open (seen on
+# windows-2025 in CI, job 138829941022, where this row passed). POSIX removes an open folder's
+# name.
 REMOVE_BY_SYSTEM = {
     "linux": "ok",
     "darwin": "ok",
