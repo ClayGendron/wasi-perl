@@ -1,6 +1,6 @@
 # 015 — The runner's checks, kept across calls
 
-- **Status:** a draft by the orchestrator, 2026-11-24, for the owner to agree. The owner chose specifications 013 to 016 to come first (2026-11-24).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H2, M3, M4, L10).
 - **Owner:** Clay Gendron
 - **Kind:** `src/wasi_perl/` (`_grants.py`, `_artifacts.py`, `_cache.py`, `runner.py`), checks in `tests/runner/` and `tests/escapes/`.
 - **Depends on:** 014.
@@ -30,14 +30,26 @@ These levers keep a rule by a new argument. That is why they are a specification
      - Making a second name of a runtime file *inside a writable grant* changes no runtime folder. That is why decision 2 exists.
 2. **The writable grants are still walked on every call.**
    - Every file there with more than one name is looked up among the identities.
-   - `MAX_WALK`, the refusal of an unreadable folder, and the shortcut when no runtime file has a second name all keep their meaning. "Has a second name" is read afresh for the runtime files that a grant's file matched.
+   - `MAX_WALK`, the refusal of an unreadable folder, and the shortcut when no runtime file has a second name all keep their meaning.
+   - Those three decisions need to know whether any runtime file has a second name *now*. A link made inside a grant raises that count without changing any runtime folder, so the cached scan cannot answer it. So each of them `lstat`s every runtime file afresh, at the point it is needed, as study A's prototype does (`RuntimeFiles.linked_now`):
+     - when the walk passes the runtime's own size;
+     - on an unreadable folder;
+     - past `MAX_WALK`.
+   - A file that a grant's file matched is read afresh too.
 3. **A first call trusts a record of what it hashed, kept in the module cache (L6).**
    - **Writing the record.** After a full check passes, the runner writes `tree-<SHA-256 of SHA256SUMS>.json` into the module cache folder, with `_cache.write`'s rules: 0600, renamed into place. It lists each file's `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` under which its hash matched, `perl.wasm` and `MANIFEST` included.
    - **Using it.** A later process walks the tree with every rule as today: no link, no file the list omits, no listed file missing, and `dev/` exactly one empty `null`. It hashes only the files whose stamp differs from the record, and writes a new record if any were hashed.
    - **Reading it.** The record is read through `_cache.read`, so it is trusted exactly as a `.cwasm` beside it is. Whoever could forge it could already write a `.cwasm`, which is native code.
    - **Without it.** With `cache_dir=False`, or a cache folder that is refused, there is no record and every file is hashed, as today.
-   - **Why stamps are enough.** A user can set a file's mtime but not its ctime: only the clock can, and changing the clock takes root.
-4. **Plain string paths in the tree walk.** This takes a full check from 86 ms to 64 ms with no change of rule (study A §4.2). It comes with decision 3.
+   - **Why stamps are enough, and where.** On Linux and macOS a user can set a file's mtime but not its ctime: only the clock can, and changing the clock takes root.
+   - **Not on Windows.** There `st_ctime` is the creation time, which the file's owner can set with `SetFileTime`. So on Windows no record is written or read, and every file is hashed in every new process, as today.
+   - **The record's name.** It is keyed by the artifact root's identity `(st_dev, st_ino)` as well as by the SHA-256 of `SHA256SUMS`, so two installs of the same set do not keep replacing each other's record.
+4. **Coarse file times are allowed for**, as git does for its index:
+   - A file is recorded only if its stat before the hash and its stat after the hash agree.
+   - A stamp whose mtime or ctime lies within 2 s of the start of the scan or check that read it is not trusted. The folder is scanned again on the next call, or the file is hashed again in the next process.
+   - This holds for decision 1's folder stamps and for decision 3's file stamps.
+5. **Decision 1's reuse of a scan is also Linux and macOS only.** On Windows every writable call scans, as today, for the reason decision 3 gives.
+6. **Plain string paths in the tree walk.** This takes a full check from 86 ms to 64 ms with no change of rule (study A §4.2). It comes with decision 3.
 
 ## Checks (written first, seen failing; they count operations, never time)
 
@@ -53,12 +65,17 @@ These levers keep a rule by a new argument. That is why they are a specification
    - (c) A record edited by hand (mode 0644, or a stamp changed) is not used, and every file is hashed.
    - (d) With `cache_dir=False`, every file is hashed.
    - (e) A record from another `SHA256SUMS` is never read.
-4. Every check of spec 012 and every escape test passes unchanged.
+4. **The shortcut in a copy-mode install.** The check 2(a) is run again in a layout where no runtime file has a second name when the scan is made, such as an install with `UV_LINK_MODE=copy`. The link made later is still refused.
+5. **Coarse times.**
+   - A file rewritten within the same second as its stamp, keeping its size, is hashed again in the next process.
+   - A folder changed within 2 s of its stamp is scanned again.
+6. **Windows.** On Windows no record is read or written, and every writable call scans. Patched platform checks verify both on any system, and CI runs them on Windows.
+7. Every check of spec 012 and every escape test passes unchanged.
 
 ## Acceptance
 
 1. The checks pass, and every existing suite stays green (EXECUTED).
 2. The memo of spec 014 is extended with the writable-call and first-call timings.
-3. `docs/sandbox.md` says that the artifact check trusts a record in the module cache, and when it does not.
+3. `docs/sandbox.md` says that the artifact check trusts a record in the module cache on Linux and macOS, and when it does not.
 4. `CHANGELOG.md` under "Unreleased".
 5. A fresh agent's review, which checks the arguments of decisions 1 and 3 against the code, lands.
