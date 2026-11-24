@@ -286,8 +286,11 @@ for dirpath, _, names in os.walk(os.path.dirname(wasmtime.__file__)):
         if "wasmtime" in n and os.path.splitext(n)[1] in (".so", ".dylib", ".dll"):
             target = os.path.join(dirpath, n)
 os.makedirs(os.path.join(grant, "a"))
-os.link(target, os.path.join(grant, "a", "copy" + os.path.splitext(target)[1]))
-after = call()
+try:
+    os.link(target, os.path.join(grant, "a", "copy" + os.path.splitext(target)[1]))
+    after = call()
+except OSError as e:
+    after = "no link: " + str(e)
 print(json.dumps({"before": before, "linked": [str(p) for p in linked], "after": after,
                   "scans": sum(1 for p in listed if p == lib)}))
 """
@@ -323,6 +326,8 @@ def test_in_a_copy_mode_install_a_link_made_after_the_scan_is_still_refused(stan
     )
     assert out.returncode == 0, out.stderr
     got = json.loads(out.stdout)
+    if got["after"].startswith("no link: "):
+        pytest.skip(f"no hard link to wasmtime's library here: {got['after']}")
     assert got["before"] == ["hello\n"] * 3
     assert got["linked"] == []  # the scan was made with no second name anywhere
     assert got["after"].startswith("refused: ") and "hard link" in got["after"], got["after"]
