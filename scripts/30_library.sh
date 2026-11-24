@@ -48,12 +48,16 @@ mkdir -p "$ART/lib/perl5" "$ART/dev"
 cp -R "$STAGE/$PRIVLIB" "$ART/lib/perl5/5.42"
 lib="$ART/lib/perl5/5.42"
 mkdir -p "$BUILD/cpan-pure"
+# A find pattern for a name holding a newline, which find's line-by-line readers would split.
+nl_name=$(printf '*\n*')
 for t in $pure; do
     dist="$BUILD/cpan-pure/$(dist_of "$t")"
     unpack_pinned "$t" "$dist" "$LOG"
     [ -d "$dist/lib" ] || fail "$t has no lib/ folder"
     cd "$dist/lib"
     [ -z "$(find . ! -type f ! -type d)" ] || fail "$t's lib/ holds something that is neither a file nor a folder"
+    # The copy below reads one name a line, so a name holding a newline would be read as two.
+    [ -z "$(find . -name "$nl_name")" ] || fail "$t's lib/ holds a name with a newline"
     find . -type f | sed 's|^\./||' | while read -r f; do
         [ ! -e "$lib/$f" ] || fail "$t's lib/$f would replace a file already in the library"
         mkdir -p "$lib/$(dirname "$f")"
@@ -82,9 +86,10 @@ fi
 
 cd "$ART"
 # sha256sum marks a name holding a backslash or a newline, and the lists' readers split on
-# blanks; a name with either, or with a quote, is refused rather than listed wrongly.
-if find . | grep -q "[[:space:]\\\\'\"]"; then
-    fail "an artifact file name holds a blank, a quote or a backslash"
+# blanks; a name with either, or with a quote, is refused rather than listed wrongly. grep reads
+# a line at a time, so a newline is looked for by find itself.
+if find . | grep -q "[[:space:]\\\\'\"]" || [ -n "$(find . -name "$nl_name")" ]; then
+    fail "an artifact file name holds a blank, a quote, a backslash or a newline"
 fi
 listed lib dev >"$BUILD/MANIFEST.tmp"
 mv "$BUILD/MANIFEST.tmp" MANIFEST

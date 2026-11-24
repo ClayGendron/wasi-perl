@@ -384,8 +384,12 @@ def test_the_library_step_lays_a_pure_distribution_in(tmp_path):
             {"Dist-1.0/lib/Ok.pm": b"1;", "Dist-1.0/lib/Leak.pm": Link("OUTSIDE/Leak.pm")},
             "FAILED: Dist-1.0.tar.gz holds an entry that is neither a file nor a folder\n",
         ),
+        (
+            {"Dist-1.0/lib/Ok.pm": b"1;", "Dist-1.0/lib/x\nb.pm": b"1;"},
+            "FAILED: Dist-1.0.tar.gz's lib/ holds a name with a newline\n",
+        ),
     ],
-    ids=["a file the library has", "lib a link out", "a file a link out"],
+    ids=["a file the library has", "lib a link out", "a file a link out", "a newline"],
 )
 def test_the_library_step_refuses_a_distribution(tmp_path, members, error):
     outside = tmp_path / "outside"

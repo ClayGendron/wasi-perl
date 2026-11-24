@@ -247,48 +247,92 @@ PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t h
  * the .pmc before the .pm, so most of the host's lookups under the library find nothing, and a
  * host lookup is far dearer than a lookup here. The build compiles into the module an index of
  * every file and folder of the library (wasi-perl-lib-index.h), and the grant the guest sees at
- * /usr/local/lib/perl5 is the library. So for a plain path under that grant, one with no empty
- * and no `..` component once `.` components are dropped, the guest knows the host's answer for
- * a name the library does not hold: ENOTDIR below a file, ENOENT otherwise. It gives that
- * answer itself for a stat, for the look's stat before an open, and for an open that asks for
- * nothing a read-only grant could refuse. Every other call is the host's, and so is every name
- * the index holds: the host's errno stays the answer wherever it could differ. An index of no
- * names is no index: every lookup is the host's.
+ * /usr/local/lib/perl5 is the library, mounted read-only. So for a path under that grant the
+ * guest can know what every host would answer, and then answers itself, for a stat and for an
+ * open that asks for nothing a read-only grant could refuse. Every other call is the host's.
+ *
+ * Every host means one whose names keep their case (Linux) and one whose names ignore it (macOS
+ * and Windows, as usually set up), so the index is searched with A to Z taken as a to z, the
+ * order it is sorted in. Walking the path's folders: a name no case of which is there is ENOENT
+ * on every host; a file reached by exactly its own names is ENOTDIR for a path below it on every
+ * host. Anything else is the host's: a name the index holds, in any case, and a path below a file
+ * reached by names in another case, which one host finds and the other does not. So is every path
+ * a host may read otherwise than the index would: one with an empty or `..` component (`.`
+ * components are dropped), a component longer than 255 bytes, which the host refuses; a byte that
+ * is not ASCII, which wasmtime refuses when it is not UTF-8; and a component Windows rewrites
+ * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`.
+ * An index of no names is no index: every lookup is the host's.
  *
  * The index is the library the module was built with. A set whose library differs is the
  * embedder's to keep whole: a file added to its library is not found. */
 
-/* The longest plain path the index judges; a longer one is the host's. */
+/* The longest plain path the index judges, and the longest component a host takes. */
 #define INDEX_PATH_MAX 1024
+#define INDEX_NAME_MAX 255
 
-/* With prefix 0, whether the index holds `name`. With prefix 1, whether a name the index holds
- * starts with `name`: those names are sorted together, from the first one not below `name`. */
-static int index_has(const char *name, int prefix)
+static unsigned char fold(unsigned char c)
 {
-    const struct wasi_perl_lib_index *ix = &wasi_perl_lib_index;
-    uint32_t lo = 0, hi = ix->count;
+    return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
+}
+
+/* Compares the name s, with A to Z as a to z, with k[0..n) followed by `tail`: with tail 0,
+ * with that string; else with the prefix of n + 1 bytes, so 0 means s starts with it. */
+static int fold_cmp(const char *s, const char *k, size_t n, char tail)
+{
+    unsigned char a, b;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == k[i])
+            continue;
+        a = fold((unsigned char)s[i]);
+        b = fold((unsigned char)k[i]);
+        if (a != b)
+            return a < b ? -1 : 1;
+    }
+    if (tail == 0)
+        return s[n] == '\0' ? 0 : 1;
+    a = fold((unsigned char)s[n]);
+    b = (unsigned char)tail;
+    return a == b ? 0 : (a < b ? -1 : 1);
+}
+
+/* The first of names[lo..hi) not below k[0..n) and tail, compared from byte off on: every name
+ * in the range has the same off bytes before it, in some case. */
+static uint32_t index_find(uint32_t lo, uint32_t hi, size_t off, const char *k, size_t n,
+                           char tail)
+{
+    const char *const *names = wasi_perl_lib_index.names;
     while (lo < hi) {
         uint32_t mid = lo + (hi - lo) / 2;
-        if (strcmp(ix->names[mid], name) < 0)
+        if (fold_cmp(names[mid] + off, k, n, tail) < 0)
             lo = mid + 1;
         else
             hi = mid;
     }
-    if (lo == ix->count)
-        return 0;
-    if (prefix)
-        return strncmp(ix->names[lo], name, strlen(name)) == 0;
-    return strcmp(ix->names[lo], name) == 0;
+    return lo;
 }
 
-/* The index's answer for `path` through the real descriptor dir: ENOENT or ENOTDIR when the
- * library does not hold the name, or success when the host must be asked: dir is not the
- * library's grant, there is no index, the path is not plain, or the index holds the name. */
+/* Whether a component, not `.` or `..`, reads the same to every host. */
+static int index_plain(const char *p, size_t n)
+{
+    if (n > INDEX_NAME_MAX || p[n - 1] == '.' || p[n - 1] == ' ')
+        return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        if (c >= 0x80 || c == '~' || c == '\\' || c == ':')
+            return 0;
+    }
+    return 1;
+}
+
+/* The index's answer for `path` through the real descriptor dir: ENOENT or ENOTDIR where every
+ * host gives it, or success when the host must be asked. */
 static __wasi_errno_t index_answer(__wasi_fd_t dir, const char *path)
 {
+    const char *const *names = wasi_perl_lib_index.names;
     char buf[INDEX_PATH_MAX];
-    size_t len = 0;
-    if (libdir < 0 || dir != (__wasi_fd_t)libdir || wasi_perl_lib_index.count == 0)
+    size_t len = 0, off = 0;
+    uint32_t lo = 0, hi = wasi_perl_lib_index.count;
+    if (libdir < 0 || dir != (__wasi_fd_t)libdir || hi == 0)
         return __WASI_ERRNO_SUCCESS;
     for (const char *p = path;;) {
         const char *end = strchr(p, '/');
@@ -296,7 +340,7 @@ static __wasi_errno_t index_answer(__wasi_fd_t dir, const char *path)
         if (n == 0 || (n == 2 && p[0] == '.' && p[1] == '.'))
             return __WASI_ERRNO_SUCCESS;
         if (n != 1 || p[0] != '.') {
-            if (len + n + 2 > sizeof buf)
+            if (!index_plain(p, n) || len + n + 2 > sizeof buf)
                 return __WASI_ERRNO_SUCCESS;
             if (len > 0)
                 buf[len++] = '/';
@@ -310,25 +354,25 @@ static __wasi_errno_t index_answer(__wasi_fd_t dir, const char *path)
     if (len == 0)
         return __WASI_ERRNO_SUCCESS; /* the grant itself */
     buf[len] = '\0';
-    /* Every name on the way must be a folder the index holds: a missing one is ENOENT, a file
-     * ENOTDIR, as the host would find walking the same path. */
-    for (size_t k = 0; k < len; k++) {
-        char after;
-        int folder;
-        if (buf[k] != '/')
-            continue;
-        buf[k] = '\0';
-        if (!index_has(buf, 0))
+    /* Each step narrows [lo, hi) to the names below the folders walked so far, which all share
+     * the path's first off bytes in some case, so a comparison starts at off. */
+    for (;;) {
+        const char *k = buf + off;
+        const char *slash = strchr(k, '/');
+        size_t n = slash != NULL ? (size_t)(slash - k) : len - off;
+        uint32_t m = index_find(lo, hi, off, k, n, 0), below;
+        if (m == hi || fold_cmp(names[m] + off, k, n, 0) != 0)
             return __WASI_ERRNO_NOENT;
-        buf[k] = '/';
-        after = buf[k + 1];
-        buf[k + 1] = '\0';
-        folder = index_has(buf, 1);
-        buf[k + 1] = after;
-        if (!folder)
-            return __WASI_ERRNO_NOTDIR;
+        if (slash == NULL)
+            return __WASI_ERRNO_SUCCESS;
+        below = index_find(m, hi, off, k, n, '/');
+        if (below == hi || fold_cmp(names[below] + off, k, n, '/') != 0)
+            return memcmp(names[m], buf, off + n) == 0 ? __WASI_ERRNO_NOTDIR
+                                                       : __WASI_ERRNO_SUCCESS;
+        hi = index_find(below, hi, off, k, n, '0');
+        lo = below;
+        off += n + 1;
     }
-    return index_has(buf, 0) ? __WASI_ERRNO_SUCCESS : __WASI_ERRNO_NOENT;
 }
 
 /* Whether an open asks for nothing a read-only grant could refuse: no create, truncation or
@@ -995,10 +1039,9 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
  * Anything but a folder, a regular file, or a link the open will not follow is refused:
  * ENOTDIR when the open must find a folder (what the host answers for any other non-folder),
  * ENXIO otherwise (what a host gives for a device it will not open). A name that does not
- * exist, or that the host will not describe, or that the library index says the library does
- * not hold, is left to the open, so creating files works and every other answer stays the
- * host's. An exclusive create needs no look: the host refuses an existing name before it opens
- * anything. The guest's only code is Perl, which cannot call a WASI import directly, so no
+ * exist, or that the host will not describe, is left to the open, so creating files works and
+ * every other answer stays the host's. An exclusive create needs no look: the host refuses an
+ * existing name before it opens anything. The guest's only code is Perl, which cannot call a WASI import directly, so no
  * program can skip the look. What it cannot close is another process on the host swapping the
  * name between the look and the open. When regular is not NULL, it is set to whether the look
  * saw a regular file. */
@@ -1010,8 +1053,7 @@ static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, c
         *regular = 0;
     if ((oflags & __WASI_OFLAGS_CREAT) && (oflags & __WASI_OFLAGS_EXCL))
         return __WASI_ERRNO_SUCCESS;
-    if (index_answer(realdir, path) != __WASI_ERRNO_SUCCESS ||
-        __real___wasi_path_filestat_get(realdir, dirflags, path, &st) != __WASI_ERRNO_SUCCESS)
+    if (__real___wasi_path_filestat_get(realdir, dirflags, path, &st) != __WASI_ERRNO_SUCCESS)
         return __WASI_ERRNO_SUCCESS;
     if (regular)
         *regular = st.filetype == __WASI_FILETYPE_REGULAR_FILE;

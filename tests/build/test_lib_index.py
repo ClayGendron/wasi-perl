@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -94,38 +95,66 @@ def _probe(wasmtime_cli: Path, wasm: Path, lib: Path, *args: str) -> str:
     return p.stdout.decode().strip()
 
 
-def test_lib_index_lists_every_file_and_folder_in_byte_order(probe_lib, tmp_path):
-    (probe_lib / "5.42" / "A-B").mkdir(exist_ok=True)
-    (probe_lib / "5.42" / "A-B" / "c.pm").write_text("1;\n")
-    try:
-        out = tmp_path / "index.c"
-        subprocess.run(["sh", str(LIB_INDEX), str(probe_lib), str(out)], check=True)
-        source = out.read_text()
-    finally:
-        (probe_lib / "5.42" / "A-B" / "c.pm").unlink()
-        (probe_lib / "5.42" / "A-B").rmdir()
+def _lib(tmp_path: Path, *files: str) -> Path:
+    lib = tmp_path / "lib"
+    for f in files:
+        (lib / f).parent.mkdir(parents=True, exist_ok=True)
+        (lib / f).write_text("1;\n")
+    return lib
+
+
+def _index_of(lib: Path, out: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["sh", str(LIB_INDEX), str(lib), str(out)], capture_output=True)
+
+
+def test_lib_index_lists_every_file_and_folder_in_folded_order(tmp_path):
+    lib = _lib(tmp_path, "5.42/A.pm", "5.42/A.pmc", "5.42/A-B/c.pm", "5.42/Z.pm", "5.42/b.pm")
+    out = tmp_path / "index.c"
+    p = _index_of(lib, out)
+    assert p.returncode == 0, p
+    source = out.read_text()
     names = _names_of(source)
-    # Byte order, strcmp's: "-" (0x2d) and "." (0x2e) sort before "/" (0x2f).
-    assert names == ["5.42", "5.42/A-B", "5.42/A-B/c.pm", "5.42/A.pm", "5.42/A.pmc"], source
+    # The order of the names with A to Z made a to z, in bytes: "-" (0x2d) and "." (0x2e) sort
+    # before "/" (0x2f), and b.pm before Z.pm. Each name keeps its own case.
+    assert names == [
+        "5.42",
+        "5.42/A-B",
+        "5.42/A-B/c.pm",
+        "5.42/A.pm",
+        "5.42/A.pmc",
+        "5.42/b.pm",
+        "5.42/Z.pm",
+    ], source
     assert re.search(rf"^\s*{len(names)},$", source, re.M), source
     assert _marker_of(source) == _sha_of_lines(names)
-    assert str(probe_lib) not in source  # the bytes do not depend on where the build ran
+    assert str(lib) not in source  # the bytes do not depend on where the build ran
 
 
-def test_lib_index_refuses_an_empty_folder_and_a_link(tmp_path):
+@pytest.mark.parametrize(
+    ("files", "error"),
+    [
+        (("5.42/A.pm", "5.42/Empty/"), b"empty folder"),
+        (("5.42/A.pm", "5.42/L.pm@A.pm"), b"neither a file nor a folder"),
+        (("5.42/A.pm", "5.42/x\nb.pm"), b"a newline"),
+        (("5.42/A.pm", "5.42/a.pm"), b"differ only in case"),
+        (("5.42/A.pm", "5.42/Lib/x.pm", "5.42/LIB/y.pm"), b"differ only in case"),
+    ],
+    ids=["an empty folder", "a link", "a newline", "two files by case", "two folders by case"],
+)
+def test_lib_index_refuses(tmp_path, files, error):
     lib = tmp_path / "lib"
-    (lib / "5.42" / "Empty").mkdir(parents=True)
-    (lib / "5.42" / "A.pm").write_text("1;\n")
-    p = subprocess.run(
-        ["sh", str(LIB_INDEX), str(lib), str(tmp_path / "a.c")], capture_output=True, check=False
-    )
-    assert p.returncode != 0 and b"empty folder" in p.stderr, p
-    (lib / "5.42" / "Empty").rmdir()
-    (lib / "5.42" / "L.pm").symlink_to("A.pm")
-    p = subprocess.run(
-        ["sh", str(LIB_INDEX), str(lib), str(tmp_path / "b.c")], capture_output=True, check=False
-    )
-    assert p.returncode != 0 and b"neither a file nor a folder" in p.stderr, p
+    for f in files:
+        if f.endswith("/"):
+            (lib / f).mkdir(parents=True)
+        elif "@" in f:
+            name, target = f.split("@")
+            (lib / name).symlink_to(target)
+        else:
+            (lib / f).parent.mkdir(parents=True, exist_ok=True)
+            (lib / f).write_text("1;\n")
+    p = _index_of(lib, tmp_path / "out.c")
+    assert p.returncode != 0 and error in p.stderr, p
+    assert not (tmp_path / "out.c").exists()
 
 
 def test_a_pmc_the_index_lists_is_asked_of_the_host(probes, probe_lib, wasmtime_cli):
@@ -152,12 +181,58 @@ def test_a_listed_read_is_asked_of_the_host(probes, probe_lib, wasmtime_cli):
 
 
 def test_a_create_reaches_the_host(probes, probe_lib, wasmtime_cli):
-    # The look finds no B.pm in the index, so only the open itself reaches the host.
+    # The index answers no open that asks to write, nor the look's stat before it, which
+    # refuses a special file whatever the index holds.
     try:
         got = _probe(wasmtime_cli, probes["indexed"], probe_lib, "create", "5.42/B.pm")
     finally:
         (probe_lib / "5.42" / "B.pm").unlink(missing_ok=True)
-    assert got == "ok, 0 stats, 1 opens"
+    assert got == "ok, 1 stats, 1 opens"
+
+
+# Each a path the host may answer otherwise than the index would: a name in another case, which
+# a host whose names ignore case finds; a name Windows rewrites (a trailing "." or blank, a "~"
+# of a short name, a "\\" or a ":"); a component longer than the host's 255 bytes; a byte that
+# is not ASCII, which wasmtime refuses when it is not UTF-8.
+HOST_PATHS = [
+    ("stat", "5.42/a.pmc"),
+    ("stat", "5.42/A.PM"),
+    ("read", "5.42/a.pm"),
+    ("stat", "5.42/a.pm/x"),
+    ("stat", "5.42/A.pm."),
+    ("stat", "5.42/A.pm "),
+    ("stat", "5.42/A~1.PM"),
+    ("stat", "5.42/B~1/x.pm"),
+    ("stat", "5.42/A\\B.pm"),
+    ("stat", "5.42/A:B.pm"),
+    ("stat", "5.42/" + "a" * 256),
+    ("stat", "a" * 300 + "/x"),
+    # The byte 0xe9 alone, which the probe reads from "%e9".
+    ("stat", "5.42/%e9.pm"),
+    ("read", "5.42/A.pm/%e9"),
+]
+
+
+@pytest.mark.parametrize(("op", "path"), HOST_PATHS, ids=[f"{o} {p[:40]!r}" for o, p in HOST_PATHS])
+def test_a_path_the_host_may_answer_otherwise_reaches_the_host(
+    probes, probe_lib, wasmtime_cli, op, path
+):
+    got = _probe(wasmtime_cli, probes["indexed"], probe_lib, op, path)
+    # A read is the look's stat, then the open.
+    want = "1 stats, 0 opens" if op == "stat" else "1 stats, 1 opens"
+    assert got.split(", ", 1)[1] == want, (path, got)
+
+
+def test_a_name_in_no_case_is_answered_without_the_host(probes, probe_lib, wasmtime_cli):
+    # In no case does the library hold these, so every host answers ENOENT or ENOTDIR.
+    for op, path, want in (
+        ("stat", "5.42/b.PMC", "ENOENT"),
+        ("stat", "NOPE/x", "ENOENT"),
+        ("read", "5.42/A.pm/X", "ENOTDIR"),
+        ("stat", "5.42/A.pm/x/y", "ENOTDIR"),
+    ):
+        got = _probe(wasmtime_cli, probes["indexed"], probe_lib, op, path)
+        assert got == f"{want}, 0 stats, 0 opens", path
 
 
 def test_with_the_empty_index_every_stat_reaches_the_host(probes, probe_lib, wasmtime_cli):
@@ -182,7 +257,7 @@ def _manifest_library() -> list[str]:
 def _expected_index() -> tuple[list[str], set[str]]:
     files = _manifest_library()
     folders = {str(a) for f in files for a in PurePosixPath(f).parents if str(a) != "."}
-    names = sorted(set(files) | folders, key=lambda n: n.encode())
+    names = sorted(set(files) | folders, key=lambda n: n.encode().lower())
     return names, folders
 
 
@@ -262,3 +337,39 @@ def test_the_link_step_is_stamped_by_its_own_inputs_and_the_library(perl_wasm):
     for earlier in ("20_target.sh", "30_library.sh"):
         assert "lib_index.sh" not in (scripts / earlier).read_text(), earlier
     assert '"$BUILD/.target.stamp"' in (scripts / "30_library.sh").read_text()
+
+
+def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
+    """40_link.sh in a scratch checkout whose stamp matches: up to date only while the set holds
+    perl.wasm. Without it the step runs again, and here stops at the compiler, which the scratch
+    checkout lacks."""
+    root = tmp_path / "checkout"
+    shutil.copytree(ROOT / "scripts", root / "scripts")
+    shutil.copytree(ROOT / "recipes", root / "recipes")
+    build = root / "build"
+    art = build / "artifacts"
+    (art / "lib" / "perl5" / "5.42").mkdir(parents=True)
+    (art / "lib" / "perl5" / "5.42" / "A.pm").write_text("1;\n")
+    for f in ("MANIFEST", "SHA256SUMS", "perl.wasm"):
+        (art / f).write_text("")
+    (build / "target").mkdir()
+    (build / "target" / "perl").write_text("")
+    (build / "target" / "config.sh").write_text("libs='-lm'\n")
+    (build / ".library.stamp").write_text("stand-in\n")
+    scripts = root / "scripts"
+    stamp = _stamp_of(
+        scripts / "40_link.sh", scripts / "lib_index.sh", scripts / "lib.sh", build / ".library.stamp"
+    )
+    (build / ".link.stamp").write_text(stamp + "\n")
+
+    def step() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["sh", str(scripts / "40_link.sh")], capture_output=True, text=True, check=False
+        )
+
+    p = step()
+    assert (p.returncode, p.stdout) == (0, "40_link: up to date\n"), p
+    (art / "perl.wasm").unlink()
+    p = step()
+    assert p.returncode == 1 and "up to date" not in p.stdout, p
+    assert p.stderr.startswith("FAILED: "), p

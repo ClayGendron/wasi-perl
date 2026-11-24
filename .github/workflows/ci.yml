@@ -300,9 +300,9 @@ jobs:
           export WASI_PERL_ARTIFACTS
           "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/oneliners \
             -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/junit.xml"
-      # A guest check that skipped proved nothing: the escape tests, the guest one-liners and the
-      # checks of the kept runtime scan must all have run (a known difference, an expected
-      # failure, is reported and allowed). A skip of a whole module shows in JUnit with an empty
+      # A guest check that skipped proved nothing: the escape tests, the guest one-liners, the
+      # checks of the kept runtime scan and of a library name in another case must all have run
+      # (a known difference, an expected failure, is reported and allowed). A skip of a whole module shows in JUnit with an empty
       # classname and the module as its name, so it is counted too. And at least one escape test per test function and one one-liner per
       # corpus case must have run, so a collection that drops checks fails. The one exception is
       # a check of a host feature the system does not have, by its exact reason: Windows has no
@@ -322,7 +322,9 @@ jobs:
           escapes = sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
           tree = ast.parse(open("tests/runner/test_kept_checks.py", encoding="utf-8").read())
           kept = sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
-          floor = cases + escapes + kept
+          tree = ast.parse(open("tests/runner/test_library_case.py", encoding="utf-8").read())
+          lettercase = sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
+          floor = cases + escapes + kept + lettercase
           host_lacks = set()
           if sys.platform == "win32":
               host_lacks = {"POSIX links", "POSIX FIFOs", "a scan is not kept on this system"}
@@ -331,7 +333,9 @@ jobs:
               where, name = case.get("classname", ""), case.get("name", "")
               if not where:  # a whole module, collected or skipped as one
                   where, name = name, "(the module)"
-              guest = where.startswith(("tests.escapes", "tests.runner.test_kept_checks")) or (
+              guest = where.startswith(
+                  ("tests.escapes", "tests.runner.test_kept_checks", "tests.runner.test_library_case")
+              ) or (
                   where.startswith("tests.oneliners.test_oneliners")
                   and (name.startswith("test_guest_") or name == "(the module)")
               )
@@ -347,7 +351,7 @@ jobs:
                       continue
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
-          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {kept} kept-scan checks), {skipped} skipped")
+          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {kept} kept-scan checks, {lettercase} library-case checks), {skipped} skipped")
           sys.exit(1 if skipped or ran < floor else 0)
           PY
 

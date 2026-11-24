@@ -10,11 +10,13 @@
  *   lib_index_probe read <path>          open(..., O_RDONLY)
  *   lib_index_probe create <path>        open(..., O_WRONLY | O_CREAT)
  *
- * It prints one line: the answer (ok, ENOENT, ENOTDIR, or errno's number), then the host's
- * path_filestat_get and path_open calls. */
+ * In <path>, "%" and two hex digits stand for that byte, so a path can hold one the command line
+ * would not pass. It prints one line: the answer (ok, ENOENT, ENOTDIR, or errno's number), then
+ * the host's path_filestat_get and path_open calls. */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -61,7 +63,19 @@ int main(int argc, char **argv)
     int failed, fd = -1;
     if (argc != 3)
         return 2;
-    snprintf(path, sizeof path, "/usr/local/lib/perl5/%s", argv[2]);
+    size_t n = (size_t)snprintf(path, sizeof path, "/usr/local/lib/perl5/");
+    for (const char *p = argv[2]; *p != '\0' && n + 1 < sizeof path; p++) {
+        char hex[3] = {0};
+        if (p[0] == '%' && p[1] != '\0' && p[2] != '\0') {
+            hex[0] = p[1];
+            hex[1] = p[2];
+            path[n++] = (char)strtol(hex, NULL, 16);
+            p += 2;
+        } else {
+            path[n++] = *p;
+        }
+    }
+    path[n] = '\0';
     if (strcmp(argv[1], "stat") == 0) {
         failed = stat(path, &st) != 0;
     } else if (strcmp(argv[1], "read") == 0) {

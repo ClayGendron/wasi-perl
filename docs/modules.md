@@ -28,7 +28,7 @@ Five distributions that are not in Perl's own tarball are built in, each from a 
 
 ## Adding Perl code
 
-The library is fixed. `perl.wasm` holds an index of the library it was built with, and answers "no such file" itself for any other name under `/usr/local/lib/perl5`. So a file added to the library folder is not found, even in a set passed with `run(artifacts=...)`.
+The library is fixed. `perl.wasm` holds an index of the library it was built with, and answers "no such file" itself for a name under `/usr/local/lib/perl5` that it holds in no case. So a file added to the library folder is not found, even in a set passed with `run(artifacts=...)`.
 
 To add Perl code, grant it in a folder of its own and name that folder with `-I` or `PERL5LIB`:
 
@@ -36,7 +36,9 @@ To add Perl code, grant it in a folder of its own and name that folder with `-I`
 run(["-I/code", "-MMy::Tool", "-e", "My::Tool::main()"], grants=[Grant("my-code", "/code")])
 ```
 
-`@INC` is as Perl configures it, and a `.pmc` beside a `.pm` is still preferred. A library name in the wrong case, such as `Strict.pm`, is not found, as on Linux, even on a host whose file names ignore case.
+`@INC` is as Perl configures it, and a `.pmc` beside a `.pm` is still preferred. A name the guest answers itself is one no host could find, so every other lookup is still the host's: a name in another case, such as `Strict.pm`, is found where the host's file names ignore case (macOS and Windows), as before.
+
+The index assumes the library is mounted read-only, as the runner always mounts it. An embedder that mounts it writable sees a file the program makes there in `readdir`, but not with `-e` or `require`.
 
 ## Left out
 

@@ -23,7 +23,8 @@ STAMP="$BUILD/.link.stamp"
     || fail "the library is missing; run scripts/30_library.sh"
 [ -f "$SRC/perl" ] && [ -f "$SRC/config.sh" ] || fail "build/target is missing; run scripts/20_target.sh"
 stamp=$(stamp_of "$0" "$(dirname "$0")/lib_index.sh" "$(dirname "$0")/lib.sh" "$BUILD/.library.stamp")
-if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/SHA256SUMS" ]; then
+if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/SHA256SUMS" ] \
+    && [ -f "$ART/perl.wasm" ]; then
     echo "40_link: up to date"
     exit 0
 fi

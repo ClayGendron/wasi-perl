@@ -107,19 +107,34 @@ def test_library_files_and_folders_are_seen_as_before(guest):
     assert r.stdout.decode().splitlines() == ["1", "0 ENOENT", "1", "1", " ".join(listed)]
 
 
-# Decision 3's table: each row's Perl, the error it gives, and whether its call reaches the host.
+# Each row: a program's call under the library, the errno it gives, and the host call it makes:
+# None when the index answers it, else the WASI function that must reach the host once.
 L = "/usr/local/lib/perl5"
+OPEN, STAT = "path_open", "path_filestat_get"
 ROWS = [
-    ("read-below-file", f'open(my $f, "<", "{L}/5.42/strict.pm/x")', "ENOTDIR", False),
-    ("stat-below-file", f'stat("{L}/5.42/strict.pm/x")', "ENOTDIR", False),
-    ("read-missing", f'open(my $f, "<", "{L}/5.42/nope.pm")', "ENOENT", False),
-    ("opendir-missing", f'opendir(my $d, "{L}/5.42/Nope")', "ENOENT", False),
-    ("read-trailing-slash", f'open(my $f, "<", "{L}/5.42/strict.pm/")', "ENOTDIR", True),
-    ("lib-new", f'open(my $f, ">", "{L}/x")', "EPERM", True),
-    ("create-in-lib", f'open(my $f, ">", "{L}/5.42/Evil.pm")', "EPERM", True),
-    ("append-missing", f'open(my $f, ">>", "{L}/5.42/Evil.pm")', "EPERM", True),
-    ("read-write-missing", f'open(my $f, "+<", "{L}/5.42/Evil.pm")', "EPERM", True),
-    ("create-below-missing", f'open(my $f, ">", "{L}/nope/x")', "EPERM", True),
+    ("read-below-file", f'open(my $f, "<", "{L}/5.42/strict.pm/x")', "ENOTDIR", None),
+    ("stat-below-file", f'stat("{L}/5.42/strict.pm/x")', "ENOTDIR", None),
+    ("read-missing", f'open(my $f, "<", "{L}/5.42/nope.pm")', "ENOENT", None),
+    ("opendir-missing", f'opendir(my $d, "{L}/5.42/Nope")', "ENOENT", None),
+    ("read-trailing-slash", f'open(my $f, "<", "{L}/5.42/strict.pm/")', "ENOTDIR", OPEN),
+    ("lib-new", f'open(my $f, ">", "{L}/x")', "EPERM", OPEN),
+    ("create-in-lib", f'open(my $f, ">", "{L}/5.42/Evil.pm")', "EPERM", OPEN),
+    ("append-missing", f'open(my $f, ">>", "{L}/5.42/Evil.pm")', "EPERM", OPEN),
+    ("read-write-missing", f'open(my $f, "+<", "{L}/5.42/Evil.pm")', "EPERM", OPEN),
+    ("create-below-missing", f'open(my $f, ">", "{L}/nope/x")', "EPERM", OPEN),
+    # A host whose names ignore case finds these; this one does not.
+    ("stat-other-case", f'stat("{L}/5.42/Strict.pm")', "ENOENT", STAT),
+    ("exists-other-case", f'-e "{L}/5.42/STRICT.PM"', "ENOENT", STAT),
+    ("read-other-case", f'open(my $f, "<", "{L}/5.42/Strict.pm")', "ENOENT", OPEN),
+    ("below-other-case", f'stat("{L}/5.42/Strict.pm/x")', "ENOENT", STAT),
+    # Windows rewrites these to a name it may find.
+    ("stat-trailing-dot", f'stat("{L}/5.42/strict.pm.")', "ENOENT", STAT),
+    ("stat-short-name", f'stat("{L}/5.42/STRICT~1.PM")', "ENOENT", STAT),
+    # The host refuses these before it looks the name up.
+    ("stat-long-component", f'stat("{L}/5.42/" . ("a" x 256))', "ENAMETOOLONG", STAT),
+    ("read-long-component", f'open(my $f, "<", "{L}/5.42/" . ("a" x 256))', "ENAMETOOLONG", OPEN),
+    ("stat-not-utf8", f'stat("{L}/5.42/\\xe9.pm")', "EILSEQ", STAT),
+    ("read-not-utf8", f'open(my $f, "<", "{L}/5.42/strict.pm/\\xe9")', "EILSEQ", OPEN),
 ]
 
 
@@ -130,7 +145,7 @@ def test_each_answer_is_as_before(guest, name, code, errno, host):
 
 
 @pytest.mark.parametrize(("name", "code", "errno", "host"), ROWS, ids=[r[0] for r in ROWS])
-def test_each_call_reaches_the_host_as_the_table_says(
+def test_each_call_reaches_the_host_or_not(
     wasmtime_cli, perl_wasm, library_copy, name, code, errno, host
 ):
     try:
@@ -139,11 +154,20 @@ def test_each_call_reaches_the_host_as_the_table_says(
         # The traced copy is writable; what a row made in it is taken away again.
         for made in ("x", "5.42/Evil.pm"):
             (library_copy / made).unlink(missing_ok=True)
-    calls = _on_library(t, "path_open") + _on_library(t, "path_filestat_get")
-    if host:
-        assert _on_library(t, "path_open") == 1, t.calls
+    if host is None:
+        assert _on_library(t, OPEN) + _on_library(t, STAT) == 0, t.calls
     else:
-        assert calls == 0, t.calls
+        assert _on_library(t, host) == 1, t.calls
+
+
+def test_a_require_in_another_case_asks_the_host_for_the_name_it_finds_in_some_case(
+    wasmtime_cli, perl_wasm, library_copy
+):
+    # Of the eight names `require Strict` tries, only 5.42/Strict.pm is in the library in some
+    # case, so that one stat is the host's and the other seven are the index's.
+    t = _traced(wasmtime_cli, perl_wasm, library_copy, "-e", "eval { require Strict }")
+    assert _on_library(t, STAT) == 1, t.calls
+    assert _on_library(t, OPEN) == 0, t.calls
 
 
 def test_a_set_passed_as_given_serves_only_the_library_it_was_built_with(perl, tmp_path):
