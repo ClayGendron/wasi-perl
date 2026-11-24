@@ -36,7 +36,8 @@
 #include <unistd.h>
 #include <wasi/api.h>
 
-/* The most virtual numbers at once: the runner's default open-file limit. */
+/* The most virtual numbers at once: the usual native open-file limit (ulimit -n). The host's
+ * own descriptors, the grants among them, count against it. */
 #define FD_LIMIT 1024
 
 struct file {
@@ -55,9 +56,16 @@ static struct file files[FD_LIMIT];
 static uint16_t slot[FD_LIMIT];
 /* FD_CLOEXEC of each virtual number. Nothing can be executed, so it only has to read back. */
 static uint8_t cloexec[FD_LIMIT];
+/* The grants' numbers. wasi-libc finds each preopened folder once, keeps its number, and
+ * resolves every path under that folder through it for the rest of the run. So a grant's
+ * number always names its grant: closing it succeeds and leaves the grant open, and nothing
+ * may be put on it (dup2, dup3, fd_renumber answer EBADF). Since it is never freed, no open,
+ * dup or F_DUPFD is given it, and a path under one grant can never land in another. */
+static uint8_t grant[FD_LIMIT];
 static int started;
 
 __typeof__(__wasi_fd_fdstat_get) __real___wasi_fd_fdstat_get;
+__typeof__(__wasi_fd_prestat_get) __real___wasi_fd_prestat_get;
 __typeof__(__wasi_fd_close) __real___wasi_fd_close;
 __typeof__(__wasi_path_open) __real___wasi_path_open;
 __typeof__(__wasi_path_rename) __real___wasi_path_rename;
@@ -93,7 +101,10 @@ static void start(void)
                 break;
             continue;
         }
+        __wasi_prestat_t pre;
         bind(fd, new_file((__wasi_fd_t)fd), fd > 2);
+        grant[fd] = fd > 2 && __real___wasi_fd_prestat_get((__wasi_fd_t)fd, &pre) == 0 &&
+                    pre.tag == __WASI_PREOPENTYPE_DIR;
     }
 }
 
@@ -313,14 +324,17 @@ __wasi_errno_t __wrap___wasi_path_symlink(const char *old_path, __wasi_fd_t fd,
     return __real___wasi_path_symlink(old_path, fd, new_path);
 }
 
-/* poll_oneoff names descriptors inside its subscriptions. A closed number is passed on as a
- * number no host gives out, so the host reports EBADF for that subscription, as it would. */
+/* poll_oneoff names descriptors inside its subscriptions. A subscription on a closed number is
+ * not sent to the host, which would fail the whole call; it gets its own event, EBADF with
+ * its userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively.
+ * The host's events follow it in `out`. */
 __typeof__(__wasi_poll_oneoff) __real___wasi_poll_oneoff, __wrap___wasi_poll_oneoff;
 __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi_event_t *out,
                                          __wasi_size_t nsubscriptions, __wasi_size_t *nevents)
 {
     __wasi_subscription_t *copy;
-    __wasi_errno_t error;
+    __wasi_errno_t error = __WASI_ERRNO_SUCCESS;
+    __wasi_size_t nbad = 0, nsent = 0, nhost = 0;
     int has_fd = 0;
     for (__wasi_size_t i = 0; i < nsubscriptions; i++)
         has_fd |= in[i].u.tag != __WASI_EVENTTYPE_CLOCK;
@@ -329,17 +343,56 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
     copy = malloc(nsubscriptions * sizeof *copy);
     if (copy == NULL)
         return __WASI_ERRNO_NOMEM;
-    memcpy(copy, in, nsubscriptions * sizeof *copy);
     for (__wasi_size_t i = 0; i < nsubscriptions; i++) {
         /* fd_read and fd_write have the same layout. */
-        __wasi_fd_t *fd = &copy[i].u.u.fd_read.file_descriptor;
-        if (copy[i].u.tag == __WASI_EVENTTYPE_CLOCK)
+        __wasi_fd_t fd = in[i].u.u.fd_read.file_descriptor;
+        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK && !is_open((int)fd)) {
+            memset(&out[nbad], 0, sizeof out[nbad]);
+            out[nbad].userdata = in[i].userdata;
+            out[nbad].error = __WASI_ERRNO_BADF;
+            out[nbad].type = in[i].u.tag;
+            nbad++;
             continue;
-        *fd = is_open((int)*fd) ? files[slot[*fd] - 1].real : UINT32_MAX;
+        }
+        copy[nsent] = in[i];
+        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK)
+            copy[nsent].u.u.fd_read.file_descriptor = files[slot[fd] - 1].real;
+        nsent++;
     }
-    error = __real___wasi_poll_oneoff(copy, out, nsubscriptions, nevents);
+    /* With a closed number there is something to report already, so the host is asked
+     * whether anything else is ready without waiting: a clock subscription would make it
+     * wait, and a refused one is answered at once. */
+    if (nbad > 0) {
+        __wasi_size_t keep = 0;
+        for (__wasi_size_t i = 0; i < nsent; i++) {
+            if (copy[i].u.tag != __WASI_EVENTTYPE_CLOCK)
+                copy[keep++] = copy[i];
+        }
+        nsent = keep;
+        if (nsent > 0) {
+            __wasi_subscription_t *now = &copy[nsent++];
+            memset(now, 0, sizeof *now);
+            now->userdata = UINT64_MAX;
+            now->u.tag = __WASI_EVENTTYPE_CLOCK;
+            now->u.u.clock.id = __WASI_CLOCKID_MONOTONIC;
+        }
+    }
+    if (nsent > 0)
+        error = __real___wasi_poll_oneoff(copy, out + nbad, nsent, &nhost);
     free(copy);
-    return error;
+    if (error != __WASI_ERRNO_SUCCESS)
+        return error;
+    /* The zero clock added above is not the caller's; its event is dropped. */
+    if (nbad > 0) {
+        __wasi_size_t keep = nbad;
+        for (__wasi_size_t i = nbad; i < nbad + nhost; i++) {
+            if (out[i].userdata != UINT64_MAX || out[i].type != __WASI_EVENTTYPE_CLOCK)
+                out[keep++] = out[i];
+        }
+        nhost = keep - nbad;
+    }
+    *nevents = nbad + nhost;
+    return __WASI_ERRNO_SUCCESS;
 }
 
 /* A host's open of a FIFO waits in the kernel for the other end, where neither the runner's
@@ -429,20 +482,22 @@ __wasi_errno_t __wrap___wasi_fd_close(__wasi_fd_t fd)
 {
     if (!is_open((int)fd))
         return __WASI_ERRNO_BADF;
+    if (grant[fd])
+        return __WASI_ERRNO_SUCCESS;
     return release((int)fd);
 }
 
-/* Moves one number onto another, closing the other first if it is open (wasi-libc's freopen
- * uses this). It is a table operation; the host is told only if a real descriptor closes. */
+/* Moves one open number onto another, closing the other first (wasi-libc's freopen uses
+ * this). It is a table operation; the host is told only if a real descriptor closes. A grant's
+ * number is neither moved nor replaced. */
 __typeof__(__wasi_fd_renumber) __wrap___wasi_fd_renumber;
 __wasi_errno_t __wrap___wasi_fd_renumber(__wasi_fd_t fd, __wasi_fd_t to)
 {
-    if (!is_open((int)fd) || to >= FD_LIMIT)
-        return __WASI_ERRNO_BADF;
+    if (!is_open((int)fd) || !is_open((int)to) || grant[fd] || grant[to])
+        return __WASI_ERRNO_BADF; /* as WASI's own, which needs both open */
     if (fd == to)
         return __WASI_ERRNO_SUCCESS;
-    if (slot[to] != 0)
-        (void)release((int)to);
+    (void)release((int)to);
     slot[to] = slot[fd];
     cloexec[to] = cloexec[fd];
     slot[fd] = 0;
@@ -477,7 +532,7 @@ int __wrap_dup(int fd)
  * quietly. */
 static int dup_onto(int fd, int newfd, int close_on_exec)
 {
-    if (!is_open(fd) || newfd < 0 || newfd >= FD_LIMIT) {
+    if (!is_open(fd) || newfd < 0 || newfd >= FD_LIMIT || (grant[newfd] && fd != newfd)) {
         errno = EBADF;
         return -1;
     }
