@@ -39,7 +39,7 @@ About `%SIG`:
 
 ## What still works
 
-- `$$`. It is always 42 (wasi-libc's stand-in process ID).
+- `$$`. It is always 42, wasi-libc's stand-in process ID.
 - `getppid`. It returns 0: the parent is the host, outside the sandbox, as for a Linux process whose parent is in another PID namespace.
 - `times`, `sleep`, and `select(undef, undef, undef, $seconds)`. They use WASI's clock.
 - `exit`, `END` blocks, `die` and `warn`.
