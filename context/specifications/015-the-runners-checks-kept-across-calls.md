@@ -10,12 +10,12 @@
 
 Two checks of specification 012 redo the same work on every call. Each was right to do so until there was a way to know the work's answer had not changed.
 
-- **The hard-link rule.** No writable grant may hold a second name of a runtime file. It lists and `lstat`s about 3,000 runtime files on every call with a writable grant. That is 19 ms, which takes a writable call to 21–24 ms.
-- **The artifact check.** It hashes all 1,455 library files in every new process, about 70 ms of a first call.
+- **The hard-link rule.** No writable grant may hold a second name of a runtime file. It lists and `lstat`s about 3,000 runtime files on every call with a writable grant. That is 19 ms, which takes a writable call to 21–24 ms (EXECUTED in study A, `results/calls.jsonl`, the wheel's layout).
+- **The artifact check.** It hashes all 1,455 library files in every new process, about 70 ms of a first call (EXECUTED in study A, `results/first_call.jsonl`).
 
 After this specification, both keep exactly the guarantee they give today:
-- a writable call costs about 3 ms;
-- a fresh process's first call costs about 34 ms with a cache, and as today without one.
+- a writable call costs about 3 ms (EXECUTED in study A: 2.8–3.3 ms with L1–L8);
+- a fresh process's first call costs about 34 ms with a cache, and as today without one (EXECUTED in study A: L1–L8, five processes).
 
 These levers keep a rule by a new argument. That is why they are a specification of their own, with checks for each way the argument could fail.
 
@@ -37,7 +37,7 @@ These levers keep a rule by a new argument. That is why they are a specification
      - past `MAX_WALK`.
    - A file that a grant's file matched is read afresh too.
 3. **A first call trusts a record of what it hashed, kept in the module cache (L6).**
-   - **Writing the record.** After a full check passes, the runner writes `tree-<SHA-256 of SHA256SUMS>.json` into the module cache folder, with `_cache.write`'s rules: 0600, renamed into place. It lists each file's `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` under which its hash matched, `perl.wasm` and `MANIFEST` included.
+   - **Writing the record.** After a full check passes, the runner writes `tree-<SHA-256 of SHA256SUMS>-<st_dev>-<st_ino of the artifact root>.json` into the module cache folder, with `_cache.write`'s rules: 0600, renamed into place. It lists each file's `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` under which its hash matched, `perl.wasm` and `MANIFEST` included.
    - **Using it.** A later process walks the tree with every rule as today: no link, no file the list omits, no listed file missing, and `dev/` exactly one empty `null`. It hashes only the files whose stamp differs from the record, and writes a new record if any were hashed.
    - **Reading it.** The record is read through `_cache.read`, so it is trusted exactly as a `.cwasm` beside it is. Whoever could forge it could already write a `.cwasm`, which is native code.
    - **Without it.** With `cache_dir=False`, or a cache folder that is refused, there is no record and every file is hashed, as today.

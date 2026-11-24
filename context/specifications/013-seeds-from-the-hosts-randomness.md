@@ -31,7 +31,7 @@ Evidence:
    - Every caller already tries `/dev/urandom` first, so all three get real randomness with no patch to Perl.
    - Perl programs and modules that read `/dev/urandom` themselves work as they do natively.
 2. **What the device is.** It is a descriptor of the guest's own table that holds no host descriptor. Native Linux is the model, and every difference is listed in `docs/sandbox.md`.
-   - **Which paths are virtual.** A `path_open` whose folder descriptor is the runner's `/dev` preopen, and whose path, with `.` components dropped, is exactly `urandom` or `random`. So `/dev/urandom` and `/dev/./urandom` are virtual. A path through a grant, such as `<grant>/../dev/urandom`, is not: it goes to the host and gets today's answer.
+   - **Which paths are virtual.** A `path_open` whose folder descriptor is the runner's `/dev` preopen (the table knows it by its preopen name, `/dev`, from `fd_prestat_dir_name`), and whose path, with `.` components dropped, is exactly `urandom` or `random`. So `/dev/urandom` and `/dev/./urandom` are virtual. A path through a grant, such as `<grant>/../dev/urandom`, is not: it goes to the host and gets today's answer.
    - **Its slot.** The table entry's host descriptor is a named sentinel, `VIRTUAL_RANDOM`, beside today's `GONE`. No wrapper may hand it to the host. `release()` skips the host for it, as it does for `GONE`.
    - **The open.**
      - With `O_DIRECTORY`, a trailing `/` (`urandom/`, `urandom/.`), or a path through the device (`urandom/x`, `urandom/..`), it answers `ENOTDIR`, as Linux does. `path_filestat_get` answers the same for those paths.
