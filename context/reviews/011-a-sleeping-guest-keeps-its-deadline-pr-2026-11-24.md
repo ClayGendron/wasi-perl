@@ -92,3 +92,45 @@ Lands. Every route a Perl guest has to a host clock wait is now sliced:
 Each of them stops within one slice of the deadline, on both engines. Huge timeouts saturate. The events returned match a single poll's. The 256 cap counts stdio and the grants. The build-host path check catches the regression it was written for.
 
 M1 (relative waits measured on the wall clock) should be fixed in the next round, or answered in writing. The Lows can ride.
+
+## Round 2 (2026-11-24)
+
+The same reviewer checked 340c93b, a merge of dev, and the fix commit 99b6172. I made a fresh worktree and rebuilt (`10_native`, `20_target` and `30_library: ok`). EXECUTED.
+
+**Tests:**
+- `uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q` gave `394 passed`. EXECUTED.
+- `WASI_PERL_ARTIFACTS=$PWD/build/artifacts uv run pytest -q tests/escapes` gave `22 passed`. EXECUTED.
+
+**M1 is fixed.**
+- Reading the code: `recipes/wasi-fd-table.c:428-442` reads a relative subscription's due time on `CLOCK_MONOTONIC` and an absolute one's on its own clock. `:447-455` measures what remains the same way. The last call still sends a relative timeout on the subscription's own id. READ.
+- I wrote a fake-step probe, `probes011/step.c` in my scratchpad. It compiles the table with `-D__wasi_clock_time_get=fake_clock` against the real host's `poll_oneoff`. After the table's first REALTIME read, REALTIME jumps by ±1 h. It sends one 300 ms wait, timed on the real monotonic clock, under `wasmtime run -W timeout=5s`. EXECUTED.
+
+| Wait | Step | This round's table | 1da4e81's table |
+|---|---|---|---|
+| relative | +1 h | 301 ms, 1 event, userdata 9 | 0 ms (early) |
+| relative | −1 h | 300 ms | still waiting at the 5 s timeout, which traps |
+| relative | none | 301 ms | 301 ms |
+| absolute, 300 ms ahead | +1 h | 0 ms (correct: that time has passed) | 0 ms |
+| absolute, 300 ms ahead | none | 300 ms | 301 ms |
+
+**L1 to L5 are fixed.** EXECUTED.
+- L1: the edge probe's case 1 now gives 1 event with userdata `UINT64_MAX`, at 21 ms. `test_poll_buffer.py` checks it.
+- L2: an absolute wait on a clock the guest cannot read now answers EINVAL.
+- L3: `select(undef,undef,undef,undef)` now waits until the deadline, which ends it at 1.08 s, as natively it blocks. Before, it answered −1 at once.
+- L4: `docs/sandbox.md` now says that the deadline bounds a sleep.
+- L5: an unmetered deadline check was added.
+
+**L6** is answered and left to 012. I accept that.
+
+**The round-1 probes still pass** under `deadline_s=1`, no fuel. `sleep 2**31-1`, `select(…,1e9)` and `nanosleep(1e18)` each end `deadline` at about 1.07 s (2.06 s for the first, which includes the compile). `IO::Select` on STDIN returns at once. EXECUTED.
+
+### Findings of round 2
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| R2-L1 | Low | `recipes/wasi-fd-table.c:434-435`, `:458-460` | **A relative wait on a clock the host does not know now lasts its full time and then answers EINVAL.** Before, it answered at once. In the edge probe, ids 2, 3 and 5, each with a 3 s relative timeout, answered errno 28 after about 3.0 s. Id 5 no longer traps. The time is still bounded by the timeout and by the deadline, and Perl cannot reach it: `Time::HiRes::clock_nanosleep(2, 3e9)` returns in 0.08 s. EXECUTED. | Optionally, check the id up front with `__wasi_clock_res_get(c->id, …)` and answer EINVAL at once when it fails. Otherwise, write the behaviour down in the comment. |
+| R2-L2 | Low | `recipes/wasi-fd-table.c:444-489` (n = 0) | **A poll with no subscriptions now waits in 10 ms slices until the deadline.** The host answers EINVAL for it at once. The edge probe's case 12 was interrupted at 4 s. This is what makes `select` with nothing and no timeout block, as it does natively. It is harmless, but it differs from the host. EXECUTED. | Keep it, and name it in the comment above `sliced_poll`. |
+
+### Round 2 verdict
+
+Lands. M1 is fixed: the fake-step probe shows relative waits unaffected by a wall-clock step in either direction, and absolute waits still following their own clock. L1 to L5 are fixed. L6 is fairly left to 012. The two new Lows are bounded by the deadline, Perl cannot reach the first, and neither blocks the merge.
