@@ -260,13 +260,12 @@ def _checkout_with_a_tampered(tmp_path: Path, tampered: str) -> Path:
         "tools/wasi-sdk-34.0-x86_64-linux/bin/clang",
         "native/miniperl",
         "native/generate_uudmap",
-        "artifacts/perl.wasm",
+        "target/perl",
         ".target.stamp",
     ):
         (build / tool).parent.mkdir(parents=True, exist_ok=True)
         (build / tool).write_text("")
         (build / tool).chmod(0o755)
-    (build / "target").mkdir()
     (build / "target" / "kept").write_text("")
     return root
 
@@ -345,9 +344,9 @@ def _library_checkout(tmp_path: Path, members: dict[str, bytes | Link]) -> tuple
     (root / "recipes" / "cpan-pure").write_text(f"{name}\n")
     build = root / "build"
     (build / "artifacts").mkdir(parents=True)
-    (build / "artifacts" / "perl.wasm").write_bytes(b"")
     (build / ".target.stamp").write_text("stand-in\n")
     (build / "target").mkdir()
+    (build / "target" / "perl").write_bytes(b"")
     (build / "target" / "miniperl").write_text(STANDIN_MINIPERL)
     (build / "target" / "miniperl").chmod(0o755)
     return root, name
@@ -385,8 +384,12 @@ def test_the_library_step_lays_a_pure_distribution_in(tmp_path):
             {"Dist-1.0/lib/Ok.pm": b"1;", "Dist-1.0/lib/Leak.pm": Link("OUTSIDE/Leak.pm")},
             "FAILED: Dist-1.0.tar.gz holds an entry that is neither a file nor a folder\n",
         ),
+        (
+            {"Dist-1.0/lib/Ok.pm": b"1;", "Dist-1.0/lib/x\nb.pm": b"1;"},
+            "FAILED: Dist-1.0.tar.gz's lib/ holds a name with a newline\n",
+        ),
     ],
-    ids=["a file the library has", "lib a link out", "a file a link out"],
+    ids=["a file the library has", "lib a link out", "a file a link out", "a newline"],
 )
 def test_the_library_step_refuses_a_distribution(tmp_path, members, error):
     outside = tmp_path / "outside"

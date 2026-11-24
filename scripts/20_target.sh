@@ -4,6 +4,8 @@
 # it into the .SH files and probes nothing. make then runs with the host tools from build/native.
 # The XS distributions of recipes/cpan-xs join the tree under cpan/, so make_ext.pl builds and
 # links them as it does the core's own static extensions.
+# The result is build/target/perl, linked with the empty library index. Nothing is put in
+# build/artifacts, which holds only the bytes the set ships: 40_link.sh links perl.wasm last.
 . "$(dirname "$0")/lib.sh"
 LOG="$LOGS/20_target.log"
 TARBALL="$DOWNLOADS/perl-$PERL_VERSION.tar.xz"
@@ -42,7 +44,7 @@ done
 inputs=$(find "$ROOT/recipes" "$0" "$(dirname "$0")/lib.sh" "$ROOT/tests/build/memchr-test.c" -type f | LC_ALL=C sort)
 # shellcheck disable=SC2086
 stamp=$(echo "$want$pins" | stamp_of - $inputs "$BUILD/.native.stamp")
-if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/perl.wasm" ]; then
+if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$SRC/perl" ]; then
     echo "20_target: up to date"
     exit 0
 fi
@@ -57,9 +59,13 @@ run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/w
 # memchr compares sixteen bytes a step with SIMD128. It alone is compiled for SIMD: building
 # everything that way gained nothing measurable.
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -msimd128 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-memchr.c" -o "$STUBS/wasi-memchr.o"
-# The descriptor table is linked into every program wasi-cc links, so it comes first.
+# The descriptor table is linked into every program wasi-cc links, so it comes first. Beside it
+# in the archive is the empty library index, which the table reads: every program wasi-cc links
+# gets it, perl's link here among them, unless the link names an index of its own first, as
+# 40_link.sh's relink does once the library is laid out.
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-fd-table.c" -o "$STUBS/wasi-fd-table.o"
-run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-fd-table.a" "$STUBS/wasi-fd-table.o"
+run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-lib-index-empty.c" -o "$STUBS/wasi-lib-index-empty.o"
+run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-fd-table.a" "$STUBS/wasi-fd-table.o" "$STUBS/wasi-lib-index-empty.o"
 # The check of memchr against a byte loop, linked with the object perl links; tests/build runs
 # it.
 mkdir -p "$BUILD/tests"
@@ -108,7 +114,5 @@ run "$LOG" make -j"$JOBS" perl utils/Makefile
 run "$LOG" make -C utils PERL=../miniperl REALPERL=../miniperl
 run "$LOG" make -j"$JOBS"
 [ -f perl ] || fail "make did not produce perl (see $LOG)"
-mkdir -p "$ART"
-cp perl "$ART/perl.wasm"
 echo "$stamp" >"$STAMP"
-echo "20_target: ok ($ART/perl.wasm)"
+echo "20_target: ok ($SRC/perl)"

@@ -30,7 +30,9 @@
  * are a device of the guest's own that reads random_get (the random device), and an open with
  * no access mode reads, as on Linux (open, openat, wrapped as dup is). One more spares the
  * host a call it would answer the same: isatty of a file the look before its open found to be
- * a regular file is "not a terminal" (isatty, wrapped as dup is). */
+ * a regular file is "not a terminal" (isatty, wrapped as dup is). Another spares the host the
+ * lookups of library files that do not exist: the library index answers them (the library
+ * index). */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -40,6 +42,8 @@
 #include <sys/select.h>
 #include <unistd.h>
 #include <wasi/api.h>
+
+#include "wasi-perl-lib-index.h"
 
 /* The most virtual numbers at once, which is also the most host descriptors one call can
  * hold: 256, macOS's default open-file limit, so that a few calls at once cannot exhaust the
@@ -81,6 +85,8 @@ static uint8_t cloexec[FD_LIMIT];
 static uint8_t grant[FD_LIMIT];
 /* The number of the grant the guest sees at /dev, or -1 when there is none. */
 static int devdir = -1;
+/* The number of the grant the guest sees at /usr/local/lib/perl5, or -1 when there is none. */
+static int libdir = -1;
 static int started;
 
 __typeof__(__wasi_fd_fdstat_get) __real___wasi_fd_fdstat_get;
@@ -114,18 +120,18 @@ static int new_file(__wasi_fd_t real)
     abort(); /* cannot happen: there are fewer open files than numbers in use */
 }
 
-/* Whether the grant at real descriptor fd is the one the guest sees at /dev, by its name as
+/* Whether the grant at real descriptor fd is the one the guest sees at `want`, by its name as
  * wasi-libc reads it: trailing slashes do not count. */
-static int is_dev(__wasi_fd_t fd, const __wasi_prestat_t *pre)
+static int is_named(__wasi_fd_t fd, const __wasi_prestat_t *pre, const char *want)
 {
-    char name[8];
+    char name[32];
     size_t n = pre->u.dir.pr_name_len;
     if (n >= sizeof name ||
         __real___wasi_fd_prestat_dir_name(fd, (uint8_t *)name, (__wasi_size_t)n) != 0)
         return 0;
     while (n > 1 && name[n - 1] == '/')
         n--;
-    return n == 4 && memcmp(name, "/dev", 4) == 0;
+    return n == strlen(want) && memcmp(name, want, n) == 0;
 }
 
 /* The descriptors the host opened before the program started, each under its own number.
@@ -144,8 +150,10 @@ static void start(void)
         bind(fd, new_file((__wasi_fd_t)fd), fd > 2);
         grant[fd] = fd > 2 && __real___wasi_fd_prestat_get((__wasi_fd_t)fd, &pre) == 0 &&
                     pre.tag == __WASI_PREOPENTYPE_DIR;
-        if (grant[fd] && devdir < 0 && is_dev((__wasi_fd_t)fd, &pre))
+        if (grant[fd] && devdir < 0 && is_named((__wasi_fd_t)fd, &pre, "/dev"))
             devdir = fd;
+        if (grant[fd] && libdir < 0 && is_named((__wasi_fd_t)fd, &pre, "/usr/local/lib/perl5"))
+            libdir = fd;
     }
 }
 
@@ -234,6 +242,185 @@ PASS_FD(sock_send, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, const __wasi_ciovec_t 
                                           __wasi_size_t *so_datalen),
         (fd, si_data, si_data_len, si_flags, so_datalen))
 PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t how), (fd, how))
+
+/* The library index. Each `use` or `require` tries every folder of @INC in turn, and in each
+ * the .pmc before the .pm, so most of the host's lookups under the library find nothing, and a
+ * host lookup is far dearer than a lookup here. The build compiles into the module an index of
+ * every file and folder of the library (wasi-perl-lib-index.h), and the grant the guest sees at
+ * /usr/local/lib/perl5 is the library, mounted read-only. So for a path under that grant the
+ * guest can know what every host would answer, and then answers itself, for a stat and for an
+ * open that asks for nothing a read-only grant could refuse. Every other call is the host's.
+ *
+ * Every host means one whose names keep their case (Linux) and one whose names ignore it (macOS
+ * and Windows, as usually set up), so the index is searched with A to Z taken as a to z, the
+ * order it is sorted in. Walking the path's folders: a name no case of which is there is ENOENT
+ * on every host; a file reached by exactly its own names is ENOTDIR for a path below it on every
+ * host. Anything else is the host's: a name the index holds, in any case, and a path below a file
+ * reached by names in another case, which one host finds and the other does not. So is every path
+ * a host may read otherwise than the index would: one with an empty or `..` component (`.`
+ * components are dropped), a component longer than 255 bytes, which the host refuses; a byte that
+ * is not ASCII, which wasmtime refuses when it is not UTF-8; and a component Windows rewrites
+ * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`,
+ * and one whose stem, the part before its first `.`, Windows takes for a device in any case: CON,
+ * PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, CONIN$ and CONOUT$.
+ * An index of no names is no index: every lookup is the host's.
+ *
+ * The index is the library the module was built with. A set whose library differs is the
+ * embedder's to keep whole: a file added to its library is not found. */
+
+/* The longest plain path the index judges, and the longest component a host takes. */
+#define INDEX_PATH_MAX 1024
+#define INDEX_NAME_MAX 255
+
+static unsigned char fold(unsigned char c)
+{
+    return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
+}
+
+/* Compares the name s, with A to Z as a to z, with k[0..n) followed by `tail`: with tail 0,
+ * with that string; else with the prefix of n + 1 bytes, so 0 means s starts with it. */
+static int fold_cmp(const char *s, const char *k, size_t n, char tail)
+{
+    unsigned char a, b;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == k[i])
+            continue;
+        a = fold((unsigned char)s[i]);
+        b = fold((unsigned char)k[i]);
+        if (a != b)
+            return a < b ? -1 : 1;
+    }
+    if (tail == 0)
+        return s[n] == '\0' ? 0 : 1;
+    a = fold((unsigned char)s[n]);
+    b = (unsigned char)tail;
+    return a == b ? 0 : (a < b ? -1 : 1);
+}
+
+/* The first of names[lo..hi) not below k[0..n) and tail, compared from byte off on: every name
+ * in the range has the same off bytes before it, in some case. */
+static uint32_t index_find(uint32_t lo, uint32_t hi, size_t off, const char *k, size_t n,
+                           char tail)
+{
+    const char *const *names = wasi_perl_lib_index.names;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (fold_cmp(names[mid] + off, k, n, tail) < 0)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return lo;
+}
+
+/* Whether k[0..n) is `word`, written lowercase, with A to Z as a to z. */
+static int fold_is(const char *k, const char *word, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (fold((unsigned char)k[i]) != (unsigned char)word[i])
+            return 0;
+    }
+    return 1;
+}
+
+/* Whether a component's stem, the part before its first `.`, is a Windows device name. Only a
+ * stem of 3, 4, 6 or 7 bytes can be one, so most components cost a length. */
+static int is_device(const char *p, size_t n)
+{
+    const char *dot = memchr(p, '.', n);
+    size_t stem = dot != NULL ? (size_t)(dot - p) : n;
+    switch (stem) {
+    case 3:
+        return fold_is(p, "con", 3) || fold_is(p, "prn", 3) || fold_is(p, "aux", 3) ||
+               fold_is(p, "nul", 3);
+    case 4:
+        return p[3] >= '1' && p[3] <= '9' && (fold_is(p, "com", 3) || fold_is(p, "lpt", 3));
+    case 6:
+        return fold_is(p, "conin$", 6);
+    case 7:
+        return fold_is(p, "conout$", 7);
+    default:
+        return 0;
+    }
+}
+
+/* Whether a component, not `.` or `..`, reads the same to every host. */
+static int index_plain(const char *p, size_t n)
+{
+    if (n > INDEX_NAME_MAX || p[n - 1] == '.' || p[n - 1] == ' ' || is_device(p, n))
+        return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        if (c >= 0x80 || c == '~' || c == '\\' || c == ':')
+            return 0;
+    }
+    return 1;
+}
+
+/* The index's answer for `path` through the real descriptor dir: ENOENT or ENOTDIR where every
+ * host gives it, or success when the host must be asked. */
+static __wasi_errno_t index_answer(__wasi_fd_t dir, const char *path)
+{
+    const char *const *names = wasi_perl_lib_index.names;
+    char buf[INDEX_PATH_MAX];
+    size_t len = 0, off = 0;
+    uint32_t lo = 0, hi = wasi_perl_lib_index.count;
+    if (libdir < 0 || dir != (__wasi_fd_t)libdir || hi == 0)
+        return __WASI_ERRNO_SUCCESS;
+    for (const char *p = path;;) {
+        const char *end = strchr(p, '/');
+        size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
+        if (n == 0 || (n == 2 && p[0] == '.' && p[1] == '.'))
+            return __WASI_ERRNO_SUCCESS;
+        if (n != 1 || p[0] != '.') {
+            if (!index_plain(p, n) || len + n + 2 > sizeof buf)
+                return __WASI_ERRNO_SUCCESS;
+            if (len > 0)
+                buf[len++] = '/';
+            memcpy(buf + len, p, n);
+            len += n;
+        }
+        if (end == NULL)
+            break;
+        p = end + 1;
+    }
+    if (len == 0)
+        return __WASI_ERRNO_SUCCESS; /* the grant itself */
+    buf[len] = '\0';
+    /* Each step narrows [lo, hi) to the names below the folders walked so far, which all share
+     * the path's first off bytes in some case, so a comparison starts at off. */
+    for (;;) {
+        const char *k = buf + off;
+        const char *slash = strchr(k, '/');
+        size_t n = slash != NULL ? (size_t)(slash - k) : len - off;
+        uint32_t m = index_find(lo, hi, off, k, n, 0), below;
+        if (m == hi || fold_cmp(names[m] + off, k, n, 0) != 0)
+            return __WASI_ERRNO_NOENT;
+        if (slash == NULL)
+            return __WASI_ERRNO_SUCCESS;
+        below = index_find(m, hi, off, k, n, '/');
+        if (below == hi || fold_cmp(names[below] + off, k, n, '/') != 0)
+            return memcmp(names[m], buf, off + n) == 0 ? __WASI_ERRNO_NOTDIR
+                                                       : __WASI_ERRNO_SUCCESS;
+        hi = index_find(below, hi, off, k, n, '0');
+        lo = below;
+        off += n + 1;
+    }
+}
+
+/* Whether an open asks for nothing a read-only grant could refuse: no create, truncation or
+ * exclusive create, no right to write, and no append or sync flag. wasmtime refuses any of those
+ * on a read-only grant with EPERM before it looks the name up, so only an open asking for none of
+ * them gets ENOENT or ENOTDIR from the host for a name the library does not hold. */
+static int asks_only_to_read(__wasi_oflags_t oflags, __wasi_rights_t base,
+                             __wasi_fdflags_t fdflags)
+{
+    return !(oflags & (__WASI_OFLAGS_CREAT | __WASI_OFLAGS_TRUNC | __WASI_OFLAGS_EXCL)) &&
+           !(base & (__WASI_RIGHTS_FD_WRITE | __WASI_RIGHTS_FD_DATASYNC |
+                     __WASI_RIGHTS_FD_ALLOCATE | __WASI_RIGHTS_FD_FILESTAT_SET_SIZE)) &&
+           !(fdflags & (__WASI_FDFLAGS_APPEND | __WASI_FDFLAGS_DSYNC | __WASI_FDFLAGS_RSYNC |
+                        __WASI_FDFLAGS_SYNC));
+}
 
 /* The random device. Natively Perl seeds its hash randomisation, its internal random state and
  * srand from /dev/urandom, and only when that cannot be opened from the time of day, which can be
@@ -464,9 +651,13 @@ __wasi_errno_t __wrap___wasi_path_filestat_get(__wasi_fd_t fd, __wasi_lookupflag
                                                const char *path, __wasi_filestat_t *buf)
 {
     int slash = 0, which = is_open((int)fd) ? device_at((int)fd, path, &slash) : 0;
+    __wasi_errno_t known;
     if (which != 0)
         return slash ? __WASI_ERRNO_NOTDIR : random_stat(which, buf);
     TO_REAL(fd);
+    known = index_answer(fd, path);
+    if (known != __WASI_ERRNO_SUCCESS)
+        return known;
     return __real___wasi_path_filestat_get(fd, flags, path, buf);
 }
 
@@ -881,12 +1072,12 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
  * Anything but a folder, a regular file, or a link the open will not follow is refused:
  * ENOTDIR when the open must find a folder (what the host answers for any other non-folder),
  * ENXIO otherwise (what a host gives for a device it will not open). A name that does not
- * exist, or that the host will not describe, is left to the open, so creating files works
- * and every other answer stays the host's. An exclusive create needs no look: the host refuses
- * an existing name before it opens anything. The guest's only code is Perl, which cannot call
- * a WASI import directly, so no program can skip the look. What it cannot close is another
- * process on the host swapping the name between the look and the open. When regular is not
- * NULL, it is set to whether the look saw a regular file. */
+ * exist, or that the host will not describe, is left to the open, so creating files works and
+ * every other answer stays the host's. An exclusive create needs no look: the host refuses an
+ * existing name before it opens anything. The guest's only code is Perl, which cannot call a WASI import directly, so no
+ * program can skip the look. What it cannot close is another process on the host swapping the
+ * name between the look and the open. When regular is not NULL, it is set to whether the look
+ * saw a regular file. */
 static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
                            __wasi_oflags_t oflags, uint8_t *regular)
 {
@@ -927,6 +1118,11 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
         return __WASI_ERRNO_MFILE;
     if (which != 0)
         return open_random(v, which, slash, oflags, base, fdflags, opened);
+    if (asks_only_to_read(oflags, base, fdflags)) {
+        error = index_answer(fd, path);
+        if (error != __WASI_ERRNO_SUCCESS)
+            return error;
+    }
     error = look(fd, dirflags, path, oflags, &regular);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
