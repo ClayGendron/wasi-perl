@@ -1,0 +1,2 @@
+stat: 178 ns per WASI call
+clock: 88 ns per WASI call

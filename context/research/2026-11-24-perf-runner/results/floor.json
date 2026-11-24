@@ -1,0 +1,91 @@
+{
+ "new-linker": {
+  "store": 21.5,
+  "wasi config": 39.4,
+  "linker+define_wasi": 56.4,
+  "instantiate": 34.7,
+  "exports": 22.9,
+  "_start": 747.4,
+  "status read": 28.7,
+  "close": 185.9,
+  "TOTAL": 1146.8,
+  "compile_ms": 953
+ },
+ "shared-linker": {
+  "store": 19.0,
+  "wasi config": 39.6,
+  "instantiate": 41.6,
+  "exports": 22.3,
+  "_start": 747.3,
+  "status read": 28.9,
+  "close": 183.9,
+  "TOTAL": 1097.0,
+  "compile_ms": 872
+ },
+ "instance-pre": {
+  "store": 19.5,
+  "wasi config": 40.5,
+  "instantiate": 32.0,
+  "exports": 23.0,
+  "_start": 769.3,
+  "status read": 29.6,
+  "close": 192.8,
+  "TOTAL": 1110.2,
+  "compile_ms": 918
+ },
+ "instance-pre+pooling": {
+  "store": 21.7,
+  "wasi config": 47.4,
+  "instantiate": 28.7,
+  "exports": 25.1,
+  "_start": 835.5,
+  "status read": 34.3,
+  "close": 168.0,
+  "TOTAL": 1168.9,
+  "compile_ms": 1039
+ },
+ "instance-pre+no-cow": {
+  "store": 16.6,
+  "wasi config": 33.6,
+  "instantiate": 1505.7,
+  "exports": 31.1,
+  "_start": 707.6,
+  "status read": 25.5,
+  "close": 279.1,
+  "TOTAL": 2589.4,
+  "compile_ms": 937
+ },
+ "instance-pre+no-epoch": {
+  "store": 21.7,
+  "wasi config": 45.7,
+  "instantiate": 36.7,
+  "exports": 24.6,
+  "_start": 841.4,
+  "status read": 32.6,
+  "close": 215.9,
+  "TOTAL": 1212.9,
+  "compile_ms": 772
+ },
+ "instance-pre+fuel": {
+  "store": 17.6,
+  "wasi config": 32.2,
+  "instantiate": 25.6,
+  "exports": 19.9,
+  "_start": 714.0,
+  "status read": 24.3,
+  "close": 163.5,
+  "TOTAL": 1012.6,
+  "compile_ms": 1326
+ },
+ "instance-pre+pooling+fuel": {
+  "store": 22.6,
+  "wasi config": 45.3,
+  "instantiate": 28.4,
+  "exports": 24.8,
+  "_start": 874.2,
+  "status read": 35.6,
+  "close": 166.8,
+  "TOTAL": 1204.2,
+  "compile_ms": 1224
+ }
+}

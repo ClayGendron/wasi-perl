@@ -1,0 +1,20 @@
+diff --git a/src/wasi_perl/runner.py b/src/wasi_perl/runner.py
+index 07c902d..4133c66 100644
+--- a/src/wasi_perl/runner.py
++++ b/src/wasi_perl/runner.py
+@@ -292,11 +292,13 @@ def run(
+     else:
+         found, want = artifacts, None
+     writing = any(g.writable for g in asked)
++    # Each rule's folders are found only when a grant can break it: the cache rule binds every
++    # grant, the runtime rules only a writable one; with no grant there is nothing to judge.
+     placed, cwd_guest = _grants.judge(
+         asked,
+         cwd_guest,
+-        caches=_cache.every(cache),
+-        runtime=_runtime_folders(found),
++        caches=_cache.every(cache) if asked else (),
++        runtime=_runtime_folders(found) if writing else (),
+         runtime_files=_runtime_files(found) if writing else (),
+     )
+     guest_env = dict(inputs.env)

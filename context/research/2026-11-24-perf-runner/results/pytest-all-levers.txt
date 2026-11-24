@@ -1,0 +1,27 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+........................................................................ [ 16%]
+........................................................................ [ 32%]
+........................................................................ [ 48%]
+...................................................s.................... [ 64%]
+............................................s........................... [ 80%]
+........................................................................ [ 96%]
+..............                                                           [100%]
+=============================== warnings summary ===============================
+tests/runner/test_cache.py::test_a_cwasm_not_as_the_runner_made_it_is_not_loaded[symlink]
+  /home/user/wasi-perl-wt/perf-runner/src/wasi_perl/_engines.py:181: RuntimeWarning: wasi_perl: not using the module cache at /tmp/pytest-of-root/pytest-309/test_a_cwasm_not_as_the_runner0/cache/6f3024269d5fcb61d26be473e07fb7b3-wasmtime51.0.0-plain.cwasm: it must be a file owned by this user that no one else may read, write or enter (mode 0600), with one name
+    mod = _miss(wt, eng, metered, binary, digest, cache)
+
+tests/runner/test_cache.py::test_a_cwasm_not_as_the_runner_made_it_is_not_loaded[mode]
+  /home/user/wasi-perl-wt/perf-runner/src/wasi_perl/_engines.py:181: RuntimeWarning: wasi_perl: not using the module cache at /tmp/pytest-of-root/pytest-309/test_a_cwasm_not_as_the_runner1/cache/6f3024269d5fcb61d26be473e07fb7b3-wasmtime51.0.0-plain.cwasm: it must be a file owned by this user that no one else may read, write or enter (mode 0600), with one name
+    mod = _miss(wt, eng, metered, binary, digest, cache)
+
+tests/runner/test_cache.py::test_a_cwasm_not_as_the_runner_made_it_is_not_loaded[hardlink]
+  /home/user/wasi-perl-wt/perf-runner/src/wasi_perl/_engines.py:181: RuntimeWarning: wasi_perl: not using the module cache at /tmp/pytest-of-root/pytest-309/test_a_cwasm_not_as_the_runner2/cache/6f3024269d5fcb61d26be473e07fb7b3-wasmtime51.0.0-plain.cwasm: it must be a file owned by this user that no one else may read, write or enter (mode 0600), with one name
+    mod = _miss(wt, eng, metered, binary, digest, cache)
+
+tests/runner/test_cache.py::test_a_cwasm_not_as_the_runner_made_it_is_not_loaded[folder]
+  /home/user/wasi-perl-wt/perf-runner/src/wasi_perl/_engines.py:181: RuntimeWarning: wasi_perl: not using the module cache at /tmp/pytest-of-root/pytest-309/test_a_cwasm_not_as_the_runner4/cache/6f3024269d5fcb61d26be473e07fb7b3-wasmtime51.0.0-plain.cwasm: it must be a file owned by this user that no one else may read, write or enter (mode 0600), with one name
+    mod = _miss(wt, eng, metered, binary, digest, cache)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+444 passed, 2 skipped, 242 deselected, 4 warnings in 20.00s

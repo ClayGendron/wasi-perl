@@ -1,0 +1,26 @@
+== all bare
+futex 84.2
+stat 9.0
+mmap 6.3
+statx 6.0
+munmap 5.2
+close 5.0
+mprotect 4.3
+openat2 3.0
+gettid 3.0
+clock_nanosleep 2.5
+rt_sigaction 2.0
+openat 2.0
+== all rw
+lstat 364.0
+stat 146.0
+futex 85.1
+close 9.0
+statx 6.0
+openat 6.0
+mmap 6.0
+munmap 5.0
+mprotect 4.0
+openat2 3.0
+gettid 3.0
+clock_nanosleep 2.2

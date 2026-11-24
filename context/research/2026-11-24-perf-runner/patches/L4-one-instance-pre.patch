@@ -1,0 +1,116 @@
+--- a/src/wasi_perl/_engines.py
++++ b/src/wasi_perl/_engines.py
+@@ -87,6 +87,27 @@
+     """Drop this process's compiled modules, so the next call goes to the disk cache."""
+     with _lock:
+         _modules.clear()
++        _pres.clear()
++
++
++_pres: dict[int, tuple[Any, Any]] = {}  # id(module) -> (module, its InstancePre)
++
++
++def instance_pre(metered: bool, mod: Any) -> Any:
++    """`mod` linked once against WASI preview1, for every store of its engine: the linker's WASI
++    functions read each store's own WASI context, so one linking serves every call, and each
++    instance is made from it with no import resolved again."""
++    wt = wasmtime()
++    with _lock:
++        found = _pres.get(id(mod))
++    if found is not None and found[0] is mod:
++        return found[1]
++    linker = wt.Linker(engine(metered))
++    linker.define_wasi()
++    pre = linker.instantiate_pre(mod)
++    with _lock:
++        _pres[id(mod)] = (mod, pre)
++    return pre
+ 
+ 
+ def engine(metered: bool) -> Any:
+@@ -174,6 +195,7 @@
+     interpreter's own teardown, their finalizers run after the bindings are gone and print an
+     ignored TypeError."""
+     with _lock:
++        _pres.clear()
+         _modules.clear()
+         _engines.clear()
+ 
+--- a/src/wasi_perl/runner.py
++++ b/src/wasi_perl/runner.py
+@@ -312,7 +312,8 @@
+             metered = limits.fuel is not None
+             module = _engines.module(metered, found.perl, want, cache.folder)
+             engine = _engines.engine(metered)
+-            return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
++            pre = _engines.instance_pre(metered, module)
++            return _call(wt, engine, pre, found, placed, inputs, guest_env, limits)
+         finally:
+             _grants.let_go(slot)
+     finally:
+@@ -329,9 +330,9 @@
+     guest_env: dict[str, str],
+     out: _Stream,
+     err: _Stream,
+-) -> Any:
+-    """The store's WASI context and the linker. wasmtime opens each grant here, and raises
+-    WasmtimeError for a folder it cannot open; the caller reports that as the call's trap."""
++) -> None:
++    """The store's WASI context. wasmtime opens each grant here, and raises WasmtimeError for a
++    folder it cannot open; the caller reports that as the call's trap."""
+     wasi = wt.WasiConfig()
+     wasi.argv = [ARGV0, *inputs.argv]
+     wasi.env = sorted(guest_env.items())
+@@ -343,15 +344,12 @@
+     for p in placed:
+         wasi.preopen_dir(str(p.host), p.guest, p.writable)
+     store.set_wasi(wasi)
+-    linker = wt.Linker(engine)
+-    linker.define_wasi()
+-    return linker
+ 
+ 
+ def _call(
+     wt: Any,
+     engine: Any,
+-    module: Any,
++    pre: Any,
+     found: Artifacts,
+     placed: tuple[_grants.Placed, ...],
+     inputs: _limits.Inputs,
+@@ -369,7 +367,7 @@
+         if limits.memory_bytes is not None:
+             store.set_limits(memory_size=limits.memory_bytes)
+         try:
+-            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
++            _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
+         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
+             return Completed(None, b"", b"", _error_words(str(e)), None, ())
+         _stop.arm(store, stop)
+@@ -377,7 +375,7 @@
+         _engines.TICKER.enter()
+         try:
+             with _stop.watching_ctrl_c(stop):
+-                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits)
++                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits)
+         finally:
+             _engines.TICKER.leave()
+     finally:
+@@ -389,7 +387,7 @@
+ 
+ 
+ def _drive(
+-    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits
++    wt: Any, store: Any, pre: Any, limits: _limits.Limits
+ ) -> tuple[int | None, str | None, int | None]:
+     """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
+     metered = limits.fuel is not None
+@@ -400,7 +398,7 @@
+     instance = None
+     read_status = False  # whether the guest's own record of its exit status is asked for
+     try:
+-        instance = linker.instantiate(store, module)
++        instance = pre.instantiate(store)
+         if metered:
+             store.set_fuel(limits.fuel)
+             is_metered = True

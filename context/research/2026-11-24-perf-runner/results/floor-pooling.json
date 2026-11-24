@@ -1,0 +1,35 @@
+{
+ "instance-pre": {
+  "store": 15.9,
+  "wasi config": 32.3,
+  "instantiate": 24.4,
+  "exports": 19.7,
+  "_start": 662.9,
+  "status read": 24.7,
+  "close": 174.6,
+  "TOTAL": 962.4,
+  "compile_ms": 903
+ },
+ "instance-pre+pooling+keep16M": {
+  "store": 21.5,
+  "wasi config": 38.7,
+  "instantiate": 34.4,
+  "exports": 23.5,
+  "_start": 644.5,
+  "status read": 23.9,
+  "close": 732.6,
+  "TOTAL": 1530.5,
+  "compile_ms": 957
+ },
+ "instance-pre+reserve1G": {
+  "store": 22.5,
+  "wasi config": 50.3,
+  "instantiate": 36.8,
+  "exports": 27.1,
+  "_start": 913.8,
+  "status read": 39.1,
+  "close": 222.7,
+  "TOTAL": 1320.2,
+  "compile_ms": 1191
+ }
+}
