@@ -7,3 +7,4 @@ here=$(dirname "$0")
 "$here/00_download.sh"
 "$here/10_native.sh"
 "$here/20_target.sh"
+"$here/30_library.sh"
