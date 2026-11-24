@@ -12,7 +12,11 @@
 #   fixtures  names of file sets from [fixtures.*] laid out in the work directory
 #   files     extra files for this case only (name -> content)
 #   stdin     optional text on standard input (none means an empty stdin)
-#   env       optional extra environment variables
+#   env       optional extra environment variables (PWD is not allowed: the runner sets it)
+#
+# In argv, {work} stands for the work directory: its host path natively, /work in the
+# guest. Native output naming it is rewritten to /work before comparing. Agents pass
+# absolute paths as often as relative ones, and the guest resolves the two differently.
 #
 # A file's content is a TOML string (written as UTF-8) or { base64 = "..." } for bytes.
 # A name ending in "/" makes an empty folder.
@@ -171,6 +175,15 @@ banana
 {"count": 9, "items": ["b", "a"], "meta": {"ok": true, "ratio": 0.25}}
 """
 
+[fixtures.nested]
+"src/app/main.c" = """
+int foo(void);
+int main(void) { return foo(); }
+"""
+"src/lib/util.c" = """
+int foo(void) { return 0; } /* foo */
+"""
+
 # ---------------------------------------------------------------------------
 # grep: print matching lines
 
@@ -257,6 +270,13 @@ id = "grep-named-captures"
 category = "grep"
 argv = ["-nle", 'print "$+{date} $+{level}" if /^(?<date>\S+) \S+ (?<level>[A-Z]+)/', "app.log"]
 fixtures = ["log"]
+
+[[case]]
+id = "grep-pattern-from-env"
+category = "grep"
+argv = ["-ne", 'print if /$ENV{PAT}/', "app.log"]
+fixtures = ["log"]
+env = { PAT = "timeout|retry" }
 
 # ---------------------------------------------------------------------------
 # multifile: $., eof and $ARGV across several files
@@ -495,6 +515,13 @@ id = "inplace-with-l"
 category = "inplace"
 argv = ["-lpi", "-e", '$_ .= ";"', "a.txt"]
 fixtures = ["abc"]
+
+[[case]]
+id = "inplace-replacement-from-env"
+category = "inplace"
+argv = ["-pi", "-e", 's/\Q$ENV{FROM}\E/$ENV{TO}/g', "main.c"]
+fixtures = ["src"]
+env = { FROM = "foo(", TO = "bar(" }
 
 # ---------------------------------------------------------------------------
 # records: -0777 slurp, -00 paragraphs, -0 NUL records, $/
@@ -1306,3 +1333,78 @@ id = "sw-script-die-line"
 category = "switches"
 argv = ["fail.pl", "arg1"]
 files = { "fail.pl" = "use strict;\nuse warnings;\nmy $a1 = shift;\nprint \"got $a1\\n\";\ndie \"stopping\";\n" }
+
+# ---------------------------------------------------------------------------
+# paths: names with folders in them, and absolute names through {work}
+
+[[case]]
+id = "paths-inplace-subfolders"
+category = "paths"
+argv = ["-pi.bak", "-e", 's/foo/bar/g', "src/app/main.c", "src/lib/util.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-inplace-absolute"
+category = "paths"
+argv = ["-pi", "-e", 's/foo/FOO/', "{work}/src/app/main.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-inplace-absolute-backup"
+category = "paths"
+argv = ["-i.orig", "-pe", 's/^/> /', "{work}/src/lib/util.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-inplace-backup-star-subfolder"
+category = "paths"
+argv = ["-iold/*", "-pe", 's/main/start/', "src/app/main.c"]
+fixtures = ["nested"]
+files = { "old/src/app/" = "" }
+
+[[case]]
+id = "paths-ne-absolute-and-relative"
+category = "paths"
+argv = ["-ne", 'print "$ARGV:$.: $_" if /foo/; close ARGV if eof', "{work}/src/app/main.c", "src/lib/util.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-diamond-subfolders"
+category = "paths"
+argv = ["-e", 'my @l = <>; print scalar(@l), " lines, last from $ARGV\n"', "src/app/main.c", "src/lib/util.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-dotdot-inside"
+category = "paths"
+argv = ["-ne", 'print', "src/app/../lib/util.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-open-absolute"
+category = "paths"
+argv = ["-e", 'open my $f, "<", "{work}/app.log" or die "open: $!\n"; my $n = () = <$f>; print "$n\n"']
+fixtures = ["log"]
+
+[[case]]
+id = "paths-write-absolute"
+category = "paths"
+argv = ["-e", 'mkdir "{work}/out" or die "mkdir: $!\n"; open my $o, ">", "{work}/out/r.txt" or die "write: $!\n"; print $o "x\n"; close $o; print -s "out/r.txt", "\n"']
+
+[[case]]
+id = "paths-missing-absolute"
+category = "paths"
+argv = ["-ne", 'print', "{work}/nosuch.txt", "src/app/main.c"]
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-file-tests-absolute"
+category = "paths"
+argv = ["-le", 'print -d "{work}/src" ? "dir" : "none"; print -f "{work}/src/app/main.c" ? "file" : "none"; print -e "{work}/src/nope" ? "yes" : "no"']
+fixtures = ["nested"]
+
+[[case]]
+id = "paths-glob-subfolders"
+category = "paths"
+argv = ["-le", 'print for glob "src/*/*.c"']
+fixtures = ["nested"]

@@ -29,7 +29,20 @@ KNOWN_DIFFERENCES_PATH = HERE / "known_differences.toml"
 
 ORACLE_VERSION = "v5.42.3"
 GUEST_ROOT = "/work"
+# A recording is refused when cases.toml changes. Any change to how a case is run or summed
+# up (BASE_ENV, GUEST_ROOT, the placeholder, `normalise`, `snapshot`, the JSON layout) must
+# bump this number, so recordings made the old way are refused too.
 ORACLE_JSON_FORMAT = 1
+
+# In argv, this stands for the work directory: the host path natively, /work in the guest.
+# Agents pass absolute paths, and the guest resolves those through its preopens rather than
+# its working directory, so both spellings are exercised.
+WORK_PLACEHOLDER = "{work}"
+
+# The compared fields, as `differences` names them and known_differences.toml lists them.
+FIELDS = {"exit_code", "stdout", "stderr", "files", "trapped"}
+
+CASE_KEYS = {"id", "category", "argv", "fixtures", "files", "stdin", "env"}
 
 CATEGORIES = (
     "grep",
@@ -45,6 +58,7 @@ CATEGORIES = (
     "files",
     "errors",
     "switches",
+    "paths",
 )
 
 # Every run, native or guest, gets exactly this environment plus the case's own `env`.
@@ -130,11 +144,21 @@ def _content(value) -> bytes:
     raise ValueError(f"a file's content is a string or {{ base64 = ... }}, not {value!r}")
 
 
-def load_corpus() -> list[Case]:
-    data = tomllib.loads(CASES_PATH.read_text(encoding="utf-8"))
+def load_corpus(text: str | None = None) -> list[Case]:
+    """The cases of cases.toml (or of `text`). An unknown key or fixture name is an error, so
+    a typo cannot turn a case into one that runs with no files and covers nothing."""
+    if text is None:
+        text = CASES_PATH.read_text(encoding="utf-8")
+    data = tomllib.loads(text)
     fixtures = data.get("fixtures", {})
     cases = []
     for raw in data["case"]:
+        unknown = set(raw) - CASE_KEYS
+        if unknown:
+            raise ValueError(f"case {raw.get('id')!r}: unknown keys {sorted(unknown)}")
+        missing = [n for n in raw.get("fixtures", []) if n not in fixtures]
+        if missing:
+            raise ValueError(f"case {raw.get('id')!r}: no fixture named {missing}")
         files: dict[str, bytes | None] = {}
         for name in raw.get("fixtures", []):
             for path, value in fixtures[name].items():
@@ -177,12 +201,21 @@ def lay_out(case: Case, workdir: Path) -> None:
             target.write_bytes(content)
 
 
+def expand_argv(argv: tuple[str, ...], root: str) -> list[str]:
+    return [a.replace(WORK_PLACEHOLDER, root) for a in argv]
+
+
 def snapshot(workdir: Path) -> dict[str, bytes | None]:
     state: dict[str, bytes | None] = {}
     for dirpath, dirnames, filenames in os.walk(workdir):
         base = Path(dirpath)
         for d in dirnames:
-            state[(base / d).relative_to(workdir).as_posix() + "/"] = None
+            p = base / d
+            rel = p.relative_to(workdir).as_posix()
+            if p.is_symlink():  # os.walk lists a link to a folder as a folder; it is not one
+                state[rel] = b"symlink -> " + os.readlink(p).encode()
+            else:
+                state[rel + "/"] = None
         for f in filenames:
             p = base / f
             rel = p.relative_to(workdir).as_posix()
@@ -252,7 +285,7 @@ def run_native(
     lay_out(case, workdir)
     env = {**BASE_ENV, **(extra_env or {}), **case.env, "PWD": str(workdir)}
     proc = subprocess.run(
-        [str(oracle), *case.argv],
+        [str(oracle), *expand_argv(case.argv, str(workdir))],
         input=case.stdin if case.stdin is not None else b"",
         capture_output=True,
         cwd=workdir,
@@ -290,6 +323,8 @@ def load_recorded(path: Path, case_ids: list[str]) -> dict[str, Result]:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise StaleOracle(f"{path}: cannot be read as a recorded oracle ({e})") from e
+    if not isinstance(data, dict):
+        raise StaleOracle(f"{path}: a recorded oracle is a JSON object")
     if data.get("format") != ORACLE_JSON_FORMAT:
         raise StaleOracle(f"{path}: format {data.get('format')!r}, expected {ORACLE_JSON_FORMAT}")
     want_perl = ORACLE_VERSION.removeprefix("v")
@@ -305,6 +340,37 @@ def load_recorded(path: Path, case_ids: list[str]) -> dict[str, Result]:
     if missing:
         raise StaleOracle(f"{path} has no result for {len(missing)} cases: {missing[:5]}")
     return {cid: Result.from_json(cases[cid]) for cid in case_ids}
+
+
+def choose_expected(
+    find=lambda: find_oracle(), recorded_path: str | None = None, case_ids: list[str] = ()
+):
+    """Where expected results come from: ("native", perl path), ("recorded", {id: Result}), or
+    ("none", why). A native perl, when one is found, wins. A refused perl raises
+    OracleRefused and a recording that does not fit raises StaleOracle: both fail the run."""
+    path = find()
+    if path is not None:
+        return "native", path
+    if recorded_path:
+        return "recorded", load_recorded(Path(recorded_path), list(case_ids))
+    return "none", (
+        "no oracle: build native perl 5.42.3 at build/native-install, name one with "
+        "WASI_PERL_ORACLE, or name a recorded oracle with WASI_PERL_ORACLE_JSON"
+    )
+
+
+def verdict(case_id: str, diff: dict[str, str], known: dict | None) -> tuple[str, str]:
+    """("pass" | "xfail" | "fail", message) for a compared case and its known-difference
+    entry, if any. A listed case that matches fails, so the list cannot go stale; a
+    difference outside the listed fields fails."""
+    if not diff:
+        if known is not None:
+            return "fail", f"{case_id} now matches; remove it from known_differences.toml"
+        return "pass", ""
+    rendered = "\n".join(f"  {k}: {v}" for k, v in diff.items())
+    if known is not None and set(diff) <= set(known["fields"]):
+        return "xfail", f"known {known['kind']}: {known['reason']}"
+    return "fail", f"{case_id} differs from native perl:\n{rendered}"
 
 
 # ---------------------------------------------------------------------------

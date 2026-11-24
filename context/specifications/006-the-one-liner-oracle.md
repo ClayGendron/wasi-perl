@@ -24,14 +24,14 @@ Hand-written expected outputs would encode our guesses about Perl. Native perl 5
 
 2. **The corpus is one TOML file, `tests/oneliners/cases.toml`.** TOML because Python reads it with the standard library (`tomllib`), and its literal strings (`'...'`) hold Perl code exactly as an agent types it between shell single quotes, with no escaping. Each `[[case]]` has `id`, `category`, `argv` (a list: the arguments after `perl`, as a shell would split them), and optionally `fixtures` (names of shared file sets under `[fixtures.*]`), `files` (its own files), `stdin` and `env`. A file's content is a string (written as UTF-8) or `{ base64 = "..." }` for bytes; a name ending in `/` is an empty folder. Script files (`perl report.pl data.csv`) are files of the case like any other.
 
-3. **What the corpus covers.** 195 cases in 13 categories, chosen from what coding agents run (EXECUTED: `grep -c '^\[\[case\]\]' tests/oneliners/cases.toml` → 195):
+3. **What the corpus covers.** 209 cases in 14 categories, chosen from what coding agents run (EXECUTED: `grep -c '^\[\[case\]\]' tests/oneliners/cases.toml` → 209):
 
    | Category | Cases | What it holds |
    |---|---|---|
-   | `grep` | 14 | `-ne 'print if /re/'`, `-i` matching, invert, count, `$.`, captures, all matches, files-with-matches with `close ARGV`, stdin, flip-flop ranges, head with `exit` |
+   | `grep` | 15 | `-ne 'print if /re/'`, a pattern from `$ENV{PAT}`, `-i` matching, invert, count, `$.`, captures, all matches, files-with-matches with `close ARGV`, stdin, flip-flop ranges, head with `exit` |
    | `multifile` | 10 | `$.` continuing across files and reset by `close ARGV if eof`, `eof()` for the last file, per-file counts, `-` for stdin between files, `END` totals, `reverse <>`, tail |
    | `fields` | 15 | `-lane` columns, sums and maxima, `-F,` CSV filters and group sums, `-F:` passwd-style, `-F'\t'` TSV, `-F/regex/`, `split` with a limit, `printf` tables |
-   | `inplace` | 13 | `-pi -e 's///g'` over several files, `-pi.bak`, `-i'orig_*'`, `-ni` deletion, `-i` with `print ARGVOUT`, `-0777 -pi`, `$^I` in `BEGIN`, CRLF stripping, a missing file, a directory, `eof` appends, `-lpi` |
+   | `inplace` | 14 | `-pi -e 's///g'` over several files, a `\Q$ENV{FROM}\E` replacement, `-pi.bak`, `-i'orig_*'`, `-ni` deletion, `-i` with `print ARGVOUT`, `-0777 -pi`, `$^I` in `BEGIN`, CRLF stripping, a missing file, a directory, `eof` appends, `-lpi` |
    | `records` | 12 | `-0777` counting, multi-line `s///gs`, binary slurp, `-00` paragraphs, `local $/`, custom `$/`, `-0` NUL records, fixed-size records |
    | `counting` | 9 | `!$seen{$_}++`, counts by frequency, word frequency, numeric and multi-key sorts, `sort keys` uniq, `scalar(%h)` |
    | `text` | 17 | `tr///` (count, `c`, `d`, `s`, `r`), `sprintf`/`printf` formats and rounding, `%*d`, `%vd`, commify, `s///e` and `s///r`, `$,` `$\` `$"`, `pos` with `/g`, a long regex |
@@ -41,13 +41,14 @@ Hand-written expected outputs would encode our guesses about Perl. Native perl 5
    | `files` | 11 | writing and appending, `glob`, sorted `readdir`, file tests, `rename`/`unlink`, `mkdir`/`rmdir` errors, `:raw`, `+<` with `seek`/`tell`, `stat`, `$!` texts and `%!` |
    | `errors` | 21 | `die` with and without a newline, `die` mid-stream, `die` after a failed `open`, `exit N`, `$?` in `END`, `warn`, a missing input file, `-c` good and bad, an unterminated string, `use strict` errors, `-w` warnings (uninitialized, numeric, odd hash, missing printf argument, deep recursion), fatal warnings, `eval`, `croak`, `try`/`catch` |
    | `switches` | 16 | `-E`/`say`, `-nE`, `BEGIN`/`END`, `-l`, several `-e`, `@ARGV` and `$0`, `$]` and `$^V`, `-V:ivsize`, `next`/`last` in `-p`/`-n`, signatures and postfix dereference, a multi-statement script, script files with `#!` switches, `-c` on a script, `die` in a script |
+   | `paths` | 12 | names with folders in them and absolute names through `{work}`: `-pi.bak`, `-i.orig` and `-iold/*` on `src/app/main.c` and `{work}/src/...`, `$ARGV` for both spellings, `<>` over subfolders, `..` inside the work directory, `open` and writes by absolute path, a missing absolute file, file tests, `glob "src/*/*.c"` |
 
    A missing XS module is not a reason to drop a case: until spec 002 links them, those cases fail in the guest and say so.
 
 4. **What is compared, byte for byte:** stdout, stderr, the exit code, whether the guest trapped (a trap is always a difference), and the final state of the work directory: every file's path and content and every folder's path, including the backups `-i.bak` writes and the files a case creates, renames or deletes. Not compared: mode bits and times, because WASI preview1 has no `chmod` and times are not repeatable.
 
 5. **The runs are made alike.**
-   - **Separate, fresh work directories.** The native run and the guest run each get their own copy of the case's files in a new temporary directory. Native perl runs with that directory as its working directory and relative file names in argv. The guest gets its directory granted writable at `/work` with `cwd="/work"`; the runner sets `PWD`.
+   - **Separate, fresh work directories.** The native run and the guest run each get their own copy of the case's files in a new temporary directory. Native perl runs with that directory as its working directory. File names in argv are relative, or absolute through the placeholder `{work}`, which `expand_argv` turns into the host path natively and into `/work` in the guest (decision 6 maps the native spelling back). Both are needed: the guest resolves an absolute name through its preopens and a relative one through wasi-libc's working-directory emulation, two different code paths, and agents pass both (`perl -pi -e … /repo/src/app/main.c`). The guest gets its directory granted writable at `/work` with `cwd="/work"`; the runner sets `PWD`.
    - **The same environment.** Both get exactly `PERL_HASH_SEED=0`, `PERL_PERTURB_KEYS=0`, `LC_ALL=C`, plus the case's own `env`; the native run also gets `PWD` set to its directory, as the runner sets the guest's. Nothing of the host's environment reaches either: no `PERL5LIB`, `PERL5OPT`, `HOME` or `PATH`. Stdin is the case's bytes, or empty; never the terminal.
    - **No hash order in any output.** The fixed seed makes one build repeatable, but it cannot make two builds agree: the wasm build has 32-bit pointers and may choose a different hash function. So every case sorts keys before printing them. Decision 6 checks this.
    - **No time, pid, random number, `%ENV` dump, `$^O` or memory address in any output.** Times come from fixed epochs through `gmtime`; `localtime` is not used. `$^O` (`linux` against `wasi`) and `$Config{ptrsize}` differ by design and are out of the corpus.
@@ -65,13 +66,13 @@ Hand-written expected outputs would encode our guesses about Perl. Native perl 5
 
    **Gaps predicted now (INFERRED, to be confirmed by the first guest run):** `err-die-after-failed-open` and `err-die-mid-stream` exit with `$!`, which natively is 2 (`ENOENT`) and 25 (`ENOTTY`, left by perl's start-up `isatty` probe) and in wasi-libc would be 44 and 59. Agents meet this whenever they write `open ... or die`. It is a gap for the build (mapping errno to Linux numbering for the exit status, or for `$!` as a whole), not an accepted difference.
 
-10. **The test layout and markers.** `oneliner_oracle.py` holds the machinery (load, lay out, run, snapshot, normalise, record, compare) so the test file and `record_oracle.py` share it. `test_corpus_is_well_formed` always runs (unique ids, known categories, relative file names, valid known-difference entries). `test_native_is_deterministic[<id>]` runs when the oracle exists. `test_guest_matches_native[<id>]` is marked `slow`, as it starts `perl.wasm` 195 times; it skips when `wasi_perl` cannot be imported or `wasi_perl.artifacts()` finds no `perl.wasm` (`WASI_PERL_ARTIFACTS`, a checkout's `build/artifacts`, or the wheel's own). The only timeout is a 120-second hang guard on a native run; no test asserts on time.
+10. **The test layout and markers.** `oneliner_oracle.py` holds the machinery (load, lay out, run, snapshot, normalise, record, compare) so the test file and `record_oracle.py` share it. `test_corpus_is_well_formed` always runs (unique ids, known categories, relative file names, valid known-difference entries with a non-empty `fields`); the loader refuses an unknown case key or fixture name, so a typo cannot leave a case running with no files. `test_oracle_logic.py` checks the judge itself with no perl: the recorded file's round trip and every refusal, the choice of oracle (`choose_expected`: native wins, a stale recording fails, neither skips), the verdicts (`verdict`: pass, xfail, a listed case that matches fails, an unlisted field fails), the placeholder, normalisation and `snapshot` on a link. `test_native_is_deterministic[<id>]` runs when the oracle exists. `test_guest_matches_native[<id>]` is marked `slow`, as it starts `perl.wasm` 195 times; it skips when `wasi_perl` cannot be imported or `wasi_perl.artifacts()` raises the runner's `ArtifactsMissing` (no `perl.wasm` in `WASI_PERL_ARTIFACTS`, a checkout's `build/artifacts`, or the wheel's own); any other error fails. The guest's hang guard counts operations: `fuel=10**11` with no wall-clock deadline, some 700 times the heaviest case (`num-fib`, about 1.5e8, EXECUTED). The native run's only guard is a 120-second timeout; no test asserts on time.
 
 11. **Not in this specification:** the sandbox walls (005), the process refusals (003; no case calls `system`, backticks or `fork`), Perl's own suite (007) and speed.
 
 ## Acceptance
 
-1. `cases.toml` holds at least 80 cases across the categories of decision 3. EXECUTED: 195.
+1. `cases.toml` holds at least 80 cases across the categories of decision 3. EXECUTED: 209.
 2. `uv run --with pytest pytest tests/oneliners` passes the corpus check and the native determinism check for every case, EXECUTED, output in the landing notes.
 3. `record_oracle.py` writes the file of decision 7; with `WASI_PERL_ORACLE_JSON` set and no native perl, the guest tests use it; a changed corpus makes them fail; with neither oracle they skip. EXECUTED with a stand-in runner, landing notes.
 4. Once `perl.wasm` (001) and `wasi_perl` (004) exist: every guest case passes, or is in `known_differences.toml` with its reason; the failures are listed in the landing notes by cause. Missing XS modules are expected until 002 and recorded, not dropped.
@@ -95,4 +96,23 @@ Built 2026-11-24 on branch `spec/006-oneliners`, Linux x86-64.
   - **Errno numbering (2 cases), the gap decision 9 predicted, now confirmed.** `err-die-after-failed-open` exits 44 where native exits 2 (`ENOENT`), and `err-die-mid-stream` 59 where native exits 25 (`ENOTTY`). The texts of `$!` match glibc's in every case the corpus prints (`No such file or directory`, `Is a directory`, `Not a directory`, `File exists`, `Directory not empty`). Every `Can't locate` above also exits 44, where native perl exits 2.
   - Nothing else differs: all `-ne`/`-pi`/`-lane`/`-0777`/`-00` cases, the backups `-i.bak` and `-iorig_*` write, `$.` and `eof` across files, `-CSD` and `-Mutf8` Unicode, 64-bit integers, float printing and libm, `sprintf` rounding, warnings texts, `-c`, `Config`, `-V:ivsize`, `$]` and `$^V` all match byte for byte.
   - No entry was added to `known_differences.toml`: none of the differences is one the project accepts, and the run was against an unofficial snapshot. Entries, if any, come from a run on 001's finished set.
+- **Review round 1** (`context/reviews/006-the-one-liner-oracle-pr-2026-11-24.md`, Lands with four Mediums). M1, M2 and M4 are fixed in one commit:
+  - M1: `tests/oneliners/test_oracle_logic.py`, 28 checks needing no perl. The source choice and the verdict are factored out of the test into `oneliner_oracle.choose_expected` and `oneliner_oracle.verdict`, so those checks test the same code the guest test uses.
+  - M2: the guest fixture catches only `wasi_perl.ArtifactsMissing`.
+  - M4: the `{work}` placeholder and 12 `paths` cases.
+  - Two `env` cases were also added (Low 3). The corpus is now 209 cases (`cases.toml` sha256 `4fbf7aa13b27027ec9eddd39c7679b5aeac5552a2b3df8a1646ae1f7f2701948`).
+  - `uv run --with pytest pytest tests/oneliners -m "not slow"` → `238 passed` (1 corpus check, 28 logic checks, 209 determinism checks). EXECUTED.
+  - The guest run on the same snapshot as before → **166 passed, 43 failed**. The 42 failures of the first run are unchanged. The one new failure is `paths-glob-subfolders` (File::Glob, which is not built yet). Every other new `paths` and `env` case matches, absolute names included. EXECUTED. The fuel guard leaves this list unchanged and no case runs out of fuel. EXECUTED.
+  - M3 (ruff only clean under 004's config) is answered by merging after 004's `pyproject.toml` lands. The orchestrator re-runs ruff on the merged tree.
+
+### Author's answers to the Lows
+
+1. *Unknown case keys are ignored.* Fixed. `load_corpus` raises on an unknown key or fixture name, and a check covers it.
+2. *A known difference with no `fields`.* Fixed. `fields` must be a non-empty list of the compared fields.
+3. *`env` is never exercised.* Fixed. `grep-pattern-from-env` and `inplace-replacement-from-env` were added. The corpus header now says `PWD` is not allowed.
+4. *The guest run uses the runner's 60-second deadline.* Fixed. `fuel=10**11, deadline_s=None` (decision 10).
+5. *Recordings go stale only on a `cases.toml` change.* Answered in code. A comment at `ORACLE_JSON_FORMAT` says that any change to how a case is run or summed up bumps it. A hash of the harness was not folded in, because the CI contract fixes the file's keys.
+6. *`getattr` hides drift in `Completed`.* Fixed. The run reads `done.trapped`, `done.exit_code is None` and `done.truncated` directly, and the notes go on their own line.
+7. *A link to a folder looks like a folder.* Fixed. `snapshot` records it as `symlink -> target`, and a check covers it.
+8. *A non-object JSON raises `AttributeError`.* Fixed. It raises `StaleOracle`, and a check covers it.
 

@@ -22,6 +22,10 @@ CASES = oo.load_corpus()
 KNOWN = oo.load_known_differences()
 IDS = [c.id for c in CASES]
 
+# The guest's hang guard counts operations, not seconds: the heaviest case (num-fib) uses
+# about 1.5e8 units of fuel, this is some 700 times that, and a slow host changes nothing.
+GUEST_FUEL = 10**11
+
 
 # ---------------------------------------------------------------------------
 # The corpus itself
@@ -38,13 +42,10 @@ def test_corpus_is_well_formed():
         assert cid in IDS, f"known_differences.toml names {cid}, which is not a case"
         assert entry.get("reason"), f"{cid}: a known difference needs a reason"
         assert entry.get("kind") in ("accepted", "gap"), f"{cid}: kind is accepted or gap"
-        assert set(entry.get("fields", [])) <= {
-            "exit_code",
-            "stdout",
-            "stderr",
-            "files",
-            "trapped",
-        }, cid
+        fields = entry.get("fields")
+        assert fields and set(fields) <= oo.FIELDS, (
+            f"{cid}: fields is a non-empty list of {oo.FIELDS}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -89,22 +90,16 @@ def expected_results():
     does not fit this corpus fails the run rather than skipping it.
     """
     try:
-        path = oo.find_oracle()
-    except oo.OracleRefused as e:
+        kind, source = oo.choose_expected(
+            recorded_path=os.environ.get("WASI_PERL_ORACLE_JSON"), case_ids=IDS
+        )
+    except (oo.OracleRefused, oo.StaleOracle) as e:
         pytest.fail(str(e))
-    if path is not None:
-        return lambda case, scratch: oo.run_native(path, case, scratch)
-    named = os.environ.get("WASI_PERL_ORACLE_JSON")
-    if named:
-        try:
-            recorded = oo.load_recorded(Path(named), IDS)
-        except oo.StaleOracle as e:
-            pytest.fail(str(e))
-        return lambda case, scratch: recorded[case.id]
-    pytest.skip(
-        "no oracle: build native perl 5.42.3 at build/native-install, name one with "
-        "WASI_PERL_ORACLE, or name a recorded oracle with WASI_PERL_ORACLE_JSON"
-    )
+    if kind == "native":
+        return lambda case, scratch: oo.run_native(source, case, scratch)
+    if kind == "recorded":
+        return lambda case, scratch: source[case.id]
+    pytest.skip(source)
 
 
 @pytest.fixture(scope="session")
@@ -115,7 +110,7 @@ def guest():
         pytest.skip(f"the wasi_perl runner is not importable ({e})")
     try:
         found = wasi_perl.artifacts()
-    except Exception as e:  # the runner's ArtifactsMissing: no perl.wasm to run
+    except wasi_perl.ArtifactsMissing as e:
         pytest.skip(f"no perl.wasm for the runner: {e}")
     if not Path(found.perl).is_file():
         pytest.skip(f"{found.perl} does not exist")
@@ -126,19 +121,21 @@ def run_guest(wasi_perl, case: oo.Case, workdir: Path) -> oo.Result:
     oo.lay_out(case, workdir)
     env = {**oo.BASE_ENV, **case.env}
     done = wasi_perl.run(
-        list(case.argv),
+        oo.expand_argv(case.argv, oo.GUEST_ROOT),
         grants=[wasi_perl.Grant(str(workdir), oo.GUEST_ROOT, writable=True)],
         env=env,
         stdin=case.stdin if case.stdin is not None else b"",
         cwd=oo.GUEST_ROOT,
+        fuel=GUEST_FUEL,
+        deadline_s=None,
     )
-    notes = ["output truncated by the runner's limit"] if getattr(done, "truncated", False) else []
+    notes = [f"output truncated by the runner's limit: {done.truncated}"] if done.truncated else []
     return oo.Result(
         exit_code=done.exit_code,
         stdout=done.stdout,
         stderr=done.stderr,
         files=oo.snapshot(workdir),
-        trapped=bool(getattr(done, "trapped", False)),
+        trapped=done.trapped is not None or done.exit_code is None,
         notes=notes,
     )
 
@@ -149,13 +146,11 @@ def test_guest_matches_native(case, expected_results, guest, tmp_path):
     expected = expected_results(case, tmp_path / "native")
     actual = run_guest(guest, case, tmp_path / "guest")
     diff = oo.differences(expected, actual)
-    known = KNOWN.get(case.id)
-    if not diff:
-        assert known is None, f"{case.id} now matches; remove it from known_differences.toml"
-        return
-    if known and set(diff) <= set(known["fields"]):
-        pytest.xfail(f"known {known['kind']}: {known['reason']}")
-    pytest.fail(f"{case.id} differs from native perl:\n" + _render(diff) + "".join(actual.notes))
+    outcome, message = oo.verdict(case.id, diff, KNOWN.get(case.id))
+    if outcome == "xfail":
+        pytest.xfail(message)
+    if outcome == "fail":
+        pytest.fail("\n  ".join([message, *actual.notes]))
 
 
 def _render(diff: dict[str, str]) -> str:
