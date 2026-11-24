@@ -205,6 +205,7 @@
 "op/coreamp.t" = { reason = "platform", note = "no sockets in WASI preview1: &CORE::bind dies \"Unsupported socket function\" (line 353)", shows = "Unsupported socket function \"bind\" called at op/coreamp\\.t line 353", ok_at_least = 21 }
 "op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set", shows = "chmod 0555, '\\S+' failed: Function not implemented at op/filetest\\.t line 34", ok_at_least = 5 }
 "op/stat.t" = { reason = "platform", note = "chmod is not implemented under WASI (tests 6, 18, 22, 25) and a hard link keeps its ctime (test 9); then backticks is refused at line 277", shows = "Failed test 6 - chmoded tmp testfile", ok_at_least = 30 }
+"op/tie_fetch_count.t" = { reason = "platform", note = "chown is not implemented under WASI (wasi-libc has none), so chown on a tied glob dies before it FETCHes (tests 170-171)", shows = "Failed test 170 - FETCH called just once using 'chown 0,0,\\$tied_glob'", ok_at_least = 341 }
 "op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)", shows = "Failed test 7 - changes to \\$ENV\\{TZ\\} respected", ok_at_least = 71 }
 
 # not-this-platform
@@ -219,5 +220,3 @@
 "bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", shows = "Can't locate XS/APItest\\.pm in @INC", ok_at_least = 0 }
 "bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", shows = "Can't locate XS/APItest\\.pm in @INC", ok_at_least = 0 }
 "lib/deprecate.t" = { reason = "bug", note = "all 10 tests pass, then exits 2: an END block's File::Path cannot load Carp after the test chdirs away from the relative @INC; unexplained why natively it can", shows = "Can't locate Carp\\.pm in @INC .* at \\.\\./lib/File/Path\\.pm", ok_at_least = 10 }
-"op/sselect.t" = { reason = "bug", note = "four-argument select reads wasi-libc's fd_set, not Perl's bit vectors; fixed by the descriptor table's select. Here tests 17-20 or 19-20 return -1, by what memory follows the mask (EXECUTED, six runs); it may also pass", shows = "Failed test \\d+ - select\\(\\) (read|write) on", ok_at_least = 19 }
-"op/tie_fetch_count.t" = { reason = "bug", note = "four-argument select reads wasi-libc's fd_set, not Perl's bit vectors; fixed by the descriptor table's select. Here it traps \"memory out of bounds\" at line 274, a select of a tied glob's bits", shows = "^trapped: memory out of bounds$", ok_at_least = 185 }
