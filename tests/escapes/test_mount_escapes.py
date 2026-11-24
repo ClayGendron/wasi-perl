@@ -205,7 +205,7 @@ CHANGES = {
     "a link out of the grant in its place": MOVE
     + ' symlink("../victim", "/t/$name") or die "link: $!";',
     "a file in the moved placeholder, an empty folder in its place": MOVE
-    + ' put("/t/moved/mount/kept"); mkdir("/t/$name") or die;',
+    + ' mkdir("/t/$name") or die; put("/t/moved/mount/kept");',
     "a file beside the placeholder": 'put("/t/$name/kept");',
 }
 # Windows will not rename a folder below which a handle is open, and the call's store holds the
@@ -213,6 +213,13 @@ CHANGES = {
 # without FILE_SHARE_DELETE, as it refuses a rename over a held file: wasi-perl's `CHANGELOG.md`
 # 0.1.0, and wasi-python's `tests/harness/files.py` at f9bf678). So there a move is refused.
 # Seen on windows-2025 in CI run 45462992471, job 138692425791.
+# The placeholder is made read-only (0500), so a guest that is not the superuser cannot write
+# into it: the host refuses, as it refuses any user's write into a folder of that mode. The
+# superuser's writes pass the mode, so then the placeholder holds the guest's file, and the
+# clean-up must leave it. (Seen in CI run 45471580229, job 138723480808, which is not root;
+# EXECUTED here both as root and as `nobody`, through `setpriv`.)
+SUPERUSER = getattr(os, "geteuid", lambda: -1)() == 0
+INTO_PLACEHOLDER = "ok" if SUPERUSER else "refused make: Permission denied"
 MOVE_BY_SYSTEM = {
     "linux": "ok",
     "darwin": "ok",
@@ -250,7 +257,10 @@ def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch, 
         assert answer == MOVE_BY_SYSTEM["win32"]
         assert list(temp.iterdir()) == []  # no move: the placeholder and its folder are gone
         return
-    assert answer == (MOVE_BY_SYSTEM[sys.platform] if moves else "ok")
+    if change == "a file in the moved placeholder, an empty folder in its place":
+        assert answer == INTO_PLACEHOLDER
+    else:
+        assert answer == (MOVE_BY_SYSTEM[sys.platform] if moves else "ok")
     names = sorted(p.name for p in temp.iterdir())
     (made,) = [n for n in names if n != "moved"]
     assert made.startswith("wasi-perl-") and len(names) == (2 if moves else 1)
@@ -259,8 +269,11 @@ def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch, 
         assert (temp / made / "kept").read_bytes() == b"guest"
         return
     if change == "a file in the moved placeholder, an empty folder in its place":
-        assert os.listdir(temp / "moved" / "mount") == ["kept"]
         assert os.listdir(temp / made) == []  # the guest's folder: not the runner's own
+        if SUPERUSER:
+            assert os.listdir(temp / "moved" / "mount") == ["kept"]  # the guest's: left
+        else:
+            assert os.listdir(temp / "moved") == []  # refused: the empty placeholder, removed
         return
     assert os.listdir(temp / "moved") == []  # the runner's own placeholder, removed by descriptor
     if change == "a file in its place":
