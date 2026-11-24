@@ -10,6 +10,9 @@ LOGS="$BUILD/logs"
 PERL_VERSION=5.42.3
 WASI_SDK_NAME=wasi-sdk-34.0-x86_64-linux
 WASMTIME_NAME=wasmtime-v51.0.0-x86_64-linux
+# binaryen's tarball is named apart from the one folder it unpacks to.
+BINARYEN_TARBALL=binaryen-version_133-x86_64-linux.tar.gz
+BINARYEN_NAME=binaryen-version_133
 # WASI_PERL_JOBS caps make's parallelism when other builds share the machine.
 JOBS=${WASI_PERL_JOBS:-$(nproc)}
 mkdir -p "$LOGS"
@@ -49,6 +52,29 @@ check_pinned() {
     [ -f "$DOWNLOADS/$1" ] || fail "downloads/$1 is missing; run scripts/00_download.sh"
     echo "$_pin  $DOWNLOADS/$1" | sha256sum -c --status \
         || fail "$1 does not match its SHA-256 in downloads/SHA256SUMS"
+}
+
+# same_features <wasm-opt> <module> <flag...>: the features wasm-opt reads in the module are
+# exactly the flags given, in any order; else one line names the difference.
+same_features() {
+    _tool=$1 _module=$2
+    shift 2
+    _have=$("$_tool" --print-features "$_module" 2>/dev/null) \
+        || fail "wasm-opt could not read the features of $_module"
+    _have=$(printf '%s\n' $_have | LC_ALL=C sort)
+    _want=$(printf '%s\n' "$@" | LC_ALL=C sort)
+    [ "$_have" = "$_want" ] && return 0
+    _uses="" _names=""
+    for _f in $_have; do
+        case " $* " in *" $_f "*) ;; *) _uses="$_uses $_f" ;; esac
+    done
+    for _f in "$@"; do
+        case " $(echo $_have) " in *" $_f "*) ;; *) _names="$_names $_f" ;; esac
+    done
+    _why=""
+    [ -z "$_uses" ] || _why="it uses$_uses, which the pass does not name"
+    [ -z "$_names" ] || _why="${_why:+$_why; }the pass names$_names, which it does not use"
+    fail "the features of $(basename "$_module") differ from the pass's: ${_why:-a feature is named twice}"
 }
 
 # listed <find arguments>: "<sha256>  <path>" per file found from the current folder, sorted by
