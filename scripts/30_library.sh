@@ -5,7 +5,8 @@
 # Perl's own installperl runs on the host miniperl of the target tree, so it installs exactly
 # what the target's Config says, into a staging folder. The installed privlib (archlib lies
 # inside it) is copied to build/artifacts/lib/perl5/5.42 without what a sandboxed run never
-# reads: pod/ and *.pod, the CORE/ headers, static archives, .packlist and *.bs files.
+# reads: pod/ and *.pod, the CORE/ headers, static archives with the extralibs.ld lists of
+# what to link them with, .packlist and *.bs files.
 #
 # build/artifacts/MANIFEST is "<sha256>  <path>" for every file under lib/ and dev/, paths
 # relative to build/artifacts; build/artifacts/SHA256SUMS is the same for every file of the set
@@ -35,7 +36,8 @@ mkdir -p "$ART/lib/perl5" "$ART/dev"
 cp -R "$STAGE/$PRIVLIB" "$ART/lib/perl5/5.42"
 lib="$ART/lib/perl5/5.42"
 find "$lib" \( -name pod -o -name CORE \) -type d -prune -exec rm -rf {} +
-find "$lib" -type f \( -name '*.pod' -o -name '*.a' -o -name '.packlist' -o -name '*.bs' \) -delete
+find "$lib" -type f \( -name '*.pod' -o -name '*.a' -o -name '.packlist' -o -name '*.bs' \
+    -o -name 'extralibs.ld' -o -name 'extralibs.all' \) -delete
 find "$lib" -depth -type d -empty -delete
 # %Config names the build's tools by the checkout's absolute path. The guest cannot run them,
 # and the path would make the library's bytes depend on where it was built, so it is replaced.

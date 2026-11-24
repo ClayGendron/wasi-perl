@@ -488,7 +488,7 @@ def test_library_holds_no_build_only_files():
     unwanted = [
         p
         for p in lib.rglob("*")
-        if p.name in ("CORE", "pod", ".packlist")
+        if p.name in ("CORE", "pod", ".packlist", "extralibs.ld", "extralibs.all")
         or p.suffix in (".pod", ".a", ".bs")
         or "/man/" in str(p)
     ]
