@@ -1,6 +1,6 @@
 # 020 — Docs for agents: the fast way to write common programs
 
-- **Status:** written by the orchestrator, 2026-11-24, under the owner's agreement of the speed work ("You can do all 10 actually", 2026-11-24).
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 8. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. Its choices are the page's six items and the 20% margin on each ratio. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M6).
 - **Owner:** Clay Gendron
 - **Kind:** `docs/` (a new `docs/fast-perl.md`, linked from the README and `docs/modules.md`), with its examples run as checks in `tests/oneliners/`.
 - **Depends on:** 018, whose modules it names.

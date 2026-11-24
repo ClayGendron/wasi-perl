@@ -1,38 +1,92 @@
 # 021 — `wasm-opt -O3` after the link
 
-- **Status:** written by the orchestrator, 2026-11-24, under the owner's agreement of the speed work ("You can do all 10 actually", 2026-11-24).
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 9. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: binaryen `version_133` as a pinned build tool, the feature flags, and the check by a second run. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, H4, M6, L8, L9).
 - **Owner:** Clay Gendron
-- **Kind:** `scripts/lib.sh`, `scripts/00_download.sh`, `scripts/20_target.sh` (and the relink step of spec 019), `downloads/SHA256SUMS`, `MANIFEST`, checks in `tests/build/`.
-- **Depends on:** 019, whose relink is the last link, so it runs after it.
-- **Research it stands on:** `../research/2026-11-24-perf-codegen.md` (study B) §5 and §9, with `variants/proposed-wasm-opt-O3.diff`.
+- **Kind:** `scripts/lib.sh`, `scripts/00_download.sh`, step 6 of spec 019's `scripts/40_link.sh`, `downloads/SHA256SUMS`, checks in `tests/build/`. `MANIFEST` is not changed.
+- **Depends on:** 019, which makes the last link and the step this fills. Spec 016 comes before 019, so its SIMD `memchr` is linked.
+  - If 022 is built first, this pass runs over `perl-reactor.wasm` too.
+  - If this is built first, 022 adds the reactor to the same step.
+- **Research it stands on:** `../research/2026-11-24-perf-codegen.md` (study B) §5 and §9, with `variants/proposed-wasm-opt-O3.diff` and `results/static.txt`.
+
+Labels: EXECUTED means run and seen. READ means read from a file. INFERRED means reasoned.
 
 ## Intent
 
-binaryen's `wasm-opt -O3`, run once over the linked module, removes 2.0–3.4% of the guest's instructions on every workload (B §5). It also makes `die` inside `eval` 9–10% faster in wall time and `sort` 4–7% faster. vfs caps every call's fuel, so fewer instructions means more work per budget. After this specification, the shipped `perl.wasm` is the optimised one.
+binaryen's `wasm-opt -O3`, run once over the linked module, removes 2.0–3.4% of the guest's instructions on every workload (B §5). It also makes `die` inside `eval` 9–10% faster in wall time, and `sort` 4–7% faster. vfs caps every call's fuel, so fewer instructions means more work per budget. After this specification, the shipped `perl.wasm` is the optimised one.
 
 ## Decisions
 
-1. **binaryen version_133, pinned.**
-   - The pin is `https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz` with its SHA-256, which study B recorded in `results/static.txt`. It goes into `downloads/SHA256SUMS`, and `00_download.sh` fetches it.
-   - It unpacks under `build/tools/`, as the other tools do, and runs only as a build tool.
-   - `MANIFEST` records its version and hash.
-2. **`-O3`, once, after the last link.**
-   - `-O4` aborts: its flatten pass does not take `try_table` (B §5).
-   - `--converge` adds nothing.
-   - The feature flags passed are exactly those perl.wasm uses: exception handling with the new encoding, bulk memory, sign extension, non-trapping float-to-int and mutable globals, plus SIMD after spec 016. No others are enabled.
-3. **It is deterministic.** Two runs on the same input give byte-identical output (B §5, EXECUTED). The build's reproducibility rules apply to it as to the compiler.
-4. **The unoptimised module is kept in `build/` for comparison only**, never shipped.
+### 1. binaryen version_133, pinned in `downloads/SHA256SUMS`
+
+- `downloads/SHA256SUMS` gains one line, in its own three-field format (`<sha256>  <name>  <url>`, read by `00_download.sh`):
+
+  ```
+  2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489  binaryen-version_133-x86_64-linux.tar.gz  https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+  ```
+
+  The hash matches the release's `.sha256` file (READ: B's `results/static.txt:78-79`). It is also the hash of the tarball study B fetched (EXECUTED: `sha256sum /home/user/wasi-perl-downloads/binaryen-dl/b.tgz`, 2026-11-24).
+- `lib.sh` names it once, as `BINARYEN_NAME=binaryen-version_133`. `00_download.sh` fetches and verifies it like every other input, and unpacks it under `build/tools/`, as it unpacks wasi-sdk and wasmtime. It runs only as a build tool.
+- **Why not `MANIFEST`:** `MANIFEST` is strictly `<sha256>  <path>`, one line for each file under `lib/` and `dev/` (`scripts/30_library.sh:62-69`; `tests/build/test_modules.py:529-550`, READ). A tool is an input, and every input is pinned in `downloads/SHA256SUMS` (constitution §4.2).
+
+### 2. `-O3`, once, after the last link
+
+- **Where.** Step 6 of spec 019's build order, in `scripts/40_link.sh`. It reads `build/link/perl.wasm`, and `build/link/perl-reactor.wasm` once 022 is built. It writes each to `build/artifacts/` under the same name. Step 7, `SHA256SUMS`, follows it, so `SHA256SUMS` hashes the optimised bytes.
+- **The stamp.** `.link.stamp` also covers `BINARYEN_NAME`, the tarball's pinned SHA-256 and the flag list, so a change to any of them reruns the pass.
+- **Not `-O4`:** it aborts, because its flatten pass does not take `try_table` (B §5).
+- **Not `--converge`:** it adds nothing (B §5).
+
+### 3. The feature flags are exactly the module's features
+
+- **What the module uses.** `perl.wasm`'s `target_features` section lists ten features. `wasm-opt --print-features` gives the same ten. Each was read both from study B's base module (`results/static.txt:11-21`, EXECUTED there) and from the built set's `perl.wasm` (EXECUTED: `wasm-opt --print-features` and a section listing of `/home/user/wasi-perl-wt/perf-base/build/artifacts/perl.wasm`, 2026-11-24).
+- **The flags.** `40_link.sh` passes exactly these, written out in the script:
+
+  | feature in `target_features` | flag |
+  |---|---|
+  | `mutable-globals` | `--enable-mutable-globals` |
+  | `nontrapping-fptoint` | `--enable-nontrapping-float-to-int` |
+  | `bulk-memory` | `--enable-bulk-memory` |
+  | `bulk-memory-opt` | `--enable-bulk-memory-opt` |
+  | `sign-ext` | `--enable-sign-ext` |
+  | `exception-handling` | `--enable-exception-handling` |
+  | `reference-types` | `--enable-reference-types` |
+  | `multivalue` | `--enable-multivalue` |
+  | `extended-const` | `--enable-extended-const` |
+  | `call-indirect-overlong` | `--enable-call-indirect-overlong` |
+  | `simd128`, from spec 016's `memchr` | `--enable-simd` |
+
+  - The SIMD row is INFERRED: wasm-ld lists every feature that an object it links uses, and 016 compiles its `memchr` with `-msimd128`.
+  - `try_table` and `exnref` need reference types, which the earlier text left out.
+- **The guard.** Before the pass, the script compares `wasm-opt --print-features` of the input with its own list, and stops with one line naming the difference if they are not equal. So a feature that a later change adds, or drops, cannot be passed over unseen.
+- **Why name them, not let wasm-opt read the section:** the list is then in the script, where a review sees it. The guard makes the two the same, and check 3 holds the output to it.
+
+### 4. It is deterministic
+
+Two runs on the same input give byte-identical output (B §5, EXECUTED). The build's reproducibility rules apply to it as to the compiler.
+
+### 5. What the pass changes beside the code
+
+These were seen by running the pinned `wasm-opt -O3` over the built set's `perl.wasm` (EXECUTED: into the scratch folder, then a section listing, 2026-11-24):
+
+- **The `name` section is dropped**, since no `-g` is given. A trap's backtrace then names functions by index. The runner keeps a few words of an error, its cause's last line or else its first line, and never the backtrace (`_error_words`, `runner.py:156-162`, READ). So no result changes. The unoptimised module in `build/link/` keeps the names for debugging.
+- **The `producers` section is unchanged.** binaryen does not add itself to it. So the producers section cannot show that the pass ran (check 1).
+- **A data-count section appears, and the 2 data segments become 11,955.** binaryen packs memory around runs of zeros. The code holds no `memory.init` and no `data.drop` (EXECUTED: `wasm-dis`, then `grep -c`, 0 each). Spec 022's image module writer accepts such a reactor; its Decision 1 says how.
+- **The `target_features` section is kept**, with the same ten features.
+
+### 6. The unoptimised modules are kept in `build/link/` for comparison only
+
+They are never shipped.
 
 ## Checks (written first, seen failing)
 
-1. The shipped `perl.wasm` carries binaryen's mark. Its `producers` section, or a recorded hash pair in `MANIFEST`, shows it went through `wasm-opt`.
-2. Fuel on the baseline workloads (`hello`, `sum_csv`, `grep_log`, `loop`) is at least 1.5% below the unoptimised module's. This is a count.
-3. The import list and the export list are unchanged.
-4. Every `die` and `eval` case of spec 002 gives the same output.
+1. **The shipped module is the pass's output.** A build check runs the pinned `wasm-opt` with the script's flags over `build/link/perl.wasm`, and the output equals the shipped `perl.wasm` byte for byte. It also checks that the two `perl.wasm` files differ. The same holds for `perl-reactor.wasm` once 022 is built. This is possible because the pass is deterministic (Decision 4), and needed because the producers section does not change (Decision 5).
+2. **Fuel** on the baseline workloads (`hello`, `sum_csv`, `grep_log`, `loop`) is at least 1.5% below the unoptimised module's. This is a count.
+3. **Features.** `wasm-opt --print-features` gives the script's list for the input and for the output, and the output's `target_features` section names the same features.
+4. **The import list and the export list are unchanged.**
+5. **Every `die` and `eval` case of spec 002** gives the same output.
 
 ## Acceptance
 
 1. The checks pass (EXECUTED).
 2. The one-liner oracle on every platform in CI, the escape tests and the whole of Perl's `t/` suite pass, with no new exclusion.
-3. `CHANGELOG.md` under "Unreleased".
+3. `CHANGELOG.md` under "Unreleased", naming binaryen `version_133` as a new pinned input.
 4. A fresh agent's review lands.

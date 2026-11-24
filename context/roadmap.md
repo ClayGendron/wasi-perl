@@ -22,7 +22,7 @@ PyPI publishing (spec 008) is by trusted publishing from `.github/workflows/rele
 
 The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) proposes ten specifications. The owner's answers on 2026-11-24:
 
-- **Order: "1–4 first."** These are 013–016 below, agreed by the owner the same day ("Agree all four (Recommended)"). Then: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That makes 017–022, to be written on a later branch.
+- **Order: "1–4 first."** These are 013–016 below, agreed by the owner the same day ("Agree all four (Recommended)"). Then: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That agrees to building the items that became 017–022. Their texts were written on branch `batch/specs-017-022` the same day, and each is proposed, not yet agreed by the owner: each Status line names the choices the owner is still to agree.
 - **The preload snapshot: "Install-time images only."** It may be built only as an image the embedder makes itself, so that its fixed hash seed is never published. It is specified after the leaner `@INC`.
 - **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** The root cause is found (`research/2026-11-24-wasmtime-py-file-call-cost.md`): wasmtime's C API never sets `allow_blocking_current_thread`, so every file call is handed to another thread. A 19-line C API patch brings the calls to the CLI's speed. Sending it upstream waits on the owner.
 - **`NO_TAINT_SUPPORT`: "Keep -T."** It is not built.
@@ -38,9 +38,9 @@ Then, under "You can do all 10":
 
 | Spec | What it delivers | After |
 |---|---|---|
-| 017 | Mounts: files served from the embedder's code, with wasi-python 0.1.6's API and protocol unchanged | 014 |
-| 018 | JSON, CSV and diff: Cpanel::JSON::XS and Text::CSV_XS linked from pinned CPAN tarballs; JSON::MaybeXS, Text::CSV and Algorithm::Diff in the library | 016 |
-| 019 | The library index: lookups of missing library files answered in the guest | 013, 016, 018 |
+| 017 | Mounts: files served from the embedder's code, with wasi-python 0.1.6's API and protocol unchanged | 004, 005, 009, 010, 011, 012; before or after 014 (017's Decision 14 says what each order means) |
+| 018 | JSON, CSV and diff: Cpanel::JSON::XS and Text::CSV_XS linked from pinned CPAN tarballs; JSON::MaybeXS, Text::CSV and Algorithm::Diff in the library | 002, 016 |
+| 019 | The library index: lookups of missing library files answered in the guest; and the build's order after the library, with a new `scripts/40_link.sh` that links last and writes `SHA256SUMS` last | 013, 016, 018 |
 | 020 | Docs for agents: the fast way to write common programs, each example a check | 018 |
-| 021 | `wasm-opt -O3` after the last link | 019 |
-| 022 | A preload image the embedder makes at install time, with wasi-python's snapshot API | 019 |
+| 021 | `wasm-opt -O3` after the last link, in 019's `40_link.sh`; over `perl-reactor.wasm` too once 022 is built | 016, 019; before or after 022 |
+| 022 | A preload image the embedder makes at install time, with wasi-python's snapshot API | 013, 014, 017, 019; before or after 021 |

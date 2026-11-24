@@ -1,6 +1,6 @@
 # 017 — Mounts: files served from the embedder's code
 
-- **Status:** a draft by an agent (Claude Opus 5.5), 2026-11-24, for the owner to agree. It is synthesis spec 5 (`../research/2026-11-24-perf-synthesis.md` §3), listed on the roadmap as "proposed next".
+- **Status:** proposed, not yet agreed by the owner. A draft by an agent (Claude Opus 5.5), 2026-11-24, for synthesis item 5 (`../research/2026-11-24-perf-synthesis.md` §3). The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. It is listed in the roadmap's table "under 'You can do all 10'", before 022, which builds on it. Its choices, above all Decisions 3, 7 and 13 and the table of differences, are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M1, M6, M8, L1–L4).
 - **Owner:** Clay Gendron
 - **Kind:** the runner only (`src/wasi_perl/`: new `mounts.py`, `_fs_memory.py`, `_fs_table.py`, `_fs_descriptors.py`, `_fs_paths.py`; changes to `_wasmtime_ffi.py`, `_engines.py`, `_grants.py`, `_limits.py`, `_stop.py`, `runner.py`, `__init__.py`), checks in a new `tests/mounts/` and in `tests/escapes/`, `docs/mounts.md`, `docs/sandbox.md`, `README.md`, `CHANGELOG.md`. **No guest change:** `perl.wasm`, `recipes/` and `downloads/SHA256SUMS` are untouched, so nothing is rebuilt.
 - **Depends on:** 004 (the runner), 005 (the escape tests), 009 and 010 (the guest's descriptor table and its look before an open), 011 (sleeps in slices), 012 (the runner's hardening). It lands before or after 014 (one `InstancePre` per module); Decision 14 says what each order means.
@@ -20,7 +20,7 @@ An embedder can give a guest host folders, and nothing else. vfs needs to serve 
 
 After this specification, `run(argv, mounts=[Mount(provider, "/work")])` does that. The API, the provider protocol, the limits and the record are wasi-python's, name for name. So an embedder's provider works unchanged with both runtimes, and the two projects can later share one package.
 
-A mount is not slower than a grant. Study E measured a grep over 500 rows at 97 ms through a mount against 156 ms through a grant (EXECUTED, E §4.2).
+A mount is not slower than a grant today. Study E measured a grep over 500 rows at 97 ms through a mount against 156 ms through a grant (EXECUTED, E §4.2). That holds only while wasmtime-py hands every file call to another thread. Once the runner can set `allow_blocking_current_thread`, a grant answers in 0.4–1.5 µs, and a mount, at 16–19 µs a call, is 10 to 40 times slower (INFERRED: `../research/2026-11-24-wasmtime-py-file-call-cost.md` §4.3). Mounts are for files that live in the embedder's code, not a way to make grants faster.
 
 ## Terms
 
@@ -44,7 +44,7 @@ A mount is not slower than a grant. Study E measured a grep over 500 rows at 97 
   Their meaning is wasi-python's: providers whose files the guest sees at their guest paths; the most provider calls a call with mounts makes, after which it ends "out of file calls". `None` means no limit. `max_file_calls` without mounts is accepted and has no effect, as in wasi-python.
 - **`Defaults`.** It gains `file_calls: int | None = 10_000`, declared exactly as in wasi-python and checked by the same integer rule.
   - wasi-perl's `Defaults` has no `async_workers`, so `file_calls` is its fourth field where it is wasi-python's fifth. The declaration line is the same; only lines wasi-perl lacks are absent. The docs say to pass every field after the first three by keyword, which works with both.
-- **`Completed`.** It gains `files: FileRecord | None = None`, last, as in wasi-python: the record for a call with mounts, `None` otherwise.
+- **`Completed`.** It gains `files: FileRecord | None = None`, after `truncated`: the record for a call with mounts, `None` otherwise. wasi-python's order is `truncated`, `files`, `tools`, `image_sha256` (`tests/public_api.txt:14-17`, READ). wasi-perl has no `tools`, and spec 022, which lands after this, adds `image_sha256` after `files`. So `files` is last until 022, and second to last after it, as in wasi-python.
 - **Why:** the owner's rule. An embedder's provider and its call site then move between the two runtimes with no edit.
 - **How it is held:** check A1 compares wasi-perl's listing of these names with wasi-python's own `tests/public_api.txt`, line for line.
 
@@ -72,8 +72,8 @@ Each module below is adapted from the wasi-python file of the same name at `f9bf
 | `_fs_memory.py` | `_fs_memory.py` | all 29 signatures in `SHADOWED`, `FORWARD_SAFE`, every constant, the trampoline's WAT, the ABI checks, `_Memory` and its readers | `COUNTED`, which serves the open-file cap |
 | `_fs_table.py` | `_fs_table.py` | `_Files` whole: the gate, the fault boundary, the read, stat and list answers, numbers and staging, write-back, owed buffers, `_follow`, `_unlink`, the walk, `release` | the session branches (`session`, `new_turn`, `walk`'s `ending`); the open-file cap (`open_files`, `held`, `open_now`, `_at_cap`, `_hold`, `_unhold`, `_renumbered`); `kind()`, which serves wasi-python's host-side `poll_oneoff` |
 | `_fs_descriptors.py` | `_fs_descriptors.py` | every handler | the held-set updates in `fd_close` and `fd_renumber` |
-| `_fs_paths.py` | `_fs_paths.py` | every handler, `_resolve`, the open table, the namespace calls, `_across` | `_forwarded_open`'s cap and host-side look: wasi-perl's look is the guest's (Decision 12), so a forwarded `path_open` goes straight to wasmtime |
-| `_wasmtime_ffi.py` (grows) | `_wasmtime_ffi.py` | `context_of`, `context_address`, `set_epoch_deadline`, `get_fuel`, `set_fuel`, `raw_func`, `PreparedCall` | the rest, which wasi-perl does not call |
+| `_fs_paths.py` | `_fs_paths.py` | every handler, `_resolve`, the open table, the namespace calls, `_across`; the mount-side `path_open`'s bound `files.opened >= MAX_MOUNT_FILES` | `_forwarded_open`'s cap and host-side look: wasi-perl's look is the guest's (Decision 12), so a forwarded `path_open` goes straight to wasmtime. The mount-side `path_open`'s `or files._at_cap()` clause (`_fs_paths.py:146`, READ), which serves the open-file cap |
+| `_wasmtime_ffi.py` (grows) | `_wasmtime_ffi.py` | `context_of`, `context_address`, `set_epoch_deadline`, `get_fuel`, `set_fuel`, `raw_func`, `PreparedCall`; and the import-time check: `PIN`, `NEEDED`, `version`, `missing`, `check` and the call of `check` (`_wasmtime_ffi.py:131-233`, READ) | the rest, which wasi-perl does not call. `NEEDED` is cut to the private wasmtime-py names that wasi-perl's `_wasmtime_ffi.py` reaches, today's `set_stdin_bytes`, `error` and `on_epoch` included, so an unknown wasmtime-py is refused with one `ImportError` naming every missing name |
 
 - **Where the glue goes.** wasi-python's `_call.py` holds the shared host function, `_Call` and `_Context`; here they go in `runner.py`, which is already "adapted from `runner.py` and `_call.py`". The mount linker and the trampoline module go in `_engines.py`, beside the engines they are cached for. `_check_mounts` and `_siphash13` go in `_grants.py`, wasi-perl's counterpart of `_places.py`.
 - **Why trim only these:** each trimmed branch serves a feature wasi-perl does not have (sessions, `max_open_files`, a host-side poll). Everything wasi-perl does have stays line for line, so a later shared package is a merge of two near-equal files, not a rewrite. A unification record (Acceptance 2) lists every remaining difference.
@@ -91,7 +91,10 @@ Each module below is adapted from the wasi-python file of the same name at `f9bf
 
 ### 5. The placeholder
 
-- One placeholder per call: a folder `mount` inside a fresh `tempfile.mkdtemp(prefix="wasi-perl-")` folder (mode 0700, this user's), left empty and set read-only (0500) before the preopens. Every mount of the call is preopened on it, read-only. It is removed after the store is closed, however the call ended.
+- One placeholder per call: a folder `mount` inside a fresh `tempfile.mkdtemp(prefix="wasi-perl-")` folder (mode 0700, this user's), left empty and set read-only (0500) before the preopens. Every mount of the call is preopened on it, read-only.
+- **Clean-up is two `rmdir`s, never a tree removal.** After the store is closed, however the call ended, the runner removes the placeholder, then its folder, each with `os.rmdir`. If either fails, it is left, and the call's result is unchanged.
+  - Why: the folder lies in the system temporary folder, which a writable grant may include. wasi-python's lies under a folder no grant may reach (`_call.py:492-497`, READ). Here a guest with such a grant could rename the folder, or put entries where it was. An `rmdir` removes only an empty folder, so the runner never deletes what the guest put there.
+  - Nothing reads the placeholder's contents (below), so such a change cannot reach a provider.
 - **Nothing reads its contents.** Every path call on a mount's preopen (`path_open`, `path_filestat_get`, `fd_readdir` and the rest) is served by the table. Only `fd_fdstat_get`, `fd_fdstat_set_flags` and the forward-safe calls on the preopen reach wasmtime, and none of them reads an entry. So a placeholder that another process changed or replaced is never served.
 - **Why per call, not per process:** a per-process folder could be removed by a temp cleaner between calls, and its absence would need its own check. A per-call folder costs one `mkdtemp` and one `rmdir`. wasi-python also makes one per call.
 
@@ -100,11 +103,14 @@ Each module below is adapted from the wasi-python file of the same name at `f9bf
 `_grants.check_mounts` runs with the other argument checks, before any file, engine or store is touched. In order, for each mount, naming its position and guest path:
 
 1. `mounts` is an iterable and not a `str`, `bytes`, `bytearray` or a lone `Mount` (`TypeError`).
-2. Each item is a `Mount` (`TypeError`), and its `writable` is `True` or `False` (`TypeError`).
-3. The provider has a callable `stat`, `list` and `read`, and, when writable, `write`, `mkdir`, `remove`, `rmdir` and `rename`. None is a coroutine function (`TypeError`: "a provider answers synchronously").
-4. The guest path is `/`, or passes wasi-perl's grant rule (`_grants.guest_path`): absolute, normalized, no `\`, valid UTF-8 (`TypeError` or `ValueError`).
-5. It is not at or under `/usr/local/lib/perl5` or `/dev`, the runtime's own folders (`ValueError`).
-6. No grant and no other mount has the same guest path (`ValueError`).
+2. Each item is a `Mount` (`TypeError`).
+3. The guest path is `/`, or passes wasi-perl's grant rule (`_grants.guest_path`): a `str`, valid UTF-8, absolute, normalized, with no `\` (`TypeError` or `ValueError`).
+4. It is not at or under `/usr/local/lib/perl5` or `/dev`, the runtime's own folders (`ValueError`).
+5. Its `writable` is `True` or `False` (`TypeError`).
+6. The provider has a callable `stat`, `list` and `read`, and, when writable, `write`, `mkdir`, `remove`, `rmdir` and `rename`. None is a coroutine function (`TypeError`: "a provider answers synchronously").
+7. No grant and no other mount has the same guest path (`ValueError`).
+
+This is wasi-python's order (`_places._check_mounts`, `_places.py:232-270`, READ): the type, the guest path with its reserved folders, `writable`, the methods, then a duplicate. So a mount with two faults raises the same error in both runtimes. wasi-python's last rule, a mount at `/` beside `root=`, has no counterpart, since wasi-perl has no `root`.
 
 What is allowed, and why:
 
@@ -256,9 +262,10 @@ The ports keep wasi-python's test names, so the two suites can be diffed. Each p
 1. **`test_the_mount_api_is_wasi_pythons`.** A listing of wasi-perl's public names is made in wasi-python's `public_api.txt` format, by the same introspection, ported from wasi-python's `tests/harness/api.py` (which `tests/checks/test_v1_4_public_api.py` drives). It is compared with `tests/fixtures/wasi_python_public_api.txt`, a copy of wasi-python's file at `f9bf678` whose first line names that commit.
    - The blocks for `Errno`, `FileFault`, `FileProvider`, `FileRecord`, `Mount`, `RefusedWrite`, `Stat` and `WritableFileProvider` are equal, line for line.
    - `run`'s `mounts` and `max_file_calls` lines are equal to wasi-python's `run`'s.
-   - `Completed`'s `files` line is equal.
+   - `Completed`'s `files` line is equal, and stands right after `truncated`. Spec 022 extends this check to its own names, and to `image_sha256` after `files`.
    - `Defaults`'s block is wasi-python's with whole lines absent and none changed.
 2. **`test_a_bad_mount_is_refused_before_any_work`** (port). One case per rule of Decision 6, plus:
+   - which error wins when a mount has two faults, as wasi-python's order gives it: a relative guest path with `writable="yes"` raises the guest path's `ValueError`; a mount at `/dev` whose provider lacks `stat` raises the reserved folder's `ValueError`; `writable="yes"` with a provider that lacks `stat` raises `writable`'s `TypeError`; a duplicate guest path whose provider lacks `read` raises the method's `TypeError`;
    - a mount at the same guest path as a grant;
    - mounts at `/usr/local/lib/perl5`, `/usr/local/lib/perl5/x`, `/dev` and `/dev/x`;
    - `max_file_calls` of `True`, `-1`, `2**63` and `"10"`;
@@ -268,6 +275,7 @@ The ports keep wasi-python's test names, so the two suites can be diffed. Each p
 4. **`test_the_errno_values_are_preview1s`** and **`test_the_host_errno_table_is_by_name`** (ports).
 5. **`test_a_call_without_mounts_is_unchanged`** (port, trimmed). A call without mounts never makes the mount linker or the trampoline, and invokes no shadow (counting patches). It computes no spec 014 rule input that it did not compute before.
 6. **`test_a_writable_mount_binds_no_host_rule`.** A call whose only writable place is a mount runs none of `_runtime_folders`, `_runtime_files` and `_cache.every`. It enters nothing in the live-grant registry, and nothing in the set of folders once granted writable (counting patches).
+7. **The wasmtime-py check** (ports of wasi-python's `tests/unit/test_wasmtime_ffi.py`: `test_missing_names_each_absent_name_in_order_and_all_lists_the_table`, `test_check_raises_one_import_error_naming_the_version_the_names_and_the_pin`, `test_the_runner_lets_the_adapters_import_error_through` and `test_the_bindings_the_runner_calls_exist`). `missing` names each absent name of `NEEDED`, in order. `check` raises one `ImportError` naming the version, every missing name and the pin. `run` lets it through. Every name in `NEEDED` exists in the pinned wasmtime-py.
 
 ### B. The table, through raw preview1 (`tests/mounts/test_mount_table.py`; fast)
 
@@ -386,6 +394,8 @@ They are written as `test_escapes.py`'s are: each guest prints `NAME ok` or `NAM
    - the placeholder was empty during the call and is gone;
    - the parent of the placeholder's folder and `tmp_path` hold no new entry;
    - the library's and `/dev`'s files hash as before.
+
+   A third run gives the guest a writable grant over the placeholder folder's parent, with `tempfile.tempdir` pointed at a folder of the test's. The guest renames the call's `wasi-perl-*` folder and makes a file of the same name in its place. After the call, `run` has returned normally, and both the renamed folder and the guest's file are still there: the clean-up removed nothing that was not an empty folder (Decision 5).
 5. **`test_a_writable_root_mount_keeps_the_runtime_and_other_grants`** (port). A writable mount at `/`, with a read-only grant at `/data` and a writable mount at `/work/out` inside it:
    - writing into `/usr/local/lib/perl5/x`, `/usr/./local/lib/perl5/x`, `/dev/x` and `/data/x`, making a folder there, or removing or renaming into it, is `EPERM` with no provider call;
    - `rmdir` of `/usr` or `/usr/local`, and renaming `/usr` or `/work`, are `EBUSY` with no call;

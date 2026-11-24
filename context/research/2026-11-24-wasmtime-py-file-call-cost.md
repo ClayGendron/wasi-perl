@@ -92,7 +92,7 @@ What the table shows:
 `c-api-allow-blocking-current-thread.patch`: 8 lines in `crates/c-api/src/wasi.rs` (a function that calls `config.builder.allow_blocking_current_thread(enable)`) and 11 lines of declaration and doc comment in `crates/c-api/include/wasi.h`.
 
 - **Build:** `cargo build -p wasmtime-c-api --release -j4` against v51.0.0, with the crate's default features. 218 crates compiled, and the build finished in 3 min 04 s (EXECUTED: `results/c-api-build-tail.txt`).
-- **The library:** 44.1 MB unstripped. After `strip` it is 30.1 MB, against the shipped 29.7 MB, and it exports 784 functions against the shipped 783, the one more being the new function (EXECUTED: `nm -D`; hashes in `results/c-api-build-tail.txt`).
+- **The library:** 44.1 MB unstripped. After `strip` it is 30.1 MB, against the shipped 29.7 MB, and it exports 784 functions against the shipped 783, the one more being the new function (EXECUTED: `stat`, `strip` and `nm -D --defined-only`, with the commands and output in `results/c-api-library.txt`; the build's hashes are in `results/c-api-build-tail.txt`, and the library measured has the same hash).
 - **Loading it:** a copy of the venv's `wasmtime` package went to `/home/user/wasi-perl-downloads/pylib-patched/`, with `_libwasmtime.so` replaced. The drivers put that folder first on `sys.path` (`--lib`) and call the new function through `wasmtime._ffi.dll` before the preopen (`--blocking`). The bench venv itself was not touched.
 - **Order** (EXECUTED: `cost.py … --blocking-late`, `results/run_late.txt`): with the flag set after the preopen, `fd_read` costs 0.51 µs and `fd_filestat_get` 0.76 µs, but `path_filestat_get` costs 54.8 µs and `path_open` + `fd_close` 34.5 µs. That is the split §2.3 predicts.
 
@@ -108,7 +108,7 @@ What the table shows:
 | `path_filestat_get` | futex 17.2, statx 2 | futex 16.1, statx 2 | statx 2 | statx 2 | futex 18.6, statx 2 |
 | `path_open` + `fd_close` | futex 4.9, statx 1, openat2 1, close 1 | futex 4.2, … | statx 1, openat2 1, close 1 | the same | futex 4.4, … |
 
-The real work, `pread64` or `statx`, is the same in every arm. The `futex` calls come only with the flag off, and they scale with the number of `run_blocking` calls in §2.1: about 8 for one, 15–18 for two. The process has 15 threads after a stock run and 9 after a run with the flag on, because the blocking pool is never started (EXECUTED: `cost.py --threads`).
+The real work, `pread64` or `statx`, is the same in every arm. The `futex` calls come only with the flag off, and they scale with the number of `run_blocking` calls in §2.1: about 8 for one, 15–18 for two. The process has 15 to 19 threads after a stock run, and 9 after every run with the flag on, because the blocking pool is never started (EXECUTED: `cost.py … 20000 7 … --threads`, three runs per arm, `results/threads.txt`). The stock count varies because the pool grows on demand.
 
 **What a hand-off costs here, without wasmtime** (EXECUTED: `handoff.c`, in `results/run_all.txt`): 25.9 to 26.4 µs per round trip across the VM's CPUs, three runs, and 2.53 to 2.57 µs pinned to one CPU with `taskset -c 0`. wasmtime-py pinned to one CPU drops the same way, to 4.1 µs per `fd_read` and 7.6 µs per `fd_filestat_get`. So on this VM the cost is the wake-up latency of a sleeping vCPU, about 13 µs each way (INFERRED). On other machines it will be smaller. wasi-python's macOS M1 numbers give about 17 µs per file call on bare wasmtime-py (INFERRED: 387 ms over 22,000 calls, READ `2026-10-23-…on-speed.md` §2). But it is never zero, and the flag removes it everywhere.
 
@@ -126,7 +126,7 @@ The real work, `pread64` or `statx`, is the same in every arm. The `futex` calls
 | `sleep 2` under a 0.5 s deadline | 0.51 s, "deadline" | 0.52 s, "deadline" | 0.51 s, "deadline" |
 
 - **Outputs are equal.** Exit code, stdout hash and stderr hash are identical across all 90 calls of each program, in all three arms (EXECUTED).
-- **A bare call does not move beyond the noise.** In three rounds of 200 calls, the medians were stock 3.49, 3.58 and 4.10 ms, and flag on 3.29, 3.59 and 3.55 ms (EXECUTED: `bare_calls.py`, `results/bare_calls.txt`). One `-e 1` makes 6 `statx` and 3 `openat2` per run in the guest's name (EXECUTED: `strace -f -c` over 20 runs). That is a handful of hand-offs, worth roughly 0.2–0.4 ms (INFERRED). Study A's "floor about 0.5–0.8 ms" with this change is therefore not borne out for a bare call. The flag pays where files are touched, not at startup.
+- **A bare call does not move beyond the noise.** In three rounds of 200 calls, the medians were stock 3.49, 3.58 and 4.10 ms, and flag on 3.29, 3.59 and 3.55 ms (EXECUTED: `bare_calls.py`, `results/bare_calls.txt`). One `-e 1` makes 6 `statx` and 3 `openat2` per run in the guest's name (EXECUTED: `strace -f -c` of `e1_calls.py` over 1 run and over 21, the difference divided by 20, `results/e1-syscalls.txt`). That is a handful of hand-offs, worth roughly 0.2–0.4 ms (INFERRED). Study A's "floor about 0.5–0.8 ms" with this change is therefore not borne out for a bare call. The flag pays where files are touched, not at startup.
 - **The deadline still holds.** The guest slices its waits (§2.3), so the flag's `thread::sleep` path cannot hold a call past its deadline.
 
 ## 4. The options
@@ -204,6 +204,10 @@ flock /home/user/wasi-perl-wt/machine.lock ./run_all.sh <python> <wasmtime> prob
 WASMTIME=<wasmtime> ./syscalls.sh <py|py-patched|py-blocking|cli|cli-timeout> <kind> <python> cost.py probe.wasm data pylib-patched
 WASI_PERL_ARTIFACTS=<set> python perl_calls.py <worktree>/src data 15 results/perl_calls.jsonl [--lib pylib-patched [--blocking]]
 WASI_PERL_ARTIFACTS=<set> python bare_calls.py <worktree>/src 200 [--lib pylib-patched --blocking]
+# the thread counts, the library's sizes and exports, and the system calls of -e 1
+python cost.py probe.wasm data 20000 7 /dev/null --threads [--lib pylib-patched --blocking]   # results/threads.txt
+strip -o stripped.so <target>/release/libwasmtime.so; nm -D --defined-only stripped.so | awk '$2 == "T"' | wc -l   # results/c-api-library.txt
+strace -f -c -o s1 python e1_calls.py <set> 1; strace -f -c -o s21 python e1_calls.py <set> 21   # results/e1-syscalls.txt
 ```
 
 `perl_calls.py` also needs `data/big.txt` (`seq 1 150000`) and `data/many/f000.log` to `f199.log` (`seq 1 50` each).

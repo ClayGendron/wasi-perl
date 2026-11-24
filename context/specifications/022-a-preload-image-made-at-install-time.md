@@ -1,18 +1,21 @@
 # 022 — A preload image the embedder makes at install time
 
-- **Status:** written 2026-11-24 under the owner's agreement of the speed work ("You can do all 10 actually", 2026-11-24) and two decisions on this one, the same day:
-  - "Install-time images only": the embedder makes the image, so its frozen hash seed is never published, and wasi-perl ships no preloaded image;
-  - "Do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components."
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 10. The owner gave two answers that bear on it, the same day (`../roadmap.md`):
+  - "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That agrees to building the item, not this text.
+  - "Install-time images only." The roadmap records what it means: the image may be built only as one the embedder makes itself, so that its fixed hash seed is never published. So wasi-perl ships no preloaded image.
+
+  These choices are new here and await the owner: choice (c), which no study prototyped; the second binary `perl-reactor.wasm`; the default package list held in the runner's code (Decision 5); and the cap on data segments. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, M1–M4, M6, L5–L8).
 - **Owner:** Clay Gendron
 - **Kind:**
-  - the build: a new `recipes/wasi-reactor.c`, a second link in `scripts/20_target.sh`, `scripts/assemble_artifacts.py`, `MANIFEST`, `SHA256SUMS`;
+  - the build: a new `recipes/wasi-reactor.c`, its object compiled in `scripts/20_target.sh`, its link in step 4 of spec 019's `scripts/40_link.sh`, `scripts/assemble_artifacts.py`, and the `SHA256SUMS` that step 7 writes. `MANIFEST` is not changed;
   - the runner: new `src/wasi_perl/_snapshot.py`, `_snapshot_make.py` and `_image_module.py`; changes to `runner.py`, `_artifacts.py`, `_engines.py`, `cli.py` and `__init__.py`;
-  - checks in `tests/snapshot/` and `tests/build/`; `docs/snapshots.md` and `docs/sandbox.md`.
+  - checks in `tests/snapshot/`, `tests/build/` and `tests/mounts/test_mount_api.py`; `docs/snapshots.md` and `docs/sandbox.md`.
 - **Depends on:**
   - 013, because the image's hash seed must come from the host's randomness;
   - 014, for the engine's `memory_init_cow = True` pin, one `InstancePre` per module and the mapped `.cwasm`;
-  - 019, the library index, which the owner put first; the reactor links the same index.
-  - If 021 (`wasm-opt -O3`) is built first, the reactor gets the same pass after its link.
+  - 017, so that `make_snapshot` and `make_package_snapshot` take `mounts` and `max_file_calls` as wasi-python's do (Decision 5), and so that `Completed.files` already stands before `image_sha256`;
+  - 019, the library index and the build order of its Decision 5, which the roadmap puts first. The reactor links the same index.
+  - 021 (`wasm-opt -O3`) in either order. If 021 is built first, this adds the reactor to 021's step. If this is built first, 021's pass covers both binaries.
 - **Research it stands on:**
   - `../research/2026-11-24-perf-startup.md` (study D) and its evidence folder: `perl-reactor.c`, `fdtable-reset.c`, `build.sh`, `drift.py`, `results/`;
   - `../research/2026-11-24-perf-synthesis.md` §3 row 10 and §5 item 2;
@@ -67,17 +70,24 @@ Study D measured or bounds three ways.
 3. It refuses, with `ArtifactsMissing`, a reactor that does not have the form below. This is a build fault, not a caller's:
    - one memory, defined and exported as `memory`;
    - every data segment active, in memory 0, at an `i32.const` offset;
-   - no data-count section (passive segments, `memory.init` or `data.drop` would then index segments that are gone);
    - exactly one mutable global, the stack pointer;
    - no start section;
    - the exports `_initialize`, `prepare`, `run`, `wasi_perl_open_files`, `wasi_perl_exit_status` and `memory`.
+
+   A data-count section is allowed. `wasm-opt` writes one when bulk memory is on, though the code uses no segment: over perl.wasm, `-O3` adds one, and the code holds no `memory.init` and no `data.drop` (EXECUTED: spec 021, Decision 5). The reactor is linked from the same objects, so it is expected to be the same (INFERRED; reactor check 1 confirms it).
 4. It writes a module from those sections, in order:
-   - the memory section's initial size is the image's pages, and its maximum is kept. An image past the maximum raises `SnapshotMismatch`.
-   - The data section has one active segment for each run of 4 KiB blocks that hold a non-zero byte. A block of zeros is left out, since fresh memory is zero.
+   - The memory section's initial size is the image's pages, and its maximum is kept. An image past the maximum raises `SnapshotMismatch`.
+   - The data section holds the image, as active segments (step 5).
+   - A data-count section is dropped. `memory.init` and `data.drop` do not validate without one: wasmparser answers "data count section required" (READ: `wasmparser-0.263.0/src/validator/operators.rs:1905-1911`, the version wasmtime 51 pins at its `Cargo.toml:375`). So a reactor whose code indexes a segment fails to compile, and that error is raised as `ArtifactsMissing`. It never runs against segments that are gone.
    - The export section drops `_initialize` and `prepare`, so neither can run over the image.
    - Custom sections are dropped. Nothing reads them, and the bytes then depend only on the reactor and the image.
    - Every other section is copied byte for byte: types, imports, functions, table, globals, tags, elements and code.
-5. Why the one global is safe: the image holds memory only. The stack pointer is back at its first value whenever `prepare` returns. `prepare` checks this itself (decision 3), so the global's first value in the module is right.
+5. **The segments, and their cap.**
+   - **Runs.** The image is cut into 4 KiB blocks. A run is a longest stretch of blocks that each hold a non-zero byte. A block of zeros is left out, since fresh memory is zero.
+   - **The cap.** wasmparser refuses a module with more than 100,000 data segments (READ: `wasmparser-0.263.0/src/limits.rs:29`, `MAX_WASM_DATA_SEGMENTS`). `_image_module.MAX_SEGMENTS` is 50,000, half of that limit. The margin is a choice made here, not one any engine asks for.
+   - **Coalescing.** While there are more runs than the cap, the shortest gap of zero blocks between two runs is closed: the two runs become one segment, and the gap's zeros are written into it. Among gaps of equal length, the one at the lower address closes first. So exactly `runs − 50,000` gaps close, the zeros written are the fewest such a merge can give, and the result depends only on the image.
+   - **Why the cap is reachable:** `memory_bytes` defaults to 1 GiB. An image that size with every other block zero has 131,072 runs (INFERRED). Coalesced, it is 50,000 segments, and no image is refused for its shape.
+6. Why the one global is safe: the image holds memory only. The stack pointer is back at its first value whenever `prepare` returns. `prepare` checks this itself (decision 3), so the global's first value in the module is right.
 
 **The cache key.** The image module's bytes are a pure function of the reactor and the image. So the in-process table and the `.cwasm` name are keyed by the SHA-256 of `"wasi-perl image module 1\0" + reactor digest + "\0" + image_sha256`. A process that finds the `.cwasm` never writes the module at all. The cache's own checks of owner, mode, one name and folder (specs 004, 012 and 014) apply unchanged. With `cache_dir=False`, the compiled module lives in the process only.
 
@@ -92,9 +102,19 @@ Study D measured or bounds three ways.
 
 - `perl.wasm` stays a WASI command (a module that exports `_start`). Other hosts run it, and the wasmtime CLI runs it with no flags. Every call without an image still runs it.
 - A command cannot also serve the image. Each of its other exports would run the C constructors again (INFERRED: wasm-ld wraps a command's other exports with constructor calls; not tried here). The image needs an entry that runs once, returns with the interpreter alive, and is then entered again.
-- So the build links the same objects a second time. Perl's `perlmain.o` is replaced by `recipes/wasi-reactor.c`'s object, and `-mexec-model=reactor` is added. The result is `perl-reactor.wasm`, a WASI reactor: a module with no `_start` that the host enters through its exports.
-- The 019 index and, if built, 021's pass apply to it as to `perl.wasm`.
-- `SHA256SUMS` and `MANIFEST` pin it, and `Artifacts` gains `reactor: Path`. The runner checks it with the set, as it checks perl.wasm.
+- So the build links the same objects a second time, with Perl's `perlmain.o` replaced by `recipes/wasi-reactor.c`'s object. The result is `perl-reactor.wasm`, a WASI reactor: a module with no `_start` that the host enters through its exports.
+- **Where, in spec 019's build order (its Decision 5):**
+  - step 1, `20_target.sh`: the reactor's object is compiled after `Configure`, as `sandbox-refusals.o` is (Decision 3);
+  - step 4, `40_link.sh`, after the index and before the relink of `perl.wasm`: `build/target/perl` is removed, and `make perl` runs with three variables set. `perlmain_objs` is the reactor's object, `libs` is the index object followed by the configured `libs`, and `CLDFLAGS` is the configured one plus `-mexec-model=reactor` and Decision 3's `--wrap` flags. The result is copied to `build/link/perl-reactor.wasm`. Step 5's relink then leaves the tree's `perl` the command;
+  - step 6: 021's pass, once 021 is built, writes it to `build/artifacts/`. Until then, a copy;
+  - step 7: `SHA256SUMS` pins it, with every other file of the set.
+- **`MANIFEST` is unchanged.** It stays `<sha256>  <path>` for every file under `lib/` and `dev/` (`scripts/30_library.sh:62-69`; `tests/build/test_modules.py:529-550`, READ). The reactor is pinned by `SHA256SUMS` alone, as `perl.wasm` is.
+- **`Artifacts` gains `reactor: Path | None = None`, as its last field.**
+  - It has a default, so every embedder's `Artifacts(perl, lib, dev, manifest, sums)` still works.
+  - `Artifacts.at(folder)` fills it with `folder / "perl-reactor.wasm"` when that file exists, else `None`.
+  - The runner checks the reactor against `SHA256SUMS` with the set, as it checks perl.wasm, whenever a call or a making uses it.
+  - `make_snapshot`, `make_package_snapshot`, `Snapshot.check` and a call with `snapshot=<Snapshot>` raise `ArtifactsMissing` when it is `None`. A call with `snapshot=True` or `False` never reads it.
+  - wasi-python's `Artifacts` has two required reactor fields, `snapshot` and `plain`, and no command. The difference is in the table below.
 - Its size is about perl.wasm's 9.3 MB (INFERRED: the same objects; D §4.3). The wheel grows by its compressed size, which the acceptance memo records.
 - It is not a snapshot. Nothing is initialised in it, and no seed is in it.
 
@@ -112,7 +132,7 @@ Its exports:
   5. It stores Perl's status. Anything other than 0 is returned at once.
   6. It unpins the clocks and flushes PerlIO.
   7. It counts the descriptors the code left open in the guest's table: not 0–2 and not a preopen. `wasi_perl_open_files` answers that count.
-  8. It empties the guest's descriptor table (`wasi_perl_fd_table_reset`, added to `recipes/wasi-fd-table.c`) and wasi-libc's preopen table. It drops wasi-libc's copy of the environment.
+  8. It empties the guest's descriptor table (`wasi_perl_fd_table_reset`, added to `recipes/wasi-fd-table.c`) and wasi-libc's preopen table. The reset also forgets the two preopens the table finds by name: the `/dev` preopen of spec 013 and the library's preopen of spec 019. Each is found again, from this instance's preopens, at its first use. It drops wasi-libc's copy of the environment.
   9. It checks that the stack-pointer global, read with `global.get __stack_pointer`, equals its value at entry. If not, it aborts.
   10. It returns 0.
 - **`run()`**: one call from the image (decision 4), then `perl_destruct`, `perl_free` and `exit`, as `perlmain.c` ends.
@@ -149,10 +169,11 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 
 ### 5. The making: `make_snapshot` and `make_package_snapshot`
 
-**`make_snapshot(code, *, grants=(), env=None, cwd=None, fuel=None, deadline_s=600.0, memory_bytes=UNSET, output_bytes=UNSET, cache_dir=None, artifacts=None) -> Snapshot`**
+**`make_snapshot(code, *, grants=(), mounts=(), env=None, cwd=None, fuel=None, deadline_s=600.0, memory_bytes=UNSET, output_bytes=UNSET, cache_dir=None, artifacts=None, max_file_calls=UNSET) -> Snapshot`**
 
 - Its keywords are `run`'s, checked by `run`'s rules before any work. It takes no `argv` and no `stdin`, because the code is the program.
-- A keyword wasi-perl's `run` gains later, such as mounts, joins it.
+- **The order is wasi-python's.** The keywords both runtimes have stand in wasi-python's order (`tests/public_api.txt:217-232`, READ): `grants`, `mounts`, `env`, `fuel`, `deadline_s`, `memory_bytes`, `output_bytes`, `cache_dir`, `artifacts`, `max_file_calls`. `cwd`, which only wasi-perl has, stands after `env`, where it stands in wasi-perl's `run`. wasi-python's `root`, `import_path`, `host` and `max_open_files` are absent, since wasi-perl has none of them. All are keyword-only, so the order changes no call.
+- **`mounts` and `max_file_calls` are spec 017's**, which lands first. A mount serves the making as it serves any call. What the code read through a provider is then in the image, as a grant's files are. A keyword wasi-perl's `run` gains later joins `make_snapshot` in wasi-python's place.
 - The deadline is 600 s, as wasi-python's, because the making is a setup step.
 - The steps:
   1. a fresh store on `perl-reactor.wasm`;
@@ -168,20 +189,46 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
   - `"trapped"`: fuel, the deadline, or a trap;
   - `"open file"`: `wasi_perl_open_files` is above 0. A module's `__DATA__` handle counts. A call cannot reopen it.
 
-**`make_package_snapshot(packages=None, *, ...)`** has `make_snapshot`'s keywords. It makes sense for Perl: it loads modules without importing them, which is study D's preload exactly.
+**`make_package_snapshot(packages=None, *, ...)`** has `make_snapshot`'s keywords, in the same order. It makes sense for Perl: it loads modules without importing them, which is study D's preload exactly.
 - The code is one `require <Module>;` line per name, so no name lands in `main::`.
-- With `packages=None`, it loads every name that the set's `MANIFEST` lists on its `x-snapshot-package <distribution> <Module> [<Module>…]` lines. That is wasi-python's rule.
-- A name given is either a distribution's, as CPAN names it (`JSON-PP`), which loads that line's modules, or a module name (`Data::Dumper`), loaded as given. A `str` alone is refused, as in wasi-python.
-- **The set's lines name study D's eight**: `strict`, `warnings`, `POSIX`, `List::Util`, `JSON::PP`, `Data::Dumper`, `Storable` and `Encode`. They are the measured set (D §3–§5).
+- **The default list is held in the runner's code, not in the set.** `_snapshot_make.PACKAGES` is a tuple of `(distribution, (Module, …))` pairs. With `packages=None`, it loads every pair's modules, in order, each once.
+- **The pairs name study D's eight**, the measured set (D §3–§5). Each is named by its CPAN distribution where it has one, else by its module name:
+
+  | distribution | modules |
+  |---|---|
+  | `strict` | `strict` |
+  | `warnings` | `warnings` |
+  | `POSIX` | `POSIX` |
+  | `Scalar-List-Utils` | `List::Util` |
+  | `JSON-PP` | `JSON::PP` |
+  | `Data-Dumper` | `Data::Dumper` |
+  | `Storable` | `Storable` |
+  | `Encode` | `Encode` |
+
   - Each module added makes every image larger, and every call from it pays more first-touch page faults (D §4.2).
   - An embedder names more with `packages=[...]`.
-  - The set's default list changes only with a drift run and a review.
+  - The list changes only with a drift run and a review, and the review reads it in the code.
+- **A name given** is resolved as wasi-python resolves one (`_snapshot_make._package_names`, READ):
+  - a pair's distribution, matched without regard to case (`json-pp`), loads that pair's modules;
+  - a pair's first module loads that pair's modules;
+  - any other module name (`Data::Dumper`, `Text::Wrap`) is loaded as given;
+  - a name that is neither a module name nor a pair's distribution raises `ValueError` ("this artifact set ships no package named …").
+  - A `str` alone is refused with `TypeError`, as in wasi-python.
+- **Why not in `MANIFEST`, as wasi-python keeps it.**
+  - wasi-perl's `MANIFEST` has one format, `<sha256>  <path>` for each file under `lib/` and `dev/`. `30_library.sh` writes it (`scripts/30_library.sh:62-69`), and `tests/build/test_modules.py:529-550` asserts that every line is a digest and a path, and that the entries are exactly the files on disk (READ). A line of another kind would break that check, and changing the check would weaken it.
+  - A separate file in the set would add a sixth path to `Artifacts` and to `assemble_artifacts.py`, for a list no build step computes.
+  - wasi-python's list follows the packages each of its builds ships. wasi-perl's eight are core modules every set holds, chosen by measurement. So the list belongs with the code that was measured.
+- **A set that lacks one of the eight**, which only a set passed as `artifacts=` can, fails the making with `SnapshotFailed("exit")`, whose message names the `require` that died.
 
 ### 6. Which calls use the image
 
+- **The parameter.** `run` gains `snapshot: bool | Snapshot = True`, keyword-only, after `stdin` and before `cwd`. wasi-python's `run` has it after `stdin` and `host`, and before `fuel` (`tests/public_api.txt:242-245`, READ). wasi-perl has no `host`, and `cwd` is its own. So every parameter both runtimes have keeps wasi-python's order. After specs 017 and this, wasi-perl's `run` reads: `argv`, then `grants`, `mounts`, `env`, `stdin`, `snapshot`, `cwd`, `fuel`, `deadline_s`, `memory_bytes`, `output_bytes`, `cache_dir`, `artifacts`, `max_file_calls`.
 - **`snapshot=True`**, the default, and **`snapshot=False`** both run `perl.wasm`. wasi-perl's own start is perl.wasm. A construct-only snapshot saves 0.12 M instructions and no measurable time: 1.039 against 1.045 ms (D §4.2). So the set ships no snapshot binary.
 - **`snapshot=<Snapshot>`** runs the image module, with one exception: **if the call's environment has `PERL_HASH_SEED`, `PERL_PERTURB_KEYS` or `PERL_JSON_PP_USE_B`, with any value, the call runs `perl.wasm`.** An image cannot honour them: the seed is fixed, and JSON::PP's constant was set at the making. The call is then exactly perl.wasm's.
-- `Completed.image_sha256` is the image's hash for a call that started from it, and `None` otherwise. That is wasi-python's field. It is how an embedder sees a fallback.
+- `Completed.image_sha256: str | None = None` is the image's hash for a call that started from it, and `None` otherwise. That is wasi-python's field. It is how an embedder sees a fallback.
+  - **Its place** is after spec 017's `files`, as the last field. wasi-python's order is `truncated`, `files`, `tools`, `image_sha256` (`tests/public_api.txt:14-17`, READ), and wasi-perl has no `tools`. So wasi-perl's `Completed` ends `truncated`, `files`, `image_sha256`.
+  - 017 lands first, so `files` is already in place and nothing moves. Check A1 of 017, as this extends it, holds the order.
+- A call from an image takes `mounts` as any call does. With mounts, it instantiates the image module from spec 017's mount linker, as a call with mounts and no image instantiates perl.wasm from it.
 - **The runner never guesses from the program's text.** `use`, `require`, `do FILE` and `-M` in `PERL5OPT` cannot be judged reliably without running Perl. A guess would make a program's meaning depend on a heuristic: `POSIX::floor` without `use` would work or die according to the guess. So the embedder chooses per call.
   - `docs/snapshots.md` says to pass the image to calls that load modules, and not to bare one-liners.
   - On a one-liner the image costs about 0.38 ms more: 294 page faults against 78 (D §4.2).
@@ -203,6 +250,9 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
   - `save` writes it with mode 0600, as `mkstemp` makes it.
   - On POSIX, `load` also refuses a file that group or others can read, beside wasi-python's refusal of one they can write.
   - `docs/snapshots.md` says to keep the file as private as a key, and never to share it between embedders or machines.
+- **The module cache holds the seed too.** The image module's `.cwasm` carries the image's data segments, and so the frozen seed.
+  - The cache already keeps every file at 0600, in a folder at 0700, owned by this user, and refuses anything else (`_cache.py:139-148`, READ).
+  - `docs/snapshots.md` says the cache folder holds the seed as the saved file does. A cache shared between embedders shares their images' seeds. With `cache_dir=False` nothing is written.
 
 ### 8. The drift, and where it is documented
 
@@ -229,14 +279,16 @@ D also read one case without running it: JSON::PP fixes `PERL_JSON_PP_USE_B` at 
 | 2 | a call from a `Snapshot` instantiates a module the runner wrote, mapped copy-on-write; there is no per-call copy | about 2.7 ms and 15 MiB a call saved (decision 1) | adopt it inside the runner, with no change to the API or the file. It would pay one compile of its snapshot binary's code per image, cached. Its 203 MiB images exceed wasmtime's dense-image limit, so whether they still map is to be measured (INFERRED) |
 | 3 | the making pins the clocks but not entropy | the hash seed is frozen in the image (decision 7) | draw real entropy in `prepare` as well. That would close its own pydantic note (READ: `docs/explanation/security-model.md`). It gives up identical images from identical code, which its docs do not promise for a prelude (INFERRED) |
 | 4 | `make_snapshot`'s `env` refuses three names, and a call whose env has them runs the plain binary | an image cannot honour them (decision 6) | the same rule with its own list: for example `PYTHONHASHSEED`, if it ever honours one in an image |
-| 5 | `make_package_snapshot` takes CPAN distribution names or `Module::Names`, loads with `require`, and has no `root` keyword | Perl's names and loading; wasi-perl's `run` has no root | nothing to adopt: the MANIFEST lines and the rule for `None` are the same |
-| 6 | `make_snapshot` takes `run`'s keywords that exist in wasi-perl: `grants`, `env`, `cwd`, `fuel`, `deadline_s`, `memory_bytes`, `output_bytes`, `cache_dir`, `artifacts` | wasi-perl's `run` has no `root`, `mounts`, `import_path`, `host` or file-call limits yet; each joins when `run` gains it | nothing to adopt |
+| 5 | `make_package_snapshot` takes CPAN distribution names or `Module::Names`, loads with `require`, and has no `root` keyword. Its default list is `_snapshot_make.PACKAGES`, in the runner's code; wasi-python reads its set's `x-snapshot-package` lines in `MANIFEST` | Perl's names and loading; wasi-perl's `run` has no root. wasi-perl's `MANIFEST` holds only `<sha256>  <path>` lines, which its build check enforces, and its eight packages are core modules every set holds (Decision 5) | the shared component asks each runtime for its package list through one function: wasi-python's reads `MANIFEST`, wasi-perl's returns `PACKAGES`. The rule for `None` and for a name given is the same in both, and neither API changes |
+| 6 | `make_snapshot` and `make_package_snapshot` take the keywords of wasi-perl's `run`: `grants`, `mounts`, `env`, `cwd`, `fuel`, `deadline_s`, `memory_bytes`, `output_bytes`, `cache_dir`, `artifacts`, `max_file_calls`, in wasi-python's order (Decision 5). wasi-python's `root`, `import_path`, `host` and `max_open_files` are absent | wasi-perl has none of the four; each joins, in wasi-python's place, when wasi-perl's `run` gains it | nothing to adopt for the four |
 | 7 | `code` may not hold NUL | it travels as argv, so no new export is needed to copy it in | nothing to adopt |
-| 8 | `SnapshotOrigin` names `binary_sha256` (perl-reactor.wasm) and `library_sha256` (the SHA-256 of the `SHA256SUMS` lines that name `lib/`), in place of `snapshot_sha256` and `stdlib_zip_sha256`, and `wasi_perl` in place of `wasi_python`. `kind` is always `"prelude"`, `parent_sha256` is always `None`, and `home` is `""` | the binary is not a snapshot; the library is a folder, not a zip; wasi-perl has no sessions and sets no `HOME` (spec 004) | rename to the two neutral names, keeping the old ones as read-only aliases and reading either in a header. The shared component then has one shape |
+| 8 | `SnapshotOrigin` has three neutral names, each in the place of wasi-python's: `binary_sha256` (perl-reactor.wasm) for `snapshot_sha256`; `library_sha256` (the SHA-256 of the `SHA256SUMS` lines that name `lib/`) for `stdlib_zip_sha256`; and `runtime_version` (wasi-perl's version) for `wasi_python`. `kind` is always `"prelude"`, `parent_sha256` is always `None`, and `home` is `""` | the binary is not a snapshot; the library is a folder, not a zip; a field named after one runtime cannot be the shared one. wasi-perl has no sessions and sets no `HOME` (spec 004) | rename the three to the neutral names, keeping `snapshot_sha256`, `stdlib_zip_sha256` and `wasi_python` as read-only aliases, and reading either spelling in a file's header. The shared component then has one shape |
 | 9 | the file's first line is `wasi-perl snapshot\n` | neither runner may load the other's image | the same scheme: one magic line per runtime |
 | 10 | `load` refuses a file others can read (POSIX) | the file holds a secret, the seed (decision 7) | adopt it: its checkpoints hold everything a session read |
 | 11 | no `Session`, `checkpoint` or `run_async` | wasi-perl has none | they follow wasi-python's when wasi-perl gains sessions |
 | 12 | the command line accepts `--no-snapshot`, which changes nothing | so a wasi-python command line runs | nothing to adopt |
+| 13 | `make_snapshot` takes `cwd`, after `env` | wasi-perl's `run` has `cwd`, and the making takes `run`'s keywords | the same keyword, in the same place, if wasi-python's `run` gains `cwd` |
+| 14 | `Artifacts` has `perl` (the command), `lib`, `dev`, `manifest`, `sums` and `reactor: Path \| None = None`, last. wasi-python's has `snapshot` and `plain`, both reactors and both required, with `stdlib_zip` and `manifest` | wasi-perl's start is a command, and its reactor serves only images; a set without one still runs every call but those from an image (Decision 2) | an optional binary as a last field with a default `None`, as here, if it ever ships one. The two classes already differ in every path but `manifest`, since each holds its own runtime's files |
 
 Everything else is wasi-python's, adapted from its files and saying so in their docstrings:
 - `Snapshot` is immutable, cannot be made directly, is not pickled, and has the same `repr`, `origin`, `save`, `load` and `check`;
@@ -251,14 +303,20 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 **The image module** (`tests/snapshot/test_image_module.py`)
 1. It is built from a stand-in reactor made by the test and a known image. It holds the stand-in's code section byte for byte. Its memory's initial pages equal the image's. Its exports lack `_initialize` and `prepare`. Two builds give identical bytes.
 2. Instantiated, its memory equals the image byte for byte, zero blocks included.
-3. Stand-ins are refused, each with `ArtifactsMissing`: one with a data-count section, one with a passive segment, one with two mutable globals, and one with a start section.
-4. Twenty calls from one image compile it once: the counts show one compile or one load. `snapshots_restored` counts 20. No host write into guest memory happens: `ctypes.memmove` and `Memory.write` are patched to count, and count 0.
-5. A second process with the same cache loads the `.cwasm` and never writes the module: the writer is patched to count.
+3. Stand-ins are refused, each with `ArtifactsMissing`: one with a passive segment, one with two mutable globals, and one with a start section. A stand-in whose code holds `memory.init`, with its data-count section, gives a module that fails to compile, raised as `ArtifactsMissing`.
+4. A stand-in with a data-count section and no segment-indexing instruction is accepted. Its written module has no data-count section, and it compiles.
+5. **The segment cap.**
+   - Fast, on the coalescer alone, with the cap passed in: runs with gaps of 3, 1, 2 and 1 blocks under a cap of 3 close the two gaps of 1 block, the lower one first. Under a cap of 1, every gap closes. A run count at or under the cap closes none.
+   - `slow`: a striped image of 100,002 blocks, every other one non-zero, so 50,001 runs. The written module has exactly 50,000 data segments; it compiles; and, instantiated, its memory equals the image byte for byte.
+   - `_image_module.MAX_SEGMENTS` is at most half of wasmparser's 100,000.
+6. Twenty calls from one image compile it once: the counts show one compile or one load. `snapshots_restored` counts 20. No host write into guest memory happens: `ctypes.memmove` and `Memory.write` are patched to count, and count 0.
+7. A second process with the same cache loads the `.cwasm` and never writes the module: the writer is patched to count.
 
 **The reactor** (`tests/build/`)
-1. `perl-reactor.wasm` has the form of decision 1, step 3, and exactly the six exports.
-2. Compiling `recipes/wasi-reactor.c` against a stand-in `patchlevel.h` that says 5.42.4 fails on its `#error`.
-3. The artifact set holds no file that begins with the snapshot magic. No script runs `wizer`.
+1. `perl-reactor.wasm` has the form of decision 1, step 3, and exactly the six exports. An image module written from it and a one-page image compiles, so its code indexes no data segment.
+2. `SHA256SUMS` lists `perl-reactor.wasm`; `MANIFEST` does not, and `tests/build/test_modules.py`'s check of `MANIFEST` passes unchanged.
+3. Compiling `recipes/wasi-reactor.c` against a stand-in `patchlevel.h` that says 5.42.4 fails on its `#error`.
+4. The artifact set holds no file that begins with the snapshot magic. No script runs `wizer`.
 
 **Drift** (`tests/snapshot/test_drift.py`, the 41 cases of D's `drift.py`, ported)
 1. The image of `make_snapshot("")` differs from perl.wasm in exactly `{hash_seed}`.
@@ -297,7 +355,18 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 5. `memory_bytes` below the image raises `SnapshotMismatch`.
 6. `SnapshotFailed` has the reasons `"exit"` (`die`, `exit 3`, a compile error), `"trapped"` (fuel) and `"open file"`, each with its `completed`.
 7. `exit 0` makes an image.
-8. `make_package_snapshot("POSIX")` raises `TypeError`. `["JSON-PP"]` and `["JSON::PP"]` give images whose `%INC` holds `JSON/PP.pm`.
+8. `make_package_snapshot("POSIX")` raises `TypeError`. `["JSON-PP"]`, `["json-pp"]` and `["JSON::PP"]` give images whose `%INC` holds `JSON/PP.pm`. `["No-Such-Dist"]` raises `ValueError` before any work. `make_package_snapshot()`'s origin `prelude` is the eight `require` lines of `PACKAGES`, in order.
+9. **The listing, against wasi-python's** (spec 017's check A1, `tests/mounts/test_mount_api.py`, extended):
+   - the blocks for `Snapshot`, `SnapshotFailed` and `SnapshotMismatch` equal wasi-python's, line for line;
+   - `SnapshotOrigin`'s block is wasi-python's, with `binary_sha256`, `library_sha256` and `runtime_version` in the places of `snapshot_sha256`, `stdlib_zip_sha256` and `wasi_python`, and no other line changed;
+   - `make_snapshot`'s and `make_package_snapshot`'s blocks are wasi-python's with the lines for `root`, `import_path`, `host` and `max_open_files` absent, one `cwd` line added after `env`, and no other line changed;
+   - `run`'s `snapshot` line equals wasi-python's, and stands after `stdin` and before `cwd`;
+   - `Completed`'s `image_sha256` line equals wasi-python's, and is the last field, after `files`;
+   - `Artifacts`'s last line is `field reactor: Path | None = None`.
+
+   Each allowed difference is a row of the table above, named in the test beside it.
+10. `Artifacts(perl, lib, dev, manifest, sums)`, made by hand with five arguments, still runs `snapshot=False` calls. Given to `make_snapshot`, or to a call with a `Snapshot`, it raises `ArtifactsMissing`. `Artifacts.at` of a folder without `perl-reactor.wasm` gives `reactor=None`.
+11. `make_snapshot` with a mount at `/work` whose provider serves `Mod.pm`, and the code `use lib "/work"; require Mod;`: a call from the image, with no mounts, sees `Mod` loaded and makes no provider call. The same making with `max_file_calls=1` raises `SnapshotFailed` with the reason `"trapped"`.
 
 ## Acceptance
 

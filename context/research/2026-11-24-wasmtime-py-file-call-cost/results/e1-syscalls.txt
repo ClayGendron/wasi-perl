@@ -1,0 +1,6 @@
+# System calls of -e 1 through wasi_perl.run, from the difference between 21 runs and 1, 2026-11-24.
+# <python> is the worktree's .venv python (stock wasmtime-py); <set> is /home/user/wasi-perl-wt/perf-base/build/artifacts.
+$ strace -f -c -o s1 <python> e1_calls.py <set> 1; strace -f -c -o s21 <python> e1_calls.py <set> 21
+call  calls(1 run)  calls(21 runs)  per run
+statx  14  134  6
+openat2  3  63  3
