@@ -96,6 +96,16 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 - **`/dev` lists only `null`.** `/dev/urandom` and `/dev/random` open and stat, but `readdir` on `/dev` does not show them: the listing is the host's folder.
 - **The random device refuses what a device file allows.** On its handle, `truncate` and `sync` answer EINVAL ("Invalid argument"), and `utime` dies with "The futimes function is unimplemented", as on any handle here. By name, `mkdir`, `rmdir`, `unlink`, `rename`, `link`, `symlink` and `utime` answer EPERM ("Operation not permitted"), the read-only `/dev` folder's answer. Natively root may do each. Its `stat` gives `/dev`'s own times and an inode number of the guest's choosing. `/dev/random` is always ready to write, where Linux's may not be.
 
+## Mounts
+
+A mount serves the guest's files from the embedder's own code ([mounts.md](mounts.md)).
+
+- A mount opens no host path but one empty placeholder folder per call. The runner makes it read-only in a fresh folder of its own, preopens every mount on it, and serves every path call there itself, so nothing reads its entries. After the call it removes the placeholder and its folder, each with `rmdir`, never a tree removal.
+- A writable mount writes no host file. Every write goes to the runner's buffer or to the provider.
+- The provider is the embedder's code. It is called only while the guest runs, on the thread that called `run`, with normalized paths alone: never a descriptor, an offset, a pointer or a path with `.`, `..`, `\`, `:` or NUL in a component.
+- A mount adds no import: the guest still imports only `wasi_snapshot_preview1`. A call without mounts runs no mount code at all.
+- Staged bytes are host memory beside the guest's. A guest with a writable mount can hold up to `memory_bytes` of linear memory, up to `memory_bytes` of staged files, and one more copy of a staged file while it is handed over. Budget three times `memory_bytes` of host memory for each such guest.
+
 ## The artifact set is checked in every new process
 
 Before a process's first call with the set it finds, the runner hashes every file of that set: `perl.wasm`, `MANIFEST` and each file of the library. Each must match `SHA256SUMS`, and no file may be missing or added. This happens in every new process, on every system.

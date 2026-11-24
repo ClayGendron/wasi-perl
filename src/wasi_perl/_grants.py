@@ -1,8 +1,10 @@
 """Grants: `Grant`, the checks of each guest path, the walk of each host path, and the rules that
-keep the runtime's own files out of reach. Adapted from wasi-python's typed grants
-(`_places.py`, `_platform_posix.py`'s walk; same owner, Apache-2.0), trimmed: the walk resolves
-a path link by link and passes wasmtime the resolved path; it holds no descriptor and runs no
-post-preopen identity check (the README's "Not protected" says so).
+keep the runtime's own files out of reach; and the checks of each mount, which has no host path.
+Adapted from wasi-python's typed grants (`_places.py`, `_platform_posix.py`'s walk; same owner,
+Apache-2.0), trimmed: the walk resolves a path link by link and passes wasmtime the resolved
+path; it holds no descriptor and runs no post-preopen identity check (the README's "Not
+protected" says so). `check_mounts` and `_siphash13` are wasi-python's `_check_mounts` and
+`_siphash13` at f9bf678.
 
 Comparisons are by identity, (st_dev, st_ino) of a folder and of each of its ancestors, never
 by spelling, so `~/LIBRARY/CACHES` on a case-insensitive disk is `~/Library/Caches`."""
@@ -10,8 +12,10 @@ by spelling, so `~/LIBRARY/CACHES` on a case-insensitive disk is `~/Library/Cach
 from __future__ import annotations
 
 import errno
+import inspect
 import os
 import stat
+import struct
 import sys
 import threading
 import time
@@ -108,10 +112,111 @@ def check(grants: Any) -> tuple[Grant, ...]:
     return tuple(out)
 
 
-def check_cwd(cwd: Any) -> str | None:
+def _runtime_own(where: str, value: str) -> None:
+    """A mount at or under one of the runtime's own folders is refused; above them it is not:
+    a mount puts no host folder on the way to them, and wasi-libc sends their paths to their own
+    preopens."""
+    for r in RESERVED:
+        if value == r or value.startswith(r + "/"):
+            raise ValueError(f"{where}: {value!r} is the runtime's own ({r})")
+
+
+def check_mounts(mounts: Any, grants: tuple[Grant, ...]) -> tuple[Any, ...]:
+    """The mounts as a tuple of plain `Mount`s, or TypeError for a type and ValueError for a
+    value, each naming the mount's position and guest path."""
+    from wasi_perl import _limits
+    from wasi_perl._fs_memory import METHODS
+    from wasi_perl.mounts import Mount
+
+    if isinstance(mounts, (str, bytes, bytearray, Mount)) or not isinstance(mounts, Iterable):
+        raise TypeError(f"mounts must be an iterable of Mount, not {type(mounts).__name__}")
+    checked: list[Mount] = []
+    seen = {grant.guest for grant in grants}
+    for i, mount in enumerate(mounts):
+        if not isinstance(mount, Mount):
+            raise TypeError(f"mounts[{i}] must be a Mount, not {type(mount).__name__}")
+        if not isinstance(mount.guest, str):
+            raise TypeError(
+                f"mounts[{i}]: the guest path must be a str, not {type(mount.guest).__name__}"
+            )
+        text = _limits.text(f"mounts[{i}]: the guest path", mount.guest)
+        guest = "/" if text == "/" else guest_path(f"mounts[{i}]", text)
+        _runtime_own(f"mounts[{i}]", guest)
+        where = f"mounts[{i}] at {guest}"
+        if type(mount.writable) is not bool:
+            raise TypeError(f"{where}: writable must be True or False, not {mount.writable!r}")
+        # A writable mount's provider has the write half too.
+        methods = METHODS if mount.writable else METHODS[:3]
+        for method in methods:
+            function = getattr(mount.provider, method, None)
+            if not callable(function):
+                raise TypeError(f"{where}: the provider has no callable {method}()")
+            if inspect.iscoroutinefunction(function):
+                raise TypeError(
+                    f"{where}: the provider's {method}() is a coroutine function; a provider "
+                    "answers synchronously (async providers are a later specification)"
+                )
+        if guest in seen:
+            raise ValueError(f"{where}: a grant or another mount has the same guest path")
+        seen.add(guest)
+        checked.append(Mount(mount.provider, guest, writable=mount.writable))
+    return tuple(checked)
+
+
+_M64 = (1 << 64) - 1
+
+
+def _rotl(x: int, b: int) -> int:
+    return ((x << b) | (x >> (64 - b))) & _M64
+
+
+def _siphash13(data: bytes) -> int:
+    v0, v1 = 0x736F6D6570736575, 0x646F72616E646F6D
+    v2, v3 = 0x6C7967656E657261, 0x7465646279746573
+
+    def rounds(n: int) -> None:
+        nonlocal v0, v1, v2, v3
+        for _ in range(n):
+            v0 = (v0 + v1) & _M64
+            v1 = _rotl(v1, 13) ^ v0
+            v0 = _rotl(v0, 32)
+            v2 = (v2 + v3) & _M64
+            v3 = _rotl(v3, 16) ^ v2
+            v0 = (v0 + v3) & _M64
+            v3 = _rotl(v3, 21) ^ v0
+            v2 = (v2 + v1) & _M64
+            v1 = _rotl(v1, 17) ^ v2
+            v2 = _rotl(v2, 32)
+
+    end = len(data) - len(data) % 8
+    for i in range(0, end, 8):
+        m = struct.unpack_from("<Q", data, i)[0]
+        v3 ^= m
+        rounds(1)
+        v0 ^= m
+    last = (len(data) & 0xFF) << 56
+    for i, byte in enumerate(data[end:]):
+        last |= byte << (8 * i)
+    v3 ^= last
+    rounds(1)
+    v0 ^= last
+    v2 ^= 0xFF
+    rounds(3)
+    return v0 ^ v1 ^ v2 ^ v3
+
+
+def check_cwd(cwd: Any, grants: Sequence[Grant] = (), mounts: Sequence[Any] = ()) -> str | None:
+    """`cwd` as a guest path inside one of the grants or mounts, judged by its text alone, so it
+    is refused before any work; `judge` checks a grant's host folder later. It is never at or
+    under the runtime's own folders, which no grant may hold: a mount at / or /usr lies above
+    them, but the guest would stand in the library or /dev, not in the mount."""
     if cwd is None:
         return None
-    return guest_path("cwd", cwd)
+    path = guest_path("cwd", cwd)
+    if not any(_under(path, place.guest) for place in (*grants, *mounts)):
+        raise ValueError(_NOT_INSIDE.format(cwd=path))
+    _runtime_own("cwd", path)  # reached only through a mount above the runtime's folders
+    return path
 
 
 def _can_write(folder: str) -> bool:
@@ -264,10 +369,12 @@ def judge(
     caches: Iterable[Path],
     runtime: Iterable[Path],
     runtime_files: RuntimeFiles | Iterable[Path] = (),
+    mounts: Sequence[str] = (),
 ) -> tuple[tuple[Placed, ...], str | None]:
     """Each grant resolved and held to the rules: no grant at or inside a module cache, no
     writable grant above one; no writable grant at, inside or above a runtime folder; no
-    read-only grant at or inside a writable one. `cwd` inside a grant, its folder existing."""
+    read-only grant at or inside a writable one. `cwd` inside a grant, its folder existing, or
+    inside one of `mounts` (their guest paths), judged by its text alone."""
     caches = tuple(caches)
     runtime = tuple(runtime)
     placed: list[Placed] = []
@@ -305,7 +412,7 @@ def judge(
                     f"grants[{i}] at {p.guest}: its folder {p.host} is inside the writable "
                     f"grants[{j}] at {w.guest}, so the guest could change it there"
                 )
-    return tuple(placed), _judge_cwd(cwd, placed)
+    return tuple(placed), _judge_cwd(cwd, placed, mounts)
 
 
 MAX_WALK = 100_000  # the most entries the writable grants of one call are walked through
@@ -618,13 +725,28 @@ def granted_writable(path: Path) -> bool:
     return any(w in mine or (me is not None and me in w_chain) for w, w_chain in ever)
 
 
-def _judge_cwd(cwd: str | None, placed: Sequence[Placed]) -> str | None:
+_NOT_INSIDE = (
+    "cwd {cwd} is not inside a grant or a mount; name a grant's or a mount's guest path, or below"
+)
+
+
+def _under(path: str, top: str) -> bool:
+    return top == "/" or path == top or path.startswith(top + "/")
+
+
+def _judge_cwd(cwd: str | None, placed: Sequence[Placed], mounts: Sequence[str] = ()) -> str | None:
     if cwd is None:
         return None
-    serving = [p for p in placed if cwd == p.guest or cwd.startswith(p.guest + "/")]
-    if not serving:
-        raise ValueError(f"cwd {cwd} is not inside a grant; name a grant's guest path or below")
-    p = max(serving, key=lambda s: len(s.guest))  # wasi-libc picks the longest prefix too
+    serving = [p for p in placed if _under(cwd, p.guest)]
+    mounted = [m for m in mounts if _under(cwd, m)]
+    if not serving and not mounted:
+        raise ValueError(_NOT_INSIDE.format(cwd=cwd))
+    # wasi-libc picks the longest prefix too. A mount's cwd is judged by its text: no provider
+    # code runs before the guest does, so the guest's own start-up chdir asks the provider.
+    deepest_grant = max((len(p.guest) for p in serving), default=-1)
+    if mounted and max(len(m) for m in mounted) > deepest_grant:
+        return cwd
+    p = max(serving, key=lambda s: len(s.guest))
     rest = cwd[len(p.guest) :].lstrip("/")
     try:
         host = resolve("cwd", p.host / rest) if rest else p.host
