@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import threading
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -260,7 +262,7 @@ def judge(
     *,
     caches: Iterable[Path],
     runtime: Iterable[Path],
-    runtime_files: Iterable[Path] = (),
+    runtime_files: RuntimeFiles | Iterable[Path] = (),
 ) -> tuple[tuple[Placed, ...], str | None]:
     """Each grant resolved and held to the rules: no grant at or inside a module cache, no
     writable grant above one; no writable grant at, inside or above a runtime folder; no
@@ -307,33 +309,177 @@ def judge(
 
 MAX_WALK = 100_000  # the most entries the writable grants of one call are walked through
 
+# A scan of the runtime's files is kept and used again while every folder it walked is as it
+# was, on Linux and macOS only. There a folder's ctime moves with every change of its entries and
+# no user can set it; on Windows st_ctime is the creation time, which the owner can set, so
+# every writable call scans.
+SCANS_KEPT = sys.platform in ("linux", "darwin")
+# A folder whose mtime or ctime lies this close to the start of the scan that read it may be
+# changed again within the same tick of a coarse file clock, unseen, so its scan is not kept.
+SETTLE_NS = 2_000_000_000
 
-def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]) -> None:
+FolderStamp = tuple[int, int, int, int]  # st_dev, st_ino, st_mtime_ns, st_ctime_ns
+
+
+def _now_ns() -> int:
+    return time.time_ns()
+
+
+def _folder_stamp(path: str, follow: bool) -> FolderStamp | None:
+    try:
+        st = os.stat(path) if follow else os.lstat(path)
+    except OSError:
+        return None
+    return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
+
+
+class RuntimeFiles:
+    """The runtime's files as one scan found them: the identity of every regular file under
+    `tops`, and of each of `singles`, with the stamp of every folder walked, each stamped before
+    it is listed. A file is added, removed or replaced only through an entry of its folder, which
+    moves that folder's mtime and ctime; a write into a file keeps its identity. So while every
+    stamp holds, the identities are still the files' own. A second name made inside a grant
+    changes no folder here, which is why the writable grants are walked on every call.
+
+    A top, and a single's folder, is stamped by what its path names now, links followed, so a top
+    that comes to name another folder is scanned again."""
+
+    def __init__(self, tops: Sequence[Path], singles: Sequence[Path]) -> None:
+        self.tops, self.singles = tuple(tops), tuple(singles)
+        start = _now_ns()
+        stamps: dict[tuple[str, bool], FolderStamp | None] = {}
+        files: dict[Identity, str] = {}
+
+        def note(path: str) -> None:
+            try:
+                st = os.lstat(path)
+            except OSError:
+                return
+            if stat.S_ISREG(st.st_mode):
+                files.setdefault((st.st_dev, st.st_ino), path)
+
+        pending = [(str(top), True) for top in self.tops]
+        while pending:
+            folder, follow = pending.pop()
+            if (folder, follow) in stamps:
+                continue
+            stamps[(folder, follow)] = _folder_stamp(folder, follow)  # None: not there
+            try:
+                with os.scandir(folder) as entries:
+                    found = list(entries)
+            except OSError:
+                continue  # an unreadable folder: its files were never seen, as before
+            for entry in found:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append((entry.path, False))
+                else:
+                    note(entry.path)
+        for single in self.singles:
+            parent = (str(single.parent), True)
+            if parent not in stamps:
+                stamps[parent] = _folder_stamp(*parent)
+            note(str(single))
+        self.stamps = tuple(stamps.items())
+        self.files = files
+        self.settled = all(
+            s is None or (s[2] < start - SETTLE_NS and s[3] < start - SETTLE_NS)
+            for s in stamps.values()
+        )
+
+    def fresh(self) -> bool:
+        """Whether this scan may stand for a new one: every stamp settled when it was taken, and
+        every folder still as the scan found it."""
+        return self.settled and all(
+            _folder_stamp(path, follow) == st for (path, follow), st in self.stamps
+        )
+
+    def linked_now(self) -> dict[Identity, str]:
+        """The runtime files that have more than one name now, read afresh."""
+        linked: dict[Identity, str] = {}
+        for f in self.files.values():
+            try:
+                st = os.lstat(f)
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+                linked[(st.st_dev, st.st_ino)] = f
+        return linked
+
+    def holds(self, identity: Identity) -> str | None:
+        """The runtime file the scan names under `identity`, if its path still names it."""
+        path = self.files.get(identity)
+        if path is None:
+            return None
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return None
+        same = stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) == identity
+        return path if same else None
+
+
+_scan_lock = threading.Lock()
+_scan: list[RuntimeFiles] = []  # the one scan kept, for the trees it walked
+
+
+def _keep(made: RuntimeFiles) -> None:
+    if SCANS_KEPT:
+        with _scan_lock:
+            _scan[:] = [made]
+
+
+def runtime_scan(tops: Sequence[Path], singles: Sequence[Path]) -> RuntimeFiles:
+    """The runtime's files: the kept scan of these trees while it is fresh, else a new scan,
+    kept where scans are kept."""
+    tops, singles = tuple(tops), tuple(singles)
+    with _scan_lock:
+        kept = _scan[0] if _scan and (_scan[0].tops, _scan[0].singles) == (tops, singles) else None
+    if kept is not None and SCANS_KEPT and kept.fresh():
+        return kept
+    made = RuntimeFiles(tops, singles)
+    _keep(made)
+    return made
+
+
+def _refuse_second_names(placed: Sequence[Placed], files: RuntimeFiles | Iterable[Path]) -> None:
     """No writable grant holds a second name (a hard link) of a runtime file. A folder rule
     cannot see one: uv installs packages by hard link from its cache, so wasmtime-py's native
     library has other names there, and a writable grant of that cache would let a guest rewrite
-    the library the next host process loads. Only a file with more than one name needs looking
-    for; then the writable grants are walked, at most MAX_WALK entries in all, and one too large
-    to walk is refused, since its second names cannot be ruled out."""
+    the library the next host process loads. The writable grants are walked, at most MAX_WALK
+    entries in all, and every file there with more than one name is looked up among the runtime
+    files' identities, and a match read afresh.
+
+    Three shortcuts need to know whether any runtime file has a second name now, which a kept
+    scan cannot say, since a link made inside a grant changes no runtime folder; so each reads
+    every runtime file afresh when it is reached. A grant larger than the runtime is walked on
+    only when one has: a file with one name has none to find. A folder the walk cannot read,
+    and a grant too large to walk, are refused only when one has, since then its second names
+    cannot be ruled out."""
     writable = [p for p in placed if p.writable]
     if not writable:
         return
-    linked: dict[Identity, Path] = {}
-    for f in runtime_files:
-        try:
-            st = os.lstat(f)
-        except OSError:
-            continue
-        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
-            linked[(st.st_dev, st.st_ino)] = f
-    if not linked:
+    runtime = (
+        files if isinstance(files, RuntimeFiles) else RuntimeFiles((), [Path(f) for f in files])
+    )
+    if not runtime.files:
         return
+    linked: dict[Identity, str] | None = None  # read only when a shortcut needs it
+
+    def linked_now() -> dict[Identity, str]:
+        nonlocal linked
+        if linked is None:
+            linked = runtime.linked_now()
+        return linked
+
+    rescanned = False
     seen = 0
     for i, p in enumerate(placed):
         if not p.writable:
             continue
 
         def unsearchable(error: OSError, i: int = i, p: Placed = p) -> None:
+            if not linked_now():
+                return  # no runtime file has a second name, here or anywhere
             raise ValueError(
                 f"grants[{i}] at {p.guest}: the runner cannot search {error.filename} for "
                 f"second names of the runtime's files ({error.strerror}), and one of them has "
@@ -346,8 +492,12 @@ def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]
             # where the guest cannot follow either.
             dirnames[:] = [d for d in dirnames if not _redirects(os.path.join(dirpath, d))]
             seen += len(dirnames) + len(filenames)
+            if seen > len(runtime.files) and not linked_now():
+                return  # no runtime file has a second name: none is in any grant
             if seen > MAX_WALK:
-                some = next(iter(linked.values()))
+                if not linked_now():
+                    return  # past the walk's bound, but there is nothing to find
+                some = next(iter(linked_now().values()))
                 raise ValueError(
                     f"grants[{i}] at {p.guest}: {p.host} is too large to walk ({MAX_WALK} "
                     f"entries) for second names of the runtime's files, and {some} has more "
@@ -359,7 +509,20 @@ def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]
                     st = os.lstat(os.path.join(dirpath, name))
                 except OSError:
                     continue
-                target = linked.get((st.st_dev, st.st_ino))
+                if st.st_nlink < 2:
+                    continue  # one name: not a second name of anything
+                identity = (st.st_dev, st.st_ino)
+                if identity not in runtime.files:
+                    continue
+                target = runtime.holds(identity)
+                if target is None and not rescanned:
+                    # The scan names this identity under a path that no longer holds it: the
+                    # runtime changed since. Scan again, once, and look again.
+                    runtime = RuntimeFiles(runtime.tops, runtime.singles)
+                    if isinstance(files, RuntimeFiles):
+                        _keep(runtime)
+                    rescanned, linked = True, None
+                    target = runtime.holds(identity)
                 if target is not None:
                     raise ValueError(
                         f"grants[{i}] at {p.guest}: {os.path.join(dirpath, name)} is a hard link "
