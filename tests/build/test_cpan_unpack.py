@@ -27,12 +27,20 @@ SCRIPTS = ROOT / "scripts"
 DOWNLOADS = ROOT / "downloads"
 
 
-def _tarball(path: Path, members: dict[str, bytes]) -> Path:
+class Link(str):
+    """A tarball member that is a symbolic link to this target."""
+
+
+def _tarball(path: Path, members: dict[str, bytes | Link]) -> Path:
     with tarfile.open(path, "w:gz") as tar:
         for name, data in members.items():
             info = tarfile.TarInfo(name)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
+            if isinstance(data, Link):
+                info.type, info.linkname = tarfile.SYMTYPE, str(data)
+                tar.addfile(info)
+            else:
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
     return path
 
 
@@ -56,7 +64,15 @@ def _pin(root: Path, name: str, data: bytes | None = None) -> None:
 def _unpack(root: Path, name: str, dest: Path) -> subprocess.CompletedProcess:
     log = root / "unpack.log"
     return subprocess.run(
-        ["sh", "-c", '. "$0"; unpack_pinned "$@"', str(root / "scripts" / "lib.sh"), name, str(dest), str(log)],
+        [
+            "sh",
+            "-c",
+            '. "$0"; unpack_pinned "$@"',
+            str(root / "scripts" / "lib.sh"),
+            name,
+            str(dest),
+            str(log),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -97,7 +113,10 @@ def test_an_unpinned_tarball_is_refused(tmp_path):
     name = _good(root)
     _pin(root, "Other-1.0.tar.gz", b"other")
     p = _unpack(root, name, tmp_path / "out" / "Good")
-    assert (p.returncode, p.stderr) == (1, f"FAILED: {name} is not pinned in downloads/SHA256SUMS\n")
+    assert (p.returncode, p.stderr) == (
+        1,
+        f"FAILED: {name} is not pinned in downloads/SHA256SUMS\n",
+    )
     assert not (tmp_path / "out").exists()
 
 
@@ -107,7 +126,10 @@ def test_a_name_pinned_twice_is_refused(tmp_path):
     _pin(root, name)
     _pin(root, name)
     p = _unpack(root, name, tmp_path / "out" / "Good")
-    assert (p.returncode, p.stderr) == (1, f"FAILED: {name} is not pinned in downloads/SHA256SUMS\n")
+    assert (p.returncode, p.stderr) == (
+        1,
+        f"FAILED: {name} is not pinned in downloads/SHA256SUMS\n",
+    )
 
 
 @pytest.mark.parametrize(
@@ -131,6 +153,52 @@ def test_a_tarball_that_is_not_one_top_folder_is_refused(tmp_path, members):
     assert os.listdir(out) == []
 
 
+@pytest.mark.parametrize(
+    "members",
+    [
+        {"Evil-1": Link("OUTSIDE")},
+        {"Evil-1/lib": Link("OUTSIDE")},
+        {"Evil-1/lib/Ok.pm": b"1;", "Evil-1/lib/Leak.pm": Link("OUTSIDE/Leak.pm")},
+        {"Evil-1/lib/Ok.pm": b"1;", "Evil-1/lib/Same.pm": Link("Ok.pm")},
+    ],
+    ids=["the top a link out", "lib a link out", "a file a link out", "a file a link within"],
+)
+def test_a_tarball_holding_a_link_is_refused(tmp_path, members):
+    # A link left in place would be followed by whatever reads the tree later: a folder of the
+    # host's could reach the library. Only files and folders are taken.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Leak.pm").write_text("the host's\n")
+    root = _root(tmp_path)
+    name = "Evil-1.tar.gz"
+    members = {
+        k: Link(v.replace("OUTSIDE", str(outside))) if isinstance(v, Link) else v
+        for k, v in members.items()
+    }
+    _tarball(root / "downloads" / name, members)
+    _pin(root, name)
+    out = tmp_path / "out"
+    out.mkdir()
+    p = _unpack(root, name, out / "Evil")
+    assert (p.returncode, p.stderr) == (
+        1,
+        f"FAILED: {name} holds an entry that is neither a file nor a folder\n",
+    )
+    assert os.listdir(out) == []
+
+
+def test_a_tarball_tar_cannot_read_leaves_nothing_behind(tmp_path):
+    root = _root(tmp_path)
+    name = "Broken-1.tar.gz"
+    (root / "downloads" / name).write_bytes(b"not a tarball")
+    _pin(root, name)
+    out = tmp_path / "out"
+    out.mkdir()
+    p = _unpack(root, name, out / "Broken")
+    assert p.returncode == 1 and p.stderr.startswith("FAILED: tar "), p
+    assert os.listdir(out) == []
+
+
 def test_a_folder_that_exists_is_not_replaced(tmp_path):
     root = _root(tmp_path)
     name = _good(root)
@@ -139,7 +207,10 @@ def test_a_folder_that_exists_is_not_replaced(tmp_path):
     dest.mkdir(parents=True)
     (dest / "mine").write_text("kept")
     p = _unpack(root, name, dest)
-    assert (p.returncode, p.stderr) == (1, f"FAILED: {dest} already exists; {name} would replace it\n")
+    assert (p.returncode, p.stderr) == (
+        1,
+        f"FAILED: {dest} already exists; {name} would replace it\n",
+    )
     assert os.listdir(dest) == ["mine"]
 
 
@@ -229,7 +300,9 @@ def test_a_tampered_tarball_fails_the_build_step(tmp_path, step, tampered):
 
 def _xs_modules() -> list[str]:
     lines = (ROOT / "recipes" / "cpan-xs").read_text().splitlines()
-    return [ln.split()[1].replace("-", "/") for ln in lines if ln.strip() and not ln.startswith("#")]
+    return [
+        ln.split()[1].replace("-", "/") for ln in lines if ln.strip() and not ln.startswith("#")
+    ]
 
 
 def test_the_cpan_extensions_are_configured_after_the_unicode_tables():
@@ -245,3 +318,90 @@ def test_the_cpan_extensions_are_configured_after_the_unicode_tables():
         built = [i for i, ln in enumerate(lines) if f"make_ext.pl {archive} " in ln]
         assert built, (module, "is never built in the log")
         assert built[0] > made[0], (module, built[0], made[0])
+
+
+# A stand-in for the target tree's miniperl: `installperl --destdir=D` lays out a privlib of
+# three files, so 30_library.sh can run with no build.
+STANDIN_MINIPERL = """#!/bin/sh
+for a; do case $a in --destdir=*) d=${a#--destdir=} ;; esac; done
+p="$d/usr/local/lib/perl5/5.42"
+mkdir -p "$p/wasm32-wasi"
+printf 'package strict; 1;\\n' >"$p/strict.pm"
+: >"$p/wasm32-wasi/Config.pm"
+: >"$p/wasm32-wasi/Config_heavy.pl"
+"""
+
+
+def _library_checkout(tmp_path: Path, members: dict[str, bytes | Link]) -> tuple[Path, str]:
+    """A scratch checkout whose recipes/cpan-pure lists one pinned tarball of these members."""
+    root = tmp_path / "checkout"
+    shutil.copytree(SCRIPTS, root / "scripts")
+    shutil.copytree(ROOT / "recipes", root / "recipes")
+    (root / "downloads").mkdir()
+    (root / "downloads" / "SHA256SUMS").write_text("")
+    name = "Dist-1.0.tar.gz"
+    _tarball(root / "downloads" / name, members)
+    _pin(root, name)
+    (root / "recipes" / "cpan-pure").write_text(f"{name}\n")
+    build = root / "build"
+    (build / "artifacts").mkdir(parents=True)
+    (build / "artifacts" / "perl.wasm").write_bytes(b"")
+    (build / ".target.stamp").write_text("stand-in\n")
+    (build / "target").mkdir()
+    (build / "target" / "miniperl").write_text(STANDIN_MINIPERL)
+    (build / "target" / "miniperl").chmod(0o755)
+    return root, name
+
+
+def _library(root: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["sh", str(root / "scripts" / "30_library.sh")], capture_output=True, text=True, check=False
+    )
+
+
+def test_the_library_step_lays_a_pure_distribution_in(tmp_path):
+    root, _ = _library_checkout(tmp_path, {"Dist-1.0/lib/Dist/Mod.pm": b"package Dist::Mod; 1;\n"})
+    p = _library(root)
+    assert p.returncode == 0, p
+    lib = root / "build" / "artifacts" / "lib" / "perl5" / "5.42"
+    mod = lib / "Dist" / "Mod.pm"
+    assert mod.read_bytes() == b"package Dist::Mod; 1;\n"
+    assert mod.stat().st_mode & 0o777 == 0o444
+    assert "lib/perl5/5.42/Dist/Mod.pm" in (root / "build" / "artifacts" / "MANIFEST").read_text()
+
+
+@pytest.mark.parametrize(
+    ("members", "error"),
+    [
+        (
+            {"Dist-1.0/lib/strict.pm": b"package strict; 0;\n"},
+            "FAILED: Dist-1.0.tar.gz's lib/strict.pm would replace a file already in the library\n",
+        ),
+        (
+            {"Dist-1.0/lib": Link("OUTSIDE")},
+            "FAILED: Dist-1.0.tar.gz holds an entry that is neither a file nor a folder\n",
+        ),
+        (
+            {"Dist-1.0/lib/Ok.pm": b"1;", "Dist-1.0/lib/Leak.pm": Link("OUTSIDE/Leak.pm")},
+            "FAILED: Dist-1.0.tar.gz holds an entry that is neither a file nor a folder\n",
+        ),
+    ],
+    ids=["a file the library has", "lib a link out", "a file a link out"],
+)
+def test_the_library_step_refuses_a_distribution(tmp_path, members, error):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Leak.pm").write_text("the host's\n")
+    members = {
+        k: Link(v.replace("OUTSIDE", str(outside))) if isinstance(v, Link) else v
+        for k, v in members.items()
+    }
+    root, _ = _library_checkout(tmp_path, members)
+    p = _library(root)
+    assert (p.returncode, p.stderr) == (1, error), p
+    art = root / "build" / "artifacts"
+    assert not (art / "MANIFEST").exists() and not (art / "SHA256SUMS").exists()
+    assert not (root / "build" / ".library.stamp").exists()
+    lib = art / "lib" / "perl5" / "5.42"
+    assert (lib / "strict.pm").read_bytes() == b"package strict; 1;\n"
+    assert not (lib / "Leak.pm").exists()
