@@ -1,6 +1,6 @@
 # 023 — The outputs are freed by the runner
 
-- **Status:** proposed; the owner's agreement pending. Written by an investigating agent, 2026-11-24, from the evidence below, for the abort at interpreter exit seen twice on `ubuntu-24.04-arm` (the roadmap's item on it, which called it one-time, is corrected in the same change). Nothing here is built until the owner agrees.
+- **Status:** agreed by the owner 2026-11-24, through AskUserQuestion: "Agree, build it (Recommended)" (as the orchestrator relayed it). Written by an investigating agent, 2026-11-24, from the evidence below, for the abort at interpreter exit seen twice on `ubuntu-24.04-arm` (the roadmap's item on it, which called it one-time, is corrected in the same change).
 - **Owner:** Clay Gendron
 - **Kind:** `src/wasi_perl/runner.py` (`_set_up`, `_call`, `_writer`) and `src/wasi_perl/_wasmtime_ffi.py` (a new `set_custom_outputs`, `NEEDED`, `on_epoch`); the checks in `tests/runner/test_output_release.py`; `CHANGELOG.md`. No guest change, no artifact change, no public API change.
 - **Depends on:** nothing unbuilt. Independent of 022.
