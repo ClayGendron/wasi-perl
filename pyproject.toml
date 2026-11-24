@@ -4,7 +4,9 @@ dynamic = ["version"]
 description = "A secure Perl 5 sandbox for agent-generated code, compiled to WebAssembly as one static binary."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+# The project's own code is Apache-2.0; the wheel also carries Perl itself, under Perl's terms.
+license = "Apache-2.0 AND (Artistic-1.0-Perl OR GPL-1.0-or-later)"
+license-files = ["LICENSE", "src/wasi_perl/artifacts/Artistic", "src/wasi_perl/artifacts/Copying"]
 authors = [{ name = "Clay Gendron" }]
 keywords = ["wasm", "wasi", "perl", "sandbox", "wasmtime"]
 classifiers = [
@@ -45,7 +47,7 @@ packages = ["src/wasi_perl"]
 artifacts = ["src/wasi_perl/artifacts"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["build", "downloads", "context/prior_art"]
+exclude = ["build", "downloads", "context"]
 # The sdist carries the assembled set too, so a wheel built from it (as `uv build` does) holds it.
 artifacts = ["src/wasi_perl/artifacts"]
 
