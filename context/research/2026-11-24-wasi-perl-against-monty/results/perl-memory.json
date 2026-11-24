@@ -1,0 +1,62 @@
+{
+ "hello": {
+  "pages": 215,
+  "mib": 13.44
+ },
+ "fib25": {
+  "pages": 216,
+  "mib": 13.5
+ },
+ "loop": {
+  "pages": 215,
+  "mib": 13.44
+ },
+ "strcat": {
+  "pages": 250,
+  "mib": 15.62
+ },
+ "strjoin": {
+  "pages": 542,
+  "mib": 33.88
+ },
+ "sum_csv": {
+  "pages": 216,
+  "mib": 13.5
+ },
+ "grep_log": {
+  "pages": 216,
+  "mib": 13.5
+ },
+ "sub_log": {
+  "pages": 667,
+  "mib": 41.69
+ },
+ "split_join": {
+  "pages": 1928,
+  "mib": 120.5
+ },
+ "wordfreq": {
+  "pages": 749,
+  "mib": 46.81
+ },
+ "sort_ints": {
+  "pages": 517,
+  "mib": 32.31
+ },
+ "json_decode": {
+  "pages": 404,
+  "mib": 25.25
+ },
+ "json_encode": {
+  "pages": 477,
+  "mib": 29.81
+ },
+ "read_big": {
+  "pages": 371,
+  "mib": 23.19
+ },
+ "read_small": {
+  "pages": 215,
+  "mib": 13.44
+ }
+}

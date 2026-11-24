@@ -1,0 +1,23 @@
+{
+ "read_big_inputs": {
+  "n": 10,
+  "median_ms": 19.712,
+  "min_ms": 14.226,
+  "max_ms": 27.496,
+  "stdout": "10214747\n"
+ },
+ "read_big_hostfn": {
+  "n": 10,
+  "median_ms": 24.509,
+  "min_ms": 23.37,
+  "max_ms": 25.836,
+  "stdout": "10214747\n"
+ },
+ "read_small_hostfn": {
+  "n": 10,
+  "median_ms": 11.357,
+  "min_ms": 11.046,
+  "max_ms": 11.524,
+  "stdout": "102400\n"
+ }
+}

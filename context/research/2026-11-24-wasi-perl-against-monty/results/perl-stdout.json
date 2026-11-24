@@ -1,0 +1,17 @@
+{
+ "hello": "hello\n",
+ "fib25": "75025\n",
+ "loop": "333333833333500000\n",
+ "strcat": "1288895\n",
+ "strjoin": "1288894\n",
+ "sum_csv": "1000605790\n",
+ "grep_log": "28572\n",
+ "sub_log": "28572\n",
+ "split_join": "10214746\n",
+ "wordfreq": "203560 request 200000\n",
+ "sort_ints": "0 10006 5003\n",
+ "json_decode": "20000\n",
+ "json_encode": "937781\n",
+ "read_big": "10214747\n",
+ "read_small": "102400\n"
+}
