@@ -30,7 +30,7 @@ def main() -> None:
         print("| item | slow case | fast case | slow fuel | fast fuel | ratio | page | within 20% |")
         print("|---|---|---|---:|---:|---:|---:|---|")
         want = sys.argv[1:] or [*fp.RATIOS, "count, F's form", "posix"]
-        for name, (slow, fast, figure) in fp.RATIOS.items():
+        for name, (slow, fast, figure, _) in fp.RATIOS.items():
             if name not in want:
                 continue
             a, b = fp.measure(wasi_perl, inputs, scratch / name.replace(" ", "-"), slow, fast)

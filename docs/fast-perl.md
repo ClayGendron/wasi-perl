@@ -54,7 +54,7 @@ perl -MJSON::PP -0777 -ne 'print "$_->{name}\n" for grep { $_->{active} } @{ dec
 
 ## CSV: `Text::CSV`
 
-`Text::CSV` parses with Text::CSV_XS, which is compiled in. It reads quoted fields, doubled quotes and newlines inside a field. It runs 12× fewer instructions than `Text::ParseWords`, which drops doubled quotes and reads one line at a time. `split /,/` breaks a quoted field that holds a comma.
+`Text::CSV` parses with Text::CSV_XS, which is compiled in. It reads quoted fields, doubled quotes and newlines inside a field. It runs 13× fewer instructions than `Text::ParseWords`, which drops doubled quotes and reads one line at a time. `split /,/` breaks a quoted field that holds a comma.
 
 ```sh
 perl -MText::CSV -e 'my $csv = Text::CSV->new({binary => 1}); open my $fh, "<", "people.csv" or die "people.csv: $!\n"; while (my $row = $csv->getline($fh)) { print "$row->[1]\n" }'
@@ -69,7 +69,7 @@ perl -MText::ParseWords -ne 'chomp; my @f = parse_line(",", 0, $_); print "$f[1]
 
 ## Imports: `use POSIX ()`
 
-Write `use POSIX ()`, or `use POSIX qw(floor ceil)` for the names you call. A bare `use POSIX` imports 587 names, which costs 16 M instructions on every call. On the command line, `-mPOSIX` is `use POSIX ()`.
+Write `use POSIX ()`, or `use POSIX qw(floor ceil)` for the names you call. A bare `use POSIX` imports 587 names, which costs 16 M instructions on every run. On the command line, `-mPOSIX` is `use POSIX ()`.
 
 ```sh
 perl -mPOSIX -le 'print POSIX::floor(-2.5)'

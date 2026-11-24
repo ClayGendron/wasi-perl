@@ -26,15 +26,25 @@ import pytest
 PAGE = oo.REPO / "docs" / "fast-perl.md"
 CASES = {c.id: c for c in oo.load_corpus()}
 
-# Each ratio the page quotes: the slow and the fast example, by case id, and the figure as the
-# page writes it beside "×".
+# Each ratio the page quotes: the slow and the fast example, by case id, the figure as the page
+# writes it beside "×", and the start of the heading of the page's section that quotes it.
 RATIOS = {
-    "count matches in a whole file": ("fast-count-lines", "fast-count-whole-file", "9"),
-    "substitute in a whole file": ("fast-substitute-lines", "fast-substitute-whole-file", "7.5"),
-    "keyed sort": ("fast-sort-split-in-block", "fast-sort-schwartzian", "5"),
-    "JSON through JSON::MaybeXS": ("fast-json-pp", "fast-json-maybexs", "29"),
-    "JSON through Cpanel::JSON::XS": ("fast-json-pp", "fast-json-cpanel", "29"),
-    "CSV": ("fast-csv-parsewords", "fast-csv-text-csv", "12"),
+    "count matches in a whole file": (
+        "fast-count-lines",
+        "fast-count-whole-file",
+        "9",
+        "Whole-file regex work",
+    ),
+    "substitute in a whole file": (
+        "fast-substitute-lines",
+        "fast-substitute-whole-file",
+        "7.5",
+        "Whole-file regex work",
+    ),
+    "keyed sort": ("fast-sort-split-in-block", "fast-sort-schwartzian", "5", "Keyed sorts"),
+    "JSON through JSON::MaybeXS": ("fast-json-pp", "fast-json-maybexs", "29", "JSON"),
+    "JSON through Cpanel::JSON::XS": ("fast-json-pp", "fast-json-cpanel", "29", "JSON"),
+    "CSV": ("fast-csv-parsewords", "fast-csv-text-csv", "13", "CSV"),
 }
 MARGIN = 0.20
 
@@ -43,6 +53,7 @@ MARGIN = 0.20
 POSIX_NAMES = 587
 POSIX_IMPORT_M = 16
 POSIX_PAIR = ("fast-posix-default-import", "fast-posix-no-import")
+POSIX_SECTION = "Imports"
 
 # The guest's hang guard: the heaviest run, the keyed sort with split in its block, takes
 # about 3e10 instructions.
@@ -79,18 +90,46 @@ def test_every_example_on_the_page_is_a_case():
 
 def test_every_measured_example_is_on_the_page():
     examples = {tuple(e) for e in page_examples(PAGE.read_text(encoding="utf-8"))}
-    ids = {cid for slow, fast, _ in RATIOS.values() for cid in (slow, fast)} | set(POSIX_PAIR)
+    ids = {cid for slow, fast, _, _ in RATIOS.values() for cid in (slow, fast)} | set(POSIX_PAIR)
     for cid in sorted(ids):
         assert CASES[cid].argv in examples, f"{cid} is measured but not shown on the page"
 
 
+def sections(text: str) -> dict[str, str]:
+    """The page's `## ` sections: heading -> the text up to the next heading."""
+    parts = re.split(r"^## (.*)$", text, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def section(text: str, start: str) -> str:
+    found = [body for heading, body in sections(text).items() if heading.startswith(start)]
+    assert len(found) == 1, f"the page has {len(found)} sections headed {start!r}"
+    return found[0]
+
+
+def quotes(body: str, number: str, unit: str) -> bool:
+    """Whether `body` has `number` followed by `unit` as a whole number: not the end of a
+    longer one, so 9× is not found in 29× nor 5× in 7.5×."""
+    return re.search(rf"(?<![\d.]){re.escape(number)}{re.escape(unit)}", body) is not None
+
+
 def test_the_page_quotes_each_checked_figure():
     text = PAGE.read_text(encoding="utf-8")
-    for name, (_, _, figure) in RATIOS.items():
-        assert f"{figure}×" in text, f"the page does not quote {figure}× ({name})"
-    assert f"{POSIX_NAMES} names" in text
-    assert f"{POSIX_IMPORT_M} M instructions" in text
-    assert "Can't cd to /" in text
+    for name, (_, _, figure, start) in RATIOS.items():
+        assert quotes(section(text, start), figure, "×"), (
+            f"the section {start!r} does not quote {figure}× ({name})"
+        )
+    imports = section(text, POSIX_SECTION)
+    assert quotes(imports, str(POSIX_NAMES), " names"), POSIX_NAMES
+    assert quotes(imports, str(POSIX_IMPORT_M), " M instructions"), POSIX_IMPORT_M
+    assert "Can't cd to /" in section(text, "`File::Find`")
+
+
+def test_every_ratio_on_the_page_is_a_checked_one():
+    text = PAGE.read_text(encoding="utf-8")
+    on_page = set(re.findall(r"(?<![\d.])(\d+(?:\.\d+)?)×", text))
+    checked = {figure for _, _, figure, _ in RATIOS.values()}
+    assert on_page == checked, f"ratios on the page with no check: {sorted(on_page - checked)}"
 
 
 def test_the_page_is_linked_from_the_readme_and_the_modules_page():
@@ -184,7 +223,7 @@ def measure(wasi_perl, inputs: Path, scratch: Path, slow: str, fast: str):
 @pytest.mark.slow
 @pytest.mark.parametrize("name", RATIOS)
 def test_guest_ratio_is_the_pages(name, guest, inputs, tmp_path):
-    slow, fast, figure = RATIOS[name]
+    slow, fast, figure, _ = RATIOS[name]
     used_slow, used_fast = measure(guest, inputs, tmp_path, slow, fast)
     ratio = used_slow / used_fast
     claim = float(figure)

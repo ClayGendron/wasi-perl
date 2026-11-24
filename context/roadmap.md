@@ -54,3 +54,7 @@ Open items from specification 015 and its review (`reviews/015-the-runners-check
 
 - **014's checks skip in CI.** Most of `tests/runner/test_fixed_cost.py` runs the stand-in guest, which needs wasi-sdk, and no CI job that runs `tests/runner` has it. So those checks are skipped there, unseen. 015 moved its own checks to the set `$WASI_PERL_ARTIFACTS` names, as the wheel jobs set it, and added them to the wheel job's gate on skips; 014's can follow the same way.
 - **A shared-mapping write within one process.** The per-stamp `digest()` of `perl.wasm` and `MANIFEST` (0.1.0) and the per-stamp parse of `SHA256SUMS` (014) are used again while the file's stamp is unchanged. A write through a shared mapping can change a file without moving its stamp (`research/2026-11-24-the-runners-fixed-cost-measured.md` §8.4), so a process's later calls would not see it. It is the owner's to decide.
+
+Open items from the review of 020 (`reviews/020-docs-for-agents-pr-2026-11-24.md`, L5), for a later change:
+
+- **`test_native_is_deterministic` passes when native perl is broken.** Two runs that fail the same way are equal, and `find_oracle` checks only `print $^V`, which needs no library. A native perl that cannot find its own library therefore passes every determinism check. The check should also require exit 0 and the expected output, or `find_oracle` should run a program that loads core modules, such as `-Mstrict -MPOSIX -e 1`, and refuse a perl where that fails.

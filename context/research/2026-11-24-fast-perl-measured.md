@@ -20,7 +20,7 @@ Every ratio the page quotes holds within the specification's 20%, on today's `de
 | keyed sort | `split` inside the `sort` block | Schwartzian transform | 29,514,543,011 | 5,354,833,117 | 5.51× | 5× |
 | JSON | `-MJSON::PP` | `-MJSON::MaybeXS` | 13,341,791,904 | 507,311,171 | 26.30× | 29× |
 | JSON | `-MJSON::PP` | `-MCpanel::JSON::XS` | 13,341,791,904 | 465,328,535 | 28.67× | 29× |
-| CSV | `Text::ParseWords::parse_line` | `Text::CSV` | 15,313,473,477 | 1,161,441,020 | 13.18× | 12× |
+| CSV | `Text::ParseWords::parse_line` | `Text::CSV` | 15,313,473,477 | 1,161,441,020 | 13.18× | 13× |
 
 - **POSIX:** `-MPOSIX` costs 71,083,395 instructions and `-mPOSIX` (`use POSIX ()`) 54,799,158, so the default import costs 16.3 M (page: 16 M). `scalar @POSIX::EXPORT` is 587 (EXECUTED).
 - **File::Find without a `cwd`:** over `/work` it dies "Can't cd to /: No such file or directory", exit 2. Over `.` it exits 0 and finds nothing. With `cwd="/work"` it finds the files (EXECUTED, `test_guest_file_find_needs_a_working_folder`).
@@ -36,7 +36,7 @@ The inputs are the checks' own (`write_inputs` in `tests/oneliners/test_fast_per
 
 The specification quoted F §6: 4.8× for the count and 5.6× for the substitution. Today they are 9.07× (7.05× in F's own form, `$n++ if /ERROR/`) and 7.55×. Both are more than 20% above the old figures.
 
-The cause is specification 016, which landed after study F. The same pairs on F's base set reproduce F's figures (EXECUTED, `results/f-base.md`). That set is the `perf-base` build of `dev` at `32dfb73`: `perl.wasm` of 9,260,141 bytes, sha256 `38c80f9c…6599ab30`.
+The same pairs on F's base set reproduce F's figures (EXECUTED, `results/f-base.md`). That set is the `perf-base` build of `dev` at `32dfb73`: `perl.wasm` of 9,260,141 bytes, sha256 `38c80f9c…6599ab30`.
 
 | pair | F's base: slow / fast | ratio | dev: slow / fast | ratio |
 |---|---:|---:|---:|---:|
@@ -45,9 +45,11 @@ The cause is specification 016, which landed after study F. The same pairs on F'
 | substitute, `-pi -e` | 842.9 M / 149.5 M | 5.64× | 733.3 M / 97.2 M | 7.55× |
 | keyed sort | 29,546 M / 5,389 M | 5.48× | 29,515 M / 5,355 M | 5.51× |
 
-So the whole-file side fell by 52 M instructions, from 116.8 M to 64.8 M, a 45% cut. The line loop fell by about 110 M, but that is only 13–19% of its count, so the ratio rose (EXECUTED, both tables). Spec 016 made PerlIO read 64 KiB at a time instead of 8 KiB, and replaced `memchr` (READ: `CHANGELOG.md`, "Unreleased"). Which part of 016 cut the whole-file read is INFERRED: probably the larger buffer, since a slurp grows its one string once per buffer fill. The keyed sort did not move.
+So the whole-file side fell by 52 M instructions, from 116.8 M to 64.8 M, a 45% cut. The line loop fell by about 110 M, but that is only 13–19% of its count, so the ratio rose (EXECUTED, both tables). The keyed sort did not move.
 
-The page quotes 9× and 7.5×, which are the measured values rounded, and its checks centre on them. The specification records the change with a dated line under Decision 1. The POSIX cost was 16.3 M on both sets.
+The cause is most likely specification 016 (INFERRED). The base set predates specifications 013, 016 and 018, and all three change `perl.wasm`. Only 016 changes how the guest reads: PerlIO reads 64 KiB at a time instead of 8 KiB, and `memchr` is replaced (READ: `CHANGELOG.md`, "Unreleased"). 013 changes how Perl seeds its randomness, and 018 adds two modules. Which part of 016 cut the whole-file read is also INFERRED: probably the larger buffer, since a slurp grows its one string once per buffer fill. No build between the two sets was measured to confirm this.
+
+The page quotes 9× and 7.5×, which are the measured values rounded, and its checks centre on them. In the same way, it quotes 13× for CSV, the 13.18× its own pair measures. Spec 018's 12× was for another program. The specification records the change with a dated line under Decision 1. The POSIX cost was 16.3 M on both sets.
 
 ## 3. The checks
 
@@ -55,7 +57,11 @@ The page quotes 9× and 7.5×, which are the measured values rounded, and its ch
 - `test_guest_ratio_is_the_pages` runs each pair and requires the ratio to lie within 20% of the page's figure, either way.
 - `test_guest_posix_default_import_costs_what_the_page_says` does the same for the 16 M, and checks the 587.
 - `test_guest_file_find_needs_a_working_folder` checks the three outcomes above.
-- Three checks need no perl. Every example on the page must be a case word for word, every measured case must be on the page, and the page must quote every checked figure.
+- Four checks need no perl:
+  - every example on the page must be a case word for word;
+  - every measured case must be on the page;
+  - each checked figure must stand as a whole number in its own `##` section, so 9× does not match inside 29×;
+  - every `N×` on the page must be a checked figure, so the page cannot quote a ratio that no check runs.
 
 Before the page's -0777 figures were updated, its two checks failed with 9.07× and 7.55× against 4.8× and 5.6× (EXECUTED). One run of the whole file takes 13 s on this machine.
 
@@ -75,4 +81,5 @@ The base set has no Cpanel::JSON::XS or Text::CSV, so it has no JSON or CSV rows
 ## 5. Limits
 
 - Specification 019, built at the same time, changes `perl.wasm`. Its fuel may move these counts a little; the 20% margin is meant to cover that. If a check fails once 019 is on `dev`, the ratio is measured again, and the margin stays (INFERRED).
+- **Mounts.** With specification 017, a mount at `/` serves a call whose `cwd` is `None`, and a `cwd` may lie in a mount. Whichever of 017 and 020 lands second updates the `File::Find` section of `docs/fast-perl.md`: "a folder inside a grant or a mount", and the "without a `cwd`" sentence holds only when nothing is mounted at `/`. `test_guest_file_find_needs_a_working_folder` uses grants only, so it will not fail by itself when 017 lands (READ: specification 017, Decisions 6 and 7).
 - The ratios depend on input size, since every run also pays Perl's start (about 2 M instructions, 55 M with POSIX). On a 10 KB file the -0777 gain is smaller (INFERRED).
