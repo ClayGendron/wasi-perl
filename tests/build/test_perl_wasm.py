@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 from pathlib import Path
 
@@ -77,6 +78,16 @@ def test_die_uncaught(guest, native):
     g, n = guest("-e", status), native("-e", status)
     assert (g.code, g.stdout, g.stderr, g.status) == (0, b"status=255\n", b"bye\n", 0)
     assert (n.code, n.stdout, n.stderr) == (0, b"status=255\n", b"bye\n")
+
+
+def test_the_refused_exit_is_read_at_the_innermost_frame(guest):
+    r = guest("-e", "exit 200")
+    assert_exit_refused(r, 200)
+    # The same error, with its innermost frame one byte on, stands at no call of proc_exit.
+    at = next(ln for ln in r.error.splitlines() if ln.strip().startswith("0:")).split()[1]
+    moved = r.error.replace(at, hex(int(at, 16) + 1), 1)
+    with pytest.raises(AssertionError):
+        assert_exit_refused(dataclasses.replace(r, error=moved), 200)
 
 
 @pytest.mark.parametrize("status", [0, 1, 7, 125, 126, 200, 255])
