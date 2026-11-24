@@ -97,6 +97,11 @@ run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-refusals.a" "$STUBS/sandb
 run "$LOG" make generate_uudmap.o
 mkdir -p "$BUILD/host-tools"
 cp "$NATIVE/generate_uudmap" "$BUILD/host-tools/generate_uudmap"
+# Perl's Makefile orders only its own extensions that need the Unicode tables after mktables,
+# which makes them. A CPAN extension's Makefile.PL may need them too (Text-CSV_XS's loads
+# charnames, which reads unicore/Name.pm), and under -j it would race mktables. So the tables are
+# made first, by a make of their own; a later make finds them up to date and leaves them alone.
+run "$LOG" make -j"$JOBS" uni.data
 # The utilities are extracted by running perl on their .PL files; the guest perl cannot run on
 # the build host, so the host miniperl extracts them first and make then finds them up to date.
 run "$LOG" make -j"$JOBS" perl utils/Makefile
