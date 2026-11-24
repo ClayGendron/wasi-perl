@@ -4,8 +4,10 @@ scripts/lib.sh's unpack_pinned is what scripts/10_native.sh, 20_target.sh and 30
 unpack each listed tarball with. It must refuse a tarball that downloads/SHA256SUMS does not
 pin, one that does not match its pin, one that unpacks to anything but one top folder, and a
 destination that already exists. These checks run it on small tarballs made here, so they need
-no build. The last checks run each build step on a copy of the checkout whose tarball is the
+no build. The next checks run each build step on a copy of the checkout whose tarball is the
 real one with one byte changed: the step must fail on it before it touches its build tree.
+The last reads the build's own log: a CPAN extension's Makefile.PL may need Perl's Unicode
+tables (Text-CSV_XS's loads charnames), so it must run only once mktables has made them.
 """
 
 from __future__ import annotations
@@ -223,3 +225,23 @@ def test_a_tampered_tarball_fails_the_build_step(tmp_path, step, tampered):
         if q != root / "build" / "logs" and q.parent != root / "build" / "logs"
     )
     assert after == before
+
+
+def _xs_modules() -> list[str]:
+    lines = (ROOT / "recipes" / "cpan-xs").read_text().splitlines()
+    return [ln.split()[1].replace("-", "/") for ln in lines if ln.strip() and not ln.startswith("#")]
+
+
+def test_the_cpan_extensions_are_configured_after_the_unicode_tables():
+    log = ROOT / "build" / "logs" / "20_target.log"
+    if not log.is_file():
+        pytest.skip("build/logs/20_target.log is missing; run scripts/20_target.sh")
+    lines = log.read_text(errors="replace").splitlines()
+    # mktables writes its list of what it made last, once it has made every table.
+    made = [i for i, ln in enumerate(lines) if ln == "Updating 'mktables.lst'"]
+    assert made, "the log shows no run of mktables that made the tables"
+    for module in _xs_modules():
+        archive = f"lib/auto/{module}/{module.rsplit('/', 1)[-1]}.a"
+        built = [i for i, ln in enumerate(lines) if f"make_ext.pl {archive} " in ln]
+        assert built, (module, "is never built in the log")
+        assert built[0] > made[0], (module, built[0], made[0])
