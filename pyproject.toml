@@ -47,7 +47,7 @@ packages = ["src/wasi_perl"]
 artifacts = ["src/wasi_perl/artifacts"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["build", "downloads", "context"]
+exclude = ["/build", "/downloads", "/context", "/context/**"]
 # The sdist carries the assembled set too, so a wheel built from it (as `uv build` does) holds it.
 artifacts = ["src/wasi_perl/artifacts"]
 

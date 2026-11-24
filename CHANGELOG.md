@@ -28,6 +28,6 @@ The first release. One pinned set: Perl 5.42.3, built with wasi-sdk 34 for `wasm
 
 ### Judged by
 
-- Perl's own `t/` suite, run one file per guest: 616 files, 439 pass and 0 fail; the other 177 are listed in `tests/perl_t/exclusions.toml`, each with its reason (143 start a child process, 11 need signals, 3 are known bugs), a failure signature and a floor of passing results that may not fall (19,052 in all).
-- 209 agent-style one-liners (`-ne`, `-pi -e`, `-lane`, `-F`, `-0777`, `-00`, modules, errors, Unicode, paths), byte for byte against native perl 5.42.3, on Linux x86-64 and arm64, macOS arm64 and Windows x86-64.
+- Perl's own `t/` suite, run one file per guest: 616 files, 439 pass and 0 fail; the other 177 are listed in `tests/perl_t/exclusions.toml`, each with its reason (143 start a child process, 11 need signals, 2 are refused calls, 6 check Perl's own source tree, 6 are WASI differences, 6 are for other systems, 3 are known bugs), a failure signature and a floor of passing results that may not fall (19,052 in all).
+- 209 agent-style one-liners (`-ne`, `-pi -e`, `-lane`, `-F`, `-0777`, `-00`, modules, errors, Unicode, paths), byte for byte against native perl 5.42.3, on Linux x86-64 and arm64, macOS arm64 and Windows x86-64. Two cases differ on a Windows host, each allowed with its reason: NTFS gives a directory a size of 0, and writing to a directory there fails with EINVAL, not EISDIR.
 - wasi-python's sandbox escape tests, ported to Perl: reads outside a grant, `../` and absolute climbs, links made by the host or the guest, every kind of write to a read-only grant, FIFOs, a guest that sleeps forever, and planted code.
