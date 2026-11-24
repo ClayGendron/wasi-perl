@@ -64,3 +64,68 @@ Reviewer: an agent (Claude), a fresh sub-agent of https://claude.ai/code/session
 ## Verdict
 
 Does not land. The workflows are sound on every security point the owner listed: pins, permissions, no secrets on pull requests, a publish limited to this run's tested wheel and sdist, and trusted publishing from `release.yml` in `pypi`. The wheel is right: every artifact and licence file, nothing extra, version 0.1.0, it builds from the sdist, and it installs and runs `wasi-perl run -- -e 'print 1'` from a fresh venv. Run 45335166298 is green on all four systems and on Perl's own suite. One thing stops it: there is no `CHANGELOG.md` (decision 4), so a `v0.1.0` tag would sign the assets and then fail before the GitHub release and PyPI. Add it, record the green run id in the landing notes, and preferably fix the two skip-guard and perl-t findings (M1, M2) in the same round. Then it lands.
+
+## Round 2
+
+- **Branch:** `spec/008-ci` at `03daa76`, read as `git diff bf10e7f..03daa76`. That range holds:
+  - `16e05b3`: a merge of `dev`, bringing in 011.
+  - `2b6445b`: the orchestrator's `CHANGELOG.md` and README.
+  - `03daa76`: the author's answer to this review.
+- **Build:** the same reused build tree as round 1, `/home/user/wasi-perl-wt/008-ci/build/`, written 05:49. It assembles to `32193546` bytes, the same size CI's build job printed for `03daa76`.
+
+### What was run (EXECUTED unless marked)
+
+| Command | Result |
+|---|---|
+| `assemble_artifacts.py` (as in round 1), then `uv build` | the wheel has 1476 entries: round 1's 1474, plus `dist-info/licenses/src/wasi_perl/artifacts/{Artistic,Copying}`. METADATA reads `License-Expression: Apache-2.0 AND (Artistic-1.0-Perl OR GPL-1.0-or-later)`, with three `License-File` lines. |
+| `uv venv --python 3.11`, `uv pip install <wheel>`, then `wasi-perl run -- -e 'print 1'` from `/` | Python 3.11.18. `{"exit_code": 0, … "stdout": "1", …}`, exit 0 |
+| `uv build` and `uv sync` with no assembled set | both succeed. hatchling drops the missing licence files without a word. Such a wheel has no `perl.wasm` either, and the build job's new METADATA check refuses one built that way. |
+| `tar -tzf` of the sdist | `context/` is gone, except `context/prior_art/README.md`, one file (L-a) |
+| run **45337272812** (READ, `03daa76`, `pull_request`): every job | **all green.** lint `101 passed, 345 skipped, 242 deselected`. build `tests/build` `406 passed`. perl-t `616 run, 439 passed, 177 excluded (…), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)`. ubuntu-24.04, ubuntu-24.04-arm and macos-15 `304 passed, 344 skipped`. windows-2025 `296 passed, 350 skipped, 2 xfailed`. Every leg ran CPython 3.11 (3.11.14 on Linux, 3.11.9 on macOS and Windows), and every guard printed `231 guest checks (at least 225: 209 cases, 16 escape tests), 0 skipped`. |
+
+### The answers
+
+- **H1, no CHANGELOG.** Answered. `CHANGELOG.md` has an `## Unreleased` and a `## 0.1.0 — 2026-11-24` section. The notes check now runs in `attest` before `actions/attest`. A tag with no section fails with "nothing is signed or published". The notes go to `github-release` as a `release-notes` artifact, so the job that holds `contents: write` no longer checks anything out. The awk pattern matches `## 0.1.0 — 2026-11-24`: the version is followed by a space.
+- **Acceptance 1.** Met. Run 45335166298 is recorded in the landing notes. Run 45337272812, on the head itself, is green too and is recorded here.
+- **M1, skip guard.** Answered:
+  - A testcase with an empty `classname` now counts as its module. In round 1, a skipped module showed as `name="tests.escapes.test_escapes"` with an empty `classname`. That name now matches.
+  - An `<error>` counts as a check that did not run.
+  - The floor is the number of corpus cases in `cases.toml` plus the number of top-level `test_` functions in `test_escapes.py`, so 209 + 16. A missing file fails the guard.
+  - What remains: the floor is one sum over both suites, and it counts one run per parametrized function. A parametrized escape test that drops some of its cases still passes. That is acceptable for a guard against skips.
+- **M2, perl-t.** Answered. The presence check is gone, so a missing harness now fails the job.
+- **L1, id-token in attest.** Answered with a comment.
+- **L3, the Python floor.** Answered: `uv venv --python 3.11`.
+- **L4, licence metadata.** Answered, and the build job now checks it.
+- **L6, stale landing notes.** Answered: the notes are rewritten.
+- **L7, `context/` in the sdist.** Answered, apart from L-a.
+- **L2, publishing gate, and L5, `uv publish`.** Left to the owner and listed under "For the owner". That is right: both are the owner's settings or agreement.
+
+### The CHANGELOG against the merged specifications and the code
+
+Checked, and they hold:
+
+| CHANGELOG claim | Checked against |
+|---|---|
+| 616 files, 439 pass, 0 fail, 177 excluded; 143 subprocess, 11 signals, 3 bug; 19,052 guarded results | 007's landing notes (`:49`, `:68`), `exclusions.toml` (177 entries) and run 45337272812 |
+| 209 one-liners | `cases.toml`: 209 `[[case]]` |
+| the module list, and the left-out list (threads, IPC::SysV, Sys::Syslog, DB_File and its kin, PerlIO::mmap) | `docs/modules.md:7` and `:15-20` |
+| the refusals: fork, exec, system, backticks, pipe open, pipe, wait, waitpid, kill, alarm, dump | `recipes/sandbox-refusals.c` |
+| defaults of 60 s, 1 GiB and 16 MiB | `runner.py:57`: `Defaults(memory_bytes=1 << 30, deadline_s=60.0, output_bytes=16 << 20)` |
+| the cache: folder 0700, files 0600 | `_cache.py:8`, `:145`, `:186` and `:269` |
+| the `wasi_perl_exit_status` export and the 126-and-above refusal | `runner.py:32-33` |
+| wasi-sdk 34 and wasmtime 51 | `downloads/SHA256SUMS` and `wasmtime>=51,<52` |
+| "no patch to Perl" | there is no `recipes/patches/` |
+| in-place editing on Windows, and 10 ms clock slices | 010 and 011, and the green Windows leg |
+
+### Round 2 findings
+
+| Rank | Where | Finding | Suggested fix |
+|---|---|---|---|
+| Low | `CHANGELOG.md:31` | "each with its reason (143 start a child process, 11 need signals, 3 are known bugs)" names 157 of the 177. It leaves out refused 2, porting 6, platform 6 and not-this-platform 6. It reads like a full breakdown. | List all seven classes, or write "among them". |
+| Low | `CHANGELOG.md:32` | "byte for byte … on … Windows x86-64" leaves out the two cases that are allowed to differ on win32 alone: `files-tests` and `files-errors`, the 2 xfailed on the Windows leg. | Add "except two directory cases on Windows, listed in `known_differences.toml`". |
+| Low (L-a) | `pyproject.toml:50` | The sdist still carries `context/prior_art/README.md` despite `exclude = [..., "context"]`. | Add `"context/**"`, or leave it: it is one README. |
+| Owner | L2, L5 | Protect the `pypi` environment to `v*` tags and confirm `uv publish`. Register the publisher before the first tag. | As listed in the specification's "For the owner". |
+
+### Verdict
+
+Lands. Both workflows now meet every point the owner set. The release refuses to sign without its notes. The skip guard sees module-level skips and errors, and it has a floor. perl-t is required. The wheel is version 0.1.0 and carries the set with Perl's licence declared, and it installs and runs on Python 3.11. Run 45337272812 on `03daa76` is green on all four systems and on Perl's own suite. The Lows are wording, and L2 and L5 are the owner's.
