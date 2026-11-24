@@ -16,8 +16,7 @@
 #include "perl.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <wasi/libc.h>
+#include <string.h>
 
 #define SANDBOX " is not available in the wasi-perl sandbox"
 
@@ -135,19 +134,150 @@ SSize_t __wrap_Perl_apply(pTHX_ I32 type, SV **mark, SV **sp)
     return __real_Perl_apply(aTHX_ type, mark, sp);
 }
 
+/* Whether path names a file inside dir: dir exactly, a slash, then components none of which is
+ * empty, "." or "..". So "/usr/local/lib/perl5/5.42x/A.pm" and "/usr/local/lib/perl5/5.42/../x"
+ * are not inside "/usr/local/lib/perl5/5.42". */
+static bool path_is_under(const char *path, const char *dir)
+{
+    size_t n = strlen(dir);
+    const char *p;
+    if (n == 0 || strncmp(path, dir, n) != 0 || path[n] != '/')
+        return FALSE;
+    for (p = path + n + 1;;) {
+        const char *end = strchr(p, '/');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == 0 || (len == 1 && p[0] == '.') || (len == 2 && p[0] == '.' && p[1] == '.'))
+            return FALSE;
+        if (!end)
+            return TRUE;
+        p = end + 1;
+    }
+}
+
+/* Whether path is a file of the runtime's own library: under privlib or archlib, which the
+ * embedder grants read-only, so no program can put a file there. site_perl and its arch
+ * folder, inside privlib, are where an embedder's own modules would go; they do not count. */
+static bool path_in_runtime_library(const char *path)
+{
+    if (path_is_under(path, SITELIB_EXP) || path_is_under(path, SITEARCH_EXP))
+        return FALSE;
+    return path_is_under(path, PRIVLIB_EXP) || path_is_under(path, ARCHLIB_EXP);
+}
+
+/* The requires of library files now running. A require opens its file (PerlIO_openn, from
+ * pp_ctl.c) and hands it to lex_start just before it pushes its eval frame, at the next context
+ * index of the same stack. When the file opened under OP_REQUIRE is a library file, lex_start's
+ * wrapper records that frame and the path, and puts a destructor on the save stack inside the
+ * frame's range, so the record goes when the frame goes, by return or by die. Neither %INC nor
+ * #line, nor a string eval, a do FILE or an @INC hook (whose files require does not open
+ * itself) can make such a record. */
+#define LIBRARY_REQUIRES_MAX 64
+static struct {
+    const PERL_SI *si;
+    I32 cxix;
+    char *path;
+} library_requires[LIBRARY_REQUIRES_MAX];
+static int library_requires_n;
+static PerlIO *pending_fp;
+static char *pending_path;
+
+static void drop_pending(void)
+{
+    Safefree(pending_path);
+    pending_path = NULL;
+    pending_fp = NULL;
+}
+
+static void drop_library_require(pTHX_ void *unused)
+{
+    PERL_UNUSED_ARG(unused);
+    if (library_requires_n > 0) {
+        library_requires_n--;
+        Safefree(library_requires[library_requires_n].path);
+        library_requires[library_requires_n].path = NULL;
+    }
+}
+
+__typeof__(PerlIO_openn) __real_PerlIO_openn;
+__typeof__(PerlIO_openn) __wrap_PerlIO_openn;
+PerlIO *__wrap_PerlIO_openn(pTHX_ const char *layers, const char *mode, int fd, int imode,
+                            int perm, PerlIO *old, int narg, SV **args)
+{
+    PerlIO *f = __real_PerlIO_openn(aTHX_ layers, mode, fd, imode, perm, old, narg, args);
+    if (f && PL_op && PL_op->op_type == OP_REQUIRE && narg == 1 && args && args[0]) {
+        const char *path = SvPV_nolen(args[0]);
+        drop_pending();
+        if (path_in_runtime_library(path)) {
+            pending_fp = f;
+            pending_path = savepv(path);
+        }
+    }
+    return f;
+}
+
+__typeof__(Perl_lex_start) __real_Perl_lex_start;
+__typeof__(Perl_lex_start) __wrap_Perl_lex_start;
+void __wrap_Perl_lex_start(pTHX_ SV *line, PerlIO *rsfp, U32 flags)
+{
+    __real_Perl_lex_start(aTHX_ line, rsfp, flags);
+    if (rsfp && rsfp == pending_fp && PL_op && PL_op->op_type == OP_REQUIRE
+        && library_requires_n < LIBRARY_REQUIRES_MAX) {
+        library_requires[library_requires_n].si = PL_curstackinfo;
+        library_requires[library_requires_n].cxix = cxstack_ix + 1;
+        library_requires[library_requires_n].path = pending_path;
+        library_requires_n++;
+        pending_path = NULL;
+        SAVEDESTRUCTOR_X(drop_library_require, NULL);
+    }
+    drop_pending();
+}
+
+/* Whether the store is made while a library file's require is running, by that file's own
+ * code: the innermost eval frame that is not an eval block is a recorded library require, and
+ * the statement is in the file that require opened. A store made after the require has ended
+ * (sigtrap's import, a library sub called later) is the program's. */
+static bool in_library_require(pTHX)
+{
+    const char *file = PL_curcop ? CopFILE(PL_curcop) : NULL;
+    const PERL_SI *si;
+    if (!file)
+        return FALSE;
+    for (si = PL_curstackinfo; si; si = si->si_prev) {
+        I32 i;
+        for (i = si->si_cxix; i >= 0; i--) {
+            const PERL_CONTEXT *cx = &si->si_cxstack[i];
+            int r;
+            if (CxTYPE(cx) != CXt_EVAL || CxTRYBLOCK(cx))
+                continue;
+            if (CxOLD_OP_TYPE(cx) != OP_REQUIRE)
+                return FALSE;
+            for (r = library_requires_n - 1; r >= 0; r--)
+                if (library_requires[r].si == si && library_requires[r].cxix == i)
+                    return strEQ(file, library_requires[r].path);
+            return FALSE;
+        }
+    }
+    return FALSE;
+}
+
 /* A store into %SIG. The __WARN__ and __DIE__ hooks are not signals and pass through, as do
  * names that are not signals (Perl warns about those). A store for a real signal, of any
- * value, dies: a script that relies on a handler must not run on believing it has one. Two
- * calls are let through. A delete (magic_clearsig calls this with no value) only puts back the
- * default, which installs nothing. The restore at the end of a local's scope (PL_localizing is
- * 2) puts back the value that was there before the refused store. */
+ * value, made by the program's own code dies: a script that relies on a handler must not run on
+ * believing it has one. Let through are:
+ * - a delete (magic_clearsig calls this with no value): it only puts back the default;
+ * - the restore at the end of a local's scope (PL_localizing is 2): it puts back the value
+ *   that was there before the refused store;
+ * - a store made by a library file's own code while its require runs. Core modules such as
+ *   Math::Complex (local $SIG{FPE}) store a handler while they load; the handler is kept and
+ *   never runs, since the sandbox delivers no signals. */
 __typeof__(Perl_magic_setsig) __real_Perl_magic_setsig;
 __typeof__(Perl_magic_setsig) __wrap_Perl_magic_setsig;
 int __wrap_Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
 {
     STRLEN len;
     const char *s = MgPV_const(mg, len);
-    if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0) {
+    if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0
+        && !in_library_require(aTHX)) {
         SV *msg = newSVpvf("signal handler for SIG%" UTF8f, UTF8fARG(0, len, s));
         sv_2mortal(msg);
         PL_localizing = 0;
@@ -205,54 +335,4 @@ void __wrap_Perl_my_failure_exit(pTHX)
         status = (exitstatus & 255) ? (U32)exitstatus : 255;
     }
     my_exit(status);
-}
-
-/* dup2 as a move, for a descriptor that nothing else holds. WASI preview1 has no way to copy a
- * file descriptor, so wasi-libc's dup2 refuses ("Not supported"), and with it every reopen of
- * STDIN, STDOUT or STDERR onto a file: Perl opens the file at a new descriptor, dup2s it onto
- * 0, 1 or 2, and then closes the new one (S_openn_cleanup in doio.c), with no descriptor
- * opened in between. WASI's fd_renumber moves a descriptor onto another, which reaches the
- * same end state, except that the old number is closed already.
- *
- * A move is right only when the old descriptor has that one owner. The fdopen forms of open
- * (">&=", "<&=") reach the same dup2 with a descriptor another handle still uses; moving it
- * would take it from that handle. So the move happens only when PerlIO counts exactly one
- * handle on the old descriptor (the build has no threads, so the count needs no lock), and
- * anything else fails with ENOTSUP, as wasi-libc's dup2 does. Perl's other dup2 callers are
- * the child side of a fork, which the sandbox refuses before it is reached. */
-static int moved_fd = -1;
-
-int __real_dup2(int oldfd, int newfd);
-int __wrap_dup2(int oldfd, int newfd);
-int __wrap_dup2(int oldfd, int newfd)
-{
-    if (oldfd == newfd)
-        return fcntl(oldfd, F_GETFD) < 0 ? -1 : newfd;
-    if (oldfd < 0 || oldfd >= PL_perlio_fd_refcnt_size || PL_perlio_fd_refcnt[oldfd] != 1) {
-        errno = ENOTSUP;
-        return -1;
-    }
-    if (__wasilibc_fd_renumber(oldfd, newfd) != 0)
-        return -1;
-    moved_fd = oldfd;
-    return newfd;
-}
-
-/* The close that follows a dup2 finds the old number gone. Natively that close succeeds, so it
- * succeeds here too, and leaves errno as it was: a die takes its exit status from errno. Every
- * other close, and any later use of the moved number, behaves as WASI's does (EBADF). */
-int __real_close(int fd);
-int __wrap_close(int fd);
-int __wrap_close(int fd)
-{
-    int saved = errno;
-    int r = __real_close(fd);
-    if (fd >= 0 && fd == moved_fd) {
-        moved_fd = -1;
-        if (r < 0 && errno == EBADF) {
-            errno = saved;
-            return 0;
-        }
-    }
-    return r;
 }
