@@ -7,9 +7,6 @@
 #include <grp.h>
 #include <pwd.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/select.h>
-#include <sys/time.h>
 #include <sys/times.h>
 #include <sys/types.h>
 #include <time.h>
@@ -107,58 +104,4 @@ clock_t __wrap_times(struct tms *buf)
         buf->tms_cstime /= per;
     }
     return elapsed == (clock_t)-1 ? elapsed : elapsed / per;
-}
-
-/* select() with Perl's bit vectors.
- *
- * Perl's four-argument select hands the C select() its bit vectors as they are, as fd_set
- * pointers: on POSIX systems an fd_set is that bit mask. wasi-libc's fd_set is a count and an
- * array of descriptors instead, so it read Perl's first mask bytes as a count and the bytes
- * after as descriptors: a result that hung on memory past the mask, and a trap for a mask of
- * "\xff". The link wraps select (-Wl,--wrap=select); this reads each given set as the bit mask
- * of nfds bits it is, calls wasi-libc's select with its own fd_sets, and writes the result
- * back as bits. Perl's other calls to select pass no sets, which pass through unchanged. */
-int __real_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                  struct timeval *timeout);
-
-static void bits_to_set(int nfds, const unsigned char *bits, fd_set *set)
-{
-    FD_ZERO(set);
-    for (int fd = 0; fd < nfds; fd++)
-        if (bits[fd / 8] & (1u << (fd % 8)))
-            FD_SET(fd, set);
-}
-
-static void set_to_bits(int nfds, const fd_set *set, unsigned char *bits)
-{
-    memset(bits, 0, (size_t)(nfds + 7) / 8);
-    for (size_t i = 0; i < set->__nfds; i++) {
-        int fd = set->__fds[i];
-        if (fd >= 0 && fd < nfds)
-            bits[fd / 8] |= (unsigned char)(1u << (fd % 8));
-    }
-}
-
-int __wrap_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                  struct timeval *timeout)
-{
-    fd_set *given[3] = {readfds, writefds, exceptfds};
-    fd_set sets[3], *pass[3];
-    if (nfds < 0 || nfds > FD_SETSIZE) {
-        errno = EINVAL;
-        return -1;
-    }
-    for (int i = 0; i < 3; i++) {
-        pass[i] = NULL;
-        if (given[i]) {
-            bits_to_set(nfds, (const unsigned char *)given[i], &sets[i]);
-            pass[i] = &sets[i];
-        }
-    }
-    int found = __real_select(nfds, pass[0], pass[1], pass[2], timeout);
-    if (found >= 0)
-        for (int i = 0; i < 3; i++)
-            if (given[i])
-                set_to_bits(nfds, &sets[i], (unsigned char *)given[i]);
-    return found;
 }

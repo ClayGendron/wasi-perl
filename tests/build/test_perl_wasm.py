@@ -317,22 +317,3 @@ def test_times_agrees_with_cpu_clock(guest):
     by_times, by_clock = (float(x) for x in r.stdout.split())
     assert by_clock >= CPU_SECONDS
     assert 0.8 <= by_times / by_clock <= 1.25, r.stdout
-
-
-# Four-argument select reads Perl's bit vectors. A bit for STDOUT asks whether it can be
-# written; a vector of "\xff" names descriptors 0 to 7, most of them closed, which natively is
-# EBADF. Both must end as natively, never in a trap.
-SELECT_PROGRAMS = {
-    "stdout writable": 'my $w = ""; vec($w, fileno STDOUT, 1) = 1; my $n = select undef, $w, undef, 0;'
-    ' print "$n ", unpack("b*", $w), "\\n"',
-    "closed descriptors": 'my $r = "\\xff"; my $n = select $r, undef, undef, 0; print "$n ", $!+0 ? "err" : "", "\\n"',
-    "no sets": 'my $n = select undef, undef, undef, 0.01; print "$n\\n"',
-}
-
-
-@pytest.mark.parametrize("name", SELECT_PROGRAMS)
-def test_select_reads_bit_vectors(guest, native, name):
-    prog = SELECT_PROGRAMS[name]
-    g, n = guest("-e", prog), native("-e", prog)
-    assert n.code == 0, n
-    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)

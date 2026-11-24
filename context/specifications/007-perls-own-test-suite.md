@@ -43,10 +43,10 @@ Built 2026-11-24 on `spec/007-perl-t`, merged with dev at `71fe6c3` (001 to 006,
 
 ### The scoreboard
 
-EXECUTED, about 95 s on 4 cores, and the same again inside `uv run pytest tests/build tests/perl_t` (390 passed):
+EXECUTED, about 95 s on 4 cores:
 
 ```
-perl t/: 616 run, 438 passed, 178 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 7, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19073 guarded oks)
+perl t/: 616 run, 438 passed, 178 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 5, not-this-platform 6, bug 5), 0 failed, 0 stale exclusions, 0 regressed (18915 guarded oks)
 ```
 
 616 rather than 617 because `t/benchmark/` runs only with `PERL_BENCHMARK` (decision 7). Its one file passed in one run with `times` fixed and failed in the next (EXECUTED: a speed ratio of 0.30 against its bound of 0.25, with four guests sharing the cores), which is timing noise, not a defect.
@@ -55,9 +55,9 @@ History (EXECUTED): against 001's minimum build, `617 run, 300 passed, 317 exclu
 
 With 009 (EXECUTED): op/fh.t, op/hash-clear-placeholders.t, op/hash-rt85026.t, op/numify_chkflags.t, op/require_37033.t and test_pl/can_isa_ok.t pass and left the list; io/perlio.t (44 tests) and op/write.t (477 of 636) get further and now stop at a refused child, and io/dup.t sends its refusal into a file, so all three are `subprocess`. op/sselect.t, which skipped while `POSIX::dup` failed, now runs its four-argument `select` tests, which exposed the `select` defect below.
 
-### The `select` fix (decision 6)
+### The `select` defect
 
-Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers. wasi-libc's `fd_set` is a count and an array of descriptors, so it read the mask's first bytes as a count and the bytes after it as descriptors: op/tie_fetch_count.t trapped "memory out of bounds" (`perl -e '$v="\xff"; select $v,undef,undef,0'`, EXECUTED), and op/sselect.t's results changed from run to run with whatever memory followed the mask (EXECUTED, four runs, three outcomes). The link now wraps `select` (`-Wl,--wrap=select`) and `recipes/wasi-stubs.c` converts each given set from Perl's bits to wasi-libc's `fd_set` and back; Perl's other `select` calls pass no sets. The check, `tests/build/test_perl_wasm.py::test_select_reads_bit_vectors`, compares three programs with native perl; "stdout writable" failed before the fix (`0 00000000` against `1 01000000`) and all three pass after it. op/tie_fetch_count.t now runs all 343 tests, and op/sselect.t is deterministic; each fails only for a platform difference (below).
+Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers, and wasi-libc's `fd_set` is a count and an array of descriptors. So op/tie_fetch_count.t traps "memory out of bounds" at line 274 (`perl -e '$v="\xff"; select $v,undef,undef,0'` traps too, EXECUTED), and op/sselect.t's results change from run to run with whatever memory follows the mask (EXECUTED: six runs fail tests 17-20 or 19-20; it passed in two earlier runs, so it may show as a stale exclusion until the fix lands). A translation was written here and then withdrawn, because specification 010's descriptor table makes `select` read Perl's bit vectors; both files are `bug` entries until it lands.
 
 ### The `times` fix (H1)
 
@@ -65,7 +65,7 @@ Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers.
 
 ### The other findings
 
-- **M1:** the `ok_at_least` and refusal guard (decision 3). 19073 `ok` results of excluded files are now guarded. Round 2 (R2-1): `shows` is allowed for every reason, and every entry that is not a refusal reason has one, so each excluded file has a failure signature its output must show (a trap counts as the line `trapped: <why>`). Refusal entries whose file catches the refusal use `shows` too (io/dup.t, comp/colon.t, io/crlf_through.t, io/pvbm.t, op/die_exit.t, op/override.t, op/recurse.t, re/substT.t, re/subst_wamp.t, run/cloexec.t), each EXECUTED-checked where the refusal is hidden (`eval { pipe … }`, `eval q{qx:…:}` and `eval { waitpid(0,1) }` each give the sandbox message in `$@`).
+- **M1:** the `ok_at_least` and refusal guard (decision 3). 18915 `ok` results of excluded files are now guarded. Round 2 (R2-1): `shows` is allowed for every reason, and every entry that is not a refusal reason has one, so each excluded file has a failure signature its output must show (a trap counts as the line `trapped: <why>`). Refusal entries whose file catches the refusal use `shows` too (io/dup.t, comp/colon.t, io/crlf_through.t, io/pvbm.t, op/die_exit.t, op/override.t, op/recurse.t, re/substT.t, re/subst_wamp.t, run/cloexec.t), each EXECUTED-checked where the refusal is hidden (`eval { pipe … }`, `eval q{qx:…:}` and `eval { waitpid(0,1) }` each give the sandbox message in `$@`).
 - **M2:** op/pack.t is `subprocess` (with `t/perl` it runs 4177 tests, all ok, then a runperl is refused); op/waitpid.t and io/pvbm.t are `refused`.
 - **M3:** the stand-in `t/perl`. The scoreboard did not change; op/pack.t now reaches 4177.
 - **L1:** the unpacked tree carries a stamp of the tarball's hash and of the tree's own content (round 2, R2-2: one SHA-256 over every path and file), and is unpacked again when either differs. R2-3: the regressed messages read "no refusal in its output" and "its output lacks the entry's shows pattern". **L2:** the tarball is found through `WASI_PERL_TARBALL`, `downloads/`, `WASI_PERL_DOWNLOAD_CACHE`, then `git rev-parse --git-common-dir`. **L3:** `Bail out!` is case-insensitive; strict TAP outside `lib/` (decision 7); no file changed outcome. **L4:** no specification numbers in `exclusions.toml`. **L5:** op/taint.t's note names `kill`. **L6:** `not-this-platform`. **L7:** above. **L8:** a skip reason is stripped of `skip`, `Skipped:` and kin. **L9:** the slow test fails, not skips, without a build when `CI` is set.
@@ -91,11 +91,12 @@ Defaults match CI's perl-t job (008's ci.yml, READ): the tarball in `downloads/`
 | threads | 0 |
 | porting | 6 (30 of 36 `t/porting/` pass) |
 | dynamic-loading | 0 |
-| platform | 7: chmod (op/filetest.t, op/stat.t), chown (op/tie_fetch_count.t tests 170-171), polling STDOUT for reading (op/sselect.t tests 17-18), the time-zone database (op/time.t), no sockets (op/coreamp.t), 32-bit regex sizes (bigmem/regexp.t) |
+| platform | 5: chmod (op/filetest.t, op/stat.t), the time-zone database (op/time.t), no sockets (op/coreamp.t), 32-bit regex sizes (bigmem/regexp.t) |
 | not-this-platform | 6 (`win32/`) |
-| bug | 3 |
+| bug | 5 |
 
 ### The `bug` entries, grouped by cause
 
+- **Four-argument `select` reads wasi-libc's `fd_set`, not Perl's bit vectors, 2 files:** op/tie_fetch_count.t (a trap), op/sselect.t (results vary). Fixed by the descriptor table's `select` (010).
 - **XS::APItest is not built, 2 files:** bigmem/stack.t, bigmem/stack_over.t.
 - **Unexplained, 1 file:** lib/deprecate.t passes its 10 tests, then its END block's File::Path cannot load Carp after the test leaves its relative `@INC`, and it exits 2.
