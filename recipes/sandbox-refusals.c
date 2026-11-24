@@ -11,7 +11,8 @@
  * Perl's fails to compile instead of trapping at run time.
  *
  * The same file makes the status of a die taken from errno the native one: WASI numbers errno
- * differently from Linux (ENOENT is 44, not 2), and the reference is native perl on Linux. */
+ * differently from Linux (ENOENT is 44, not 2), and the reference is native perl on Linux. And
+ * it reads sysopen's flags as Linux does when they hold no access mode (PerlIO_intmode2str). */
 #include "EXTERN.h"
 #include "perl.h"
 
@@ -335,4 +336,19 @@ void __wrap_Perl_my_failure_exit(pTHX)
         status = (exitstatus & 255) ? (U32)exitstatus : 255;
     }
     my_exit(status);
+}
+
+/* sysopen types its handle from the flags the program gave: PerlIO_intmode2str compares the
+ * access bits with O_RDONLY. On Linux O_RDONLY is 0, so flags with no access mode make a handle
+ * for input. wasi-libc's O_RDONLY is a bit of its own, so the same flags would fall to Perl's
+ * read-write case: a print to the handle would seem to work and its close fail, and O_APPEND
+ * alone would seek to the end. The open itself already reads such flags as O_RDONLY
+ * (wasi-fd-table.c, open); here Perl's typing of the handle does the same. Perl's only call is
+ * from doio.c, another object than perlio.c, so the wrap reaches it. */
+__typeof__(PerlIO_intmode2str) __real_PerlIO_intmode2str, __wrap_PerlIO_intmode2str;
+int __wrap_PerlIO_intmode2str(int rawmode, char *mode, int *writing)
+{
+    if ((rawmode & O_ACCMODE) == 0)
+        rawmode |= O_RDONLY;
+    return __real_PerlIO_intmode2str(rawmode, mode, writing);
 }

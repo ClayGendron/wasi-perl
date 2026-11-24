@@ -255,15 +255,42 @@ def test_a_close_of_the_device_makes_no_host_call(guest_engine, tmp_path):
     assert both[4] == alone[4]
 
 
-# An open with no access mode is a read, as on Linux, where O_RDONLY is 0; O_WRONLY and O_RDWR
-# are as before. Each line is the same in the guest as natively.
+def _against_native(guest, tmp: Path, code: str, files: dict[str, bytes], *args: str):
+    """Runs code with -w in the guest, with a writable grant at /work as its working folder,
+    and natively in a folder of the same files. Returns, for each, (exit code, stdout, stderr)
+    and the folder's files afterwards."""
+    outs = []
+    for where in ("guest", "native"):
+        folder = _dir(tmp, where)
+        for name, data in files.items():
+            (folder / name).write_bytes(data)
+        if where == "guest":
+            grants = [*default_grants(), (folder, "/work", True)]
+            r = guest("-w", "-e", code, *args, env={"PWD": "/work"}, grants=grants)
+            ran = (r.code, r.stdout, r.stderr)
+        else:
+            argv = [str(NATIVE_PERL), "-w", "-e", code, *args]
+            p = subprocess.run(argv, cwd=folder, env={}, capture_output=True)
+            ran = (p.returncode, p.stdout, p.stderr)
+        outs.append((ran, {f.name: f.read_bytes() for f in sorted(folder.iterdir())}))
+    return outs
+
+
+# An open with no access mode is a read, as on Linux, where O_RDONLY is 0, both to the open and to
+# Perl's own reading of the flags: a print to such a handle fails as one opened only for input,
+# and O_APPEND alone reads from the start. O_WRONLY and O_RDWR are as before. Each line, and each
+# warning, is the same in the guest as natively.
 NO_MODE = r"""
-use Fcntl qw(O_WRONLY O_RDWR O_CREAT);
+use Fcntl qw(O_WRONLY O_RDWR O_CREAT O_APPEND);
 sub show { my ($name, $ok) = @_; print "$name ", ($ok ? "ok" : "$!"), "\n" }
-my ($u, $w, $rw, $m, $b, $t);
+my ($u, $w, $rw, $m, $b, $t, $a);
 show("urandom", sysopen($u, "/dev/urandom", 0) && sysread($u, $b, 16) == 16);
 show("file", sysopen(F, "f.txt", 0) && sysread(F, $t, 100) == 6 && $t eq "plain\n");
 show("file-write", defined syswrite(F, "x"));
+$! = 0;
+print "print-input ", (print F "x") ? "printed" : "refused", "\n";
+show("close-input", close F);
+show("append", sysopen($a, "a.txt", O_APPEND) && sysread($a, $t, 100) == 3 && $t eq "abc");
 show("wronly", sysopen($w, "w.txt", O_WRONLY | O_CREAT) && syswrite($w, "w\n") == 2);
 show("wronly-read", defined sysread($w, $t, 1));
 show("rdwr", sysopen($rw, "f.txt", O_RDWR) && sysread($rw, $t, 2) == 2 && syswrite($rw, "X") == 1);
@@ -272,31 +299,150 @@ show("missing", sysopen($m, "nope", 0));
 
 
 def test_an_open_with_no_access_mode_reads(guest, tmp_path):
-    outs = []
-    for where in ("guest", "native"):
-        folder = _dir(tmp_path, where)
-        (folder / "f.txt").write_bytes(b"plain\n")
-        if where == "guest":
-            grants = [*default_grants(), (folder, "/work", True)]
-            r = guest("-e", NO_MODE, env={"PWD": "/work"}, grants=grants)
-            outs.append((r.code, r.stdout, r.stderr))
-        else:
-            p = subprocess.run(
-                [str(NATIVE_PERL), "-e", NO_MODE], cwd=folder, env={}, capture_output=True
-            )
-            outs.append((p.returncode, p.stdout, p.stderr))
-        outs.append({f.name: f.read_bytes() for f in sorted(folder.iterdir())})
-    assert outs[0] == outs[2]
-    assert outs[1] == outs[3] == {"f.txt": b"plXin\n", "w.txt": b"w\n"}
-    assert outs[0][1].decode().splitlines() == [
+    files = {"f.txt": b"plain\n", "a.txt": b"abc"}
+    g, n = _against_native(guest, tmp_path, NO_MODE, files)
+    assert g == n
+    assert g[1] == {"a.txt": b"abc", "f.txt": b"plXin\n", "w.txt": b"w\n"}
+    assert g[0][1].decode().splitlines() == [
         "urandom ok",
         "file ok",
         "file-write Bad file descriptor",
+        "print-input refused",
+        "close-input ok",
+        "append ok",
         "wronly ok",
         "wronly-read Bad file descriptor",
         "rdwr ok",
         "missing No such file or directory",
     ]
+    assert b"Filehandle F opened only for input" in g[0][2]
+
+
+# A read larger than one host call takes (wasmtime refuses a random_get over 64 MiB with a trap)
+# is still filled whole, as natively.
+BIG = r"""
+open(my $f, "<", "/dev/urandom") or die "$!\n";
+for my $n (67108865, 100_000_000) {
+    my $got = sysread($f, my $b, $n);
+    print "$n $got ", length($b), " ", ($b =~ tr/\0// < $n / 128 ? "random" : "zeros"), "\n";
+}
+"""
+
+
+def test_a_big_read_is_filled_whole(guest, native):
+    g, n = guest("-e", BIG), native("-e", BIG)
+    assert (g.code, g.stdout, g.stderr, g.error) == (n.code, n.stdout, n.stderr, "")
+    assert g.stdout == b"67108865 67108865 67108865 random\n100000000 100000000 100000000 random\n"
+
+
+# The device's flags read back, as natively: an append open shows O_APPEND, and blocking(0)
+# sets O_NONBLOCK.
+FLAGS = r"""
+use Fcntl qw(F_GETFL F_SETFL O_APPEND O_NONBLOCK);
+use IO::Handle;
+open(my $a, ">>", "/dev/urandom") or die "$!";
+print "append flag ", ((fcntl($a, F_GETFL, 0) & O_APPEND) ? 1 : 0), "\n";
+open(my $f, "<", "/dev/urandom") or die "$!";
+my $old = $f->blocking(0);
+print "blocking was ", ($old ? 1 : 0), " now ", ($f->blocking ? 1 : 0), "\n";
+print "nonblock flag ", ((fcntl($f, F_GETFL, 0) & O_NONBLOCK) ? 1 : 0), "\n";
+$f->blocking(1);
+print "blocking again ", ($f->blocking ? 1 : 0), " ", ((fcntl($f, F_GETFL, 0) & O_NONBLOCK) ? 1 : 0), "\n";
+print "read ", sysread($f, my $b, 8), "\n";
+"""
+
+
+def test_the_devices_flags_read_back(guest, native):
+    g, n = guest("-e", FLAGS), native("-e", FLAGS)
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
+    assert g.stdout == b"append flag 1\nblocking was 1 now 0\nnonblock flag 1\nblocking again 1 0\nread 8\n"
+
+
+# A path through the device answers ENOTDIR, and readlink of it EINVAL, as on Linux.
+THROUGH = r"""
+for my $p ("/dev/urandom", "/dev/urandom/x", "/dev/urandom/..", "/dev/urandom/.",
+           "/dev/urandom/", "/dev/random/x/y") {
+    my $o = open(my $f, "<", $p) ? "opened" : "$!";
+    my $st = (my @s = stat $p) ? "stat" : "$!";
+    my $lst = (my @l = lstat $p) ? "lstat" : "$!";
+    my $rl = defined(readlink $p) ? "link" : "$!";
+    print "$p open=$o stat=$st lstat=$lst readlink=$rl -e=", (-e $p ? 1 : 0), "\n";
+}
+"""
+
+
+def test_a_path_through_the_device_is_not_a_folder(guest, native):
+    g, n = guest("-e", THROUGH), native("-e", THROUGH)
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
+    lines = g.stdout.decode().splitlines()
+    assert lines[0] == "/dev/urandom open=opened stat=stat lstat=lstat readlink=Invalid argument -e=1"
+    assert all("Not a directory" in line for line in lines[1:]), lines
+
+
+# Changing the device by name gets the host's answer for its read-only /dev folder, which holds
+# no such file; and utime on a handle is not in wasi-libc. Natively root could change /dev, so
+# these run in the guest only.
+CHANGE = r"""
+sub show { my ($name, $ok) = @_; print "$name ", ($ok ? "ok" : "$!"), "\n" }
+show("mkdir", mkdir "/dev/urandom");
+show("rmdir", rmdir "/dev/urandom");
+show("unlink", unlink "/dev/urandom");
+show("rename-from", rename "/dev/urandom", "/dev/u2");
+show("rename-to", rename "/dev/null", "/dev/random");
+show("link", link "/dev/urandom", "/dev/u3");
+show("symlink", symlink "/dev/null", "/dev/urandom");
+show("utime", utime undef, undef, "/dev/urandom");
+open(my $f, "<", "/dev/urandom") or die;
+eval { utime undef, undef, $f }; print "utime-handle $@";
+opendir(my $d, "/dev") or die; print "list ", join(",", sort readdir $d), "\n";
+"""
+
+
+def test_changing_the_device_by_name_is_the_hosts_refusal(guest):
+    r = guest("-e", CHANGE)
+    assert (r.code, r.stderr) == (0, b""), r
+    perm = "Operation not permitted"
+    assert r.stdout.decode().splitlines() == [
+        *(
+            f"{name} {perm}"
+            for name in ("mkdir", "rmdir", "unlink", "rename-from", "rename-to", "link")
+        ),
+        f"symlink {perm}",
+        f"utime {perm}",
+        "utime-handle The futimes function is unimplemented at -e line 12.",
+        "list .,..,null",
+    ]
+
+
+# PERL_PERTURB_KEYS and PERL_INTERNAL_RAND_SEED with a fixed PERL_HASH_SEED, as natively: 0
+# (NO) and 2 (DETERMINISTIC) pin the order across calls, 1 (RANDOM) does not, and the internal
+# seed changes no order. Insertions and a delete after the build, where perturbation shows. The
+# pinned order itself is not compared with native's: for some seeds it differs, on builds from
+# before the device too.
+ORDER = 'my %h = map {$_ => 1} "a".."p"; $h{q} = 1; delete $h{c}; print join(",", keys %h), "\\n"'
+
+
+def test_perturb_keys_and_the_internal_seed_work_as_natively(guest, native):
+    seed = {"PERL_HASH_SEED": "12345678"}
+    for extra, pinned in (
+        ({"PERL_PERTURB_KEYS": "0"}, True),
+        ({"PERL_PERTURB_KEYS": "2"}, True),
+        ({"PERL_PERTURB_KEYS": "1"}, False),
+        ({"PERL_INTERNAL_RAND_SEED": "7"}, True),
+        ({"PERL_INTERNAL_RAND_SEED": "8"}, True),
+    ):
+        env = {**seed, **extra}
+        gs = [guest("-e", ORDER, env=env) for _ in range(3)]
+        ns = [native("-e", ORDER, env=env) for _ in range(3)]
+        assert all((r.code, r.stderr) == (0, b"") for r in gs + ns), (extra, gs, ns)
+        g, n = {r.stdout for r in gs}, {r.stdout for r in ns}
+        if pinned:
+            assert len(g) == 1 and len(n) == 1, (extra, g, n)
+        else:
+            assert len(g) > 1 and len(n) > 1, (extra, g, n)
+    for run in (guest, native):
+        internal = {run("-e", ORDER, env={**seed, "PERL_INTERNAL_RAND_SEED": s}).stdout for s in "78"}
+        assert len(internal) == 1, internal
 
 
 def test_perls_seed_reaches_the_device(guest_engine, tmp_path):

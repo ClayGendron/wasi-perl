@@ -417,6 +417,19 @@ def test_every_call_has_its_own_seeds(perl_set):
     assert (len(seeds), len(rands)) == (20, 20), (seeds, rands)
 
 
+def test_a_big_read_of_the_device_does_not_trap(perl_set):
+    # wasmtime refuses one random_get of more than 64 MiB with a trap; the guest asks in pieces,
+    # so a read of 100 MB under the runner's default limits is filled whole, as natively.
+    code = 'open(my $f, "<", "/dev/urandom") or die; print sysread($f, my $b, 100_000_000), "\\n"'
+    done = run(["-e", code], artifacts=perl_set)
+    assert (done.exit_code, done.trapped, done.stdout, done.stderr) == (
+        0,
+        None,
+        b"100000000\n",
+        b"",
+    ), done
+
+
 def test_a_write_to_the_random_device_reaches_no_host_file(perl_set):
     # As on Linux, every byte written to the device is taken and dropped. The host's /dev folder
     # never sees the name: it still holds exactly one empty null.

@@ -219,9 +219,6 @@ PASS_FD(fd_readdir, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, uint8_t *buf, __wasi_s
         (fd, buf, buf_len, cookie, used))
 PASS_FD(fd_sync, INVAL, (__wasi_fd_t fd), (fd))
 PASS_FD(path_create_directory, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
-PASS_FD(path_readlink, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path, uint8_t *buf,
-                                             __wasi_size_t buf_len, __wasi_size_t *used),
-        (fd, path, buf, buf_len, used))
 PASS_FD(path_remove_directory, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
 PASS_FD(path_unlink_file, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
 PASS_FD(sock_recv, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, const __wasi_iovec_t *ri_data,
@@ -255,7 +252,9 @@ PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t h
 #define RANDOM_INO (UINT64_MAX - 8)
 
 /* Which device a path names, relative to the grant at virtual number dir (0 for none), and in
- * *slash whether a `/` follows the name, which makes a path that must be a folder. */
+ * *slash whether anything follows the name: a `/`, which makes a path that must be a folder, or
+ * more components (`urandom/x`, `urandom/..`), which make a path through it. Linux answers
+ * ENOTDIR for both. */
 static int device_at(int dir, const char *path, int *slash)
 {
     int which = 0;
@@ -265,10 +264,8 @@ static int device_at(int dir, const char *path, int *slash)
     for (const char *p = path; *p != '\0';) {
         const char *end = strchr(p, '/');
         size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
-        if (n == 0 || (n == 1 && *p == '.')) {
+        if (n == 0 || (n == 1 && *p == '.') || which != 0) {
             *slash |= which != 0;
-        } else if (which != 0) {
-            return 0;
         } else if (n == 7 && memcmp(p, "urandom", 7) == 0) {
             which = URANDOM;
         } else if (n == 6 && memcmp(p, "random", 6) == 0) {
@@ -307,6 +304,11 @@ static __wasi_errno_t random_stat(int which, __wasi_filestat_t *buf)
     return __WASI_ERRNO_SUCCESS;
 }
 
+/* The most one random_get is asked for. wasmtime refuses a call of more than 64 MiB with a trap,
+ * and a host call runs where the runner's deadline cannot stop it, so a long read is filled in
+ * pieces, each a short host call, with the loop in WebAssembly. */
+#define RANDOM_PIECE 65536
+
 /* How much of a buffer of len bytes one call moves after `total`: what still fits in its count. */
 static __wasi_size_t fits(__wasi_size_t total, size_t len)
 {
@@ -321,11 +323,13 @@ static __wasi_errno_t random_read(int v, const __wasi_iovec_t *iovs, size_t iovs
         return __WASI_ERRNO_BADF;
     for (size_t i = 0; i < iovs_len; i++) {
         __wasi_size_t len = fits(total, iovs[i].buf_len);
-        if (len == 0)
-            continue;
-        __wasi_errno_t error = __wasi_random_get(iovs[i].buf, len);
-        if (error != __WASI_ERRNO_SUCCESS)
-            return error;
+        for (__wasi_size_t done = 0; done < len;) {
+            __wasi_size_t piece = len - done < RANDOM_PIECE ? len - done : RANDOM_PIECE;
+            __wasi_errno_t error = __wasi_random_get(iovs[i].buf + done, piece);
+            if (error != __WASI_ERRNO_SUCCESS)
+                return error;
+            done += piece;
+        }
         total += len;
     }
     *nread = total;
@@ -417,6 +421,7 @@ __wasi_errno_t __wrap___wasi_fd_fdstat_get(__wasi_fd_t fd, __wasi_fdstat_t *buf)
     if (is_random((int)fd)) {
         memset(buf, 0, sizeof *buf);
         buf->fs_filetype = __WASI_FILETYPE_CHARACTER_DEVICE;
+        buf->fs_flags = files[slot[fd] - 1].fdflags;
         buf->fs_rights_base = files[slot[fd] - 1].base | __WASI_RIGHTS_FD_SEEK |
                               __WASI_RIGHTS_FD_TELL | __WASI_RIGHTS_FD_FDSTAT_SET_FLAGS |
                               __WASI_RIGHTS_FD_FILESTAT_GET | __WASI_RIGHTS_POLL_FD_READWRITE;
@@ -427,13 +432,15 @@ __wasi_errno_t __wrap___wasi_fd_fdstat_get(__wasi_fd_t fd, __wasi_fdstat_t *buf)
 }
 
 /* fcntl(F_SETFL) reaches here. The device never waits and has no offset to append at, so a
- * flag changes nothing. */
+ * flag changes nothing but what F_GETFL reads back, as natively. */
 __typeof__(__wasi_fd_fdstat_set_flags) __real___wasi_fd_fdstat_set_flags,
     __wrap___wasi_fd_fdstat_set_flags;
 __wasi_errno_t __wrap___wasi_fd_fdstat_set_flags(__wasi_fd_t fd, __wasi_fdflags_t flags)
 {
-    if (is_random((int)fd))
+    if (is_random((int)fd)) {
+        files[slot[fd] - 1].fdflags = flags;
         return __WASI_ERRNO_SUCCESS;
+    }
     TO_REAL(fd);
     return __real___wasi_fd_fdstat_set_flags(fd, flags);
 }
@@ -459,11 +466,24 @@ __wasi_errno_t __wrap___wasi_path_filestat_get(__wasi_fd_t fd, __wasi_lookupflag
     return __real___wasi_path_filestat_get(fd, flags, path, buf);
 }
 
+/* The device is no link: readlink of it answers EINVAL, and of a path through it ENOTDIR. */
+__typeof__(__wasi_path_readlink) __real___wasi_path_readlink, __wrap___wasi_path_readlink;
+__wasi_errno_t __wrap___wasi_path_readlink(__wasi_fd_t fd, const char *path, uint8_t *buf,
+                                           __wasi_size_t buf_len, __wasi_size_t *used)
+{
+    int slash = 0, which = is_open((int)fd) ? device_at((int)fd, path, &slash) : 0;
+    if (which != 0)
+        return slash ? __WASI_ERRNO_NOTDIR : __WASI_ERRNO_INVAL;
+    TO_REAL(fd);
+    return __real___wasi_path_readlink(fd, path, buf, buf_len, used);
+}
+
 /* An open of the device. As on Linux, a path that must be a folder answers ENOTDIR and an
  * exclusive create EEXIST; anything else opens it, for reading, writing or both as asked, and
  * truncating or appending changes nothing. */
 static __wasi_errno_t open_random(int v, int which, int slash, __wasi_oflags_t oflags,
-                                  __wasi_rights_t base, __wasi_fd_t *opened)
+                                  __wasi_rights_t base, __wasi_fdflags_t fdflags,
+                                  __wasi_fd_t *opened)
 {
     int f;
     if (slash || (oflags & __WASI_OFLAGS_DIRECTORY))
@@ -473,6 +493,7 @@ static __wasi_errno_t open_random(int v, int which, int slash, __wasi_oflags_t o
     f = new_file(VIRTUAL_RANDOM);
     files[f].device = (uint8_t)which;
     files[f].base = base & (__WASI_RIGHTS_FD_READ | __WASI_RIGHTS_FD_WRITE);
+    files[f].fdflags = fdflags;
     bind(v, f, 0);
     *opened = (__wasi_fd_t)v;
     return __WASI_ERRNO_SUCCESS;
@@ -895,7 +916,7 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
     if (v < 0)
         return __WASI_ERRNO_MFILE;
     if (which != 0)
-        return open_random(v, which, slash, oflags, base, opened);
+        return open_random(v, which, slash, oflags, base, fdflags, opened);
     error = look(fd, dirflags, path, oflags);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
