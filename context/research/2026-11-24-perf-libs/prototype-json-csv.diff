@@ -1,0 +1,79 @@
+diff --git a/downloads/SHA256SUMS b/downloads/SHA256SUMS
+index 881e511..bf740db 100644
+--- a/downloads/SHA256SUMS
++++ b/downloads/SHA256SUMS
+@@ -1,3 +1,5 @@
+ c9387e1473a1866935cb047ece7c2e0a80767a3acdecb79d4a375f8a95970ddc  perl-5.42.3.tar.xz  https://www.cpan.org/src/5.0/perl-5.42.3.tar.xz
+ b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  wasi-sdk-34.0-x86_64-linux.tar.gz  https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
+ a18020674fac4107f329bc9ed720ea9c88e4b30a61e8a527787bcce051123d32  wasmtime-v51.0.0-x86_64-linux.tar.xz  https://github.com/bytecodealliance/wasmtime/releases/download/v51.0.0/wasmtime-v51.0.0-x86_64-linux.tar.xz
++daabf6ad0376ee4613e671c521f5d05650c42205e403cac077e79d8594da3ade  Cpanel-JSON-XS-4.83.tar.gz  https://www.cpan.org/authors/id/R/RU/RURBAN/Cpanel-JSON-XS-4.83.tar.gz
++4f0c16457c87def295a994e9c4ba397a8baafad96cefaf2d61483125f90ff974  Text-CSV_XS-1.65.tgz  https://www.cpan.org/authors/id/H/HM/HMBRAND/Text-CSV_XS-1.65.tgz
+diff --git a/recipes/config.sh b/recipes/config.sh
+index 3c41b48..86997e9 100644
+--- a/recipes/config.sh
++++ b/recipes/config.sh
+@@ -725,7 +725,7 @@ endservent_r_proto='0'
+ eunicefix=':'
+ exe_ext=''
+ expr='expr'
+-extensions='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Archive/Tar Attribute/Handlers AutoLoader CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Config/Perl/V Devel/SelfStubber Digest Dumpvalue Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS File/Fetch File/Find File/Path File/Temp FileCache Filter/Simple FindBin Getopt/Long HTTP/Tiny I18N/Collate I18N/LangTags IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 JSON/PP Locale/Maketext Locale/Maketext/Simple Math/BigInt Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NEXT Net/Ping Params/Check Perl/OSType PerlIO/scalar PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage Safe Search/Dict SelfLoader Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/Local XSLoader autodie autouse base bignum constant encoding/warnings experimental if lib libnet parent perlfaq podlators version'
++extensions='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Archive/Tar Attribute/Handlers AutoLoader CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Config/Perl/V Devel/SelfStubber Digest Dumpvalue Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS File/Fetch File/Find File/Path File/Temp FileCache Filter/Simple FindBin Getopt/Long HTTP/Tiny I18N/Collate I18N/LangTags IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 JSON/PP Locale/Maketext Locale/Maketext/Simple Math/BigInt Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NEXT Net/Ping Params/Check Perl/OSType PerlIO/scalar PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage Safe Search/Dict SelfLoader Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/Local XSLoader autodie autouse base bignum constant encoding/warnings experimental if lib libnet parent perlfaq podlators version Cpanel/JSON/XS Text/CSV_XS'
+ extern_C='extern'
+ extras=''
+ fflushNULL='define'
+@@ -919,7 +919,7 @@ issymlink='test -h'
+ ivdformat='"lld"'
+ ivsize='8'
+ ivtype='long long'
+-known_extensions='Amiga/ARexx Amiga/Exec Archive/Tar Attribute/Handlers AutoLoader B CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Compress/Raw/Bzip2 Compress/Raw/Zlib Config/Perl/V Cwd DB_File Data/Dumper Devel/PPPort Devel/Peek Devel/SelfStubber Digest Digest/MD5 Digest/SHA Dumpvalue Encode Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS Fcntl File/DosGlob File/Fetch File/Find File/Glob File/Path File/Temp FileCache Filter/Simple Filter/Util/Call FindBin GDBM_File Getopt/Long HTTP/Tiny Hash/Util Hash/Util/FieldHash I18N/Collate I18N/LangTags I18N/Langinfo IO IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 IPC/SysV JSON/PP List/Util Locale/Maketext Locale/Maketext/Simple MIME/Base64 Math/BigInt Math/BigInt/FastCalc Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NDBM_File NEXT Net/Ping ODBM_File Opcode POSIX Params/Check Perl/OSType PerlIO/encoding PerlIO/mmap PerlIO/scalar PerlIO/via PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage SDBM_File Safe Search/Dict SelfLoader Socket Storable Sys/Hostname Sys/Syslog Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Thread/Queue Thread/Semaphore Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/HiRes Time/Local Time/Piece Unicode/Collate Unicode/Normalize VMS/DCLsym VMS/Filespec VMS/Stdio Win32 Win32API/File Win32CORE XS/APItest XS/Typemap XSLoader attributes autodie autouse base bignum constant encoding/warnings experimental if lib libnet mro parent perlfaq podlators re threads threads/shared version Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode'
++known_extensions='Amiga/ARexx Amiga/Exec Archive/Tar Attribute/Handlers AutoLoader B CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Compress/Raw/Bzip2 Compress/Raw/Zlib Config/Perl/V Cwd DB_File Data/Dumper Devel/PPPort Devel/Peek Devel/SelfStubber Digest Digest/MD5 Digest/SHA Dumpvalue Encode Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS Fcntl File/DosGlob File/Fetch File/Find File/Glob File/Path File/Temp FileCache Filter/Simple Filter/Util/Call FindBin GDBM_File Getopt/Long HTTP/Tiny Hash/Util Hash/Util/FieldHash I18N/Collate I18N/LangTags I18N/Langinfo IO IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 IPC/SysV JSON/PP List/Util Locale/Maketext Locale/Maketext/Simple MIME/Base64 Math/BigInt Math/BigInt/FastCalc Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NDBM_File NEXT Net/Ping ODBM_File Opcode POSIX Params/Check Perl/OSType PerlIO/encoding PerlIO/mmap PerlIO/scalar PerlIO/via PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage SDBM_File Safe Search/Dict SelfLoader Socket Storable Sys/Hostname Sys/Syslog Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Thread/Queue Thread/Semaphore Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/HiRes Time/Local Time/Piece Unicode/Collate Unicode/Normalize VMS/DCLsym VMS/Filespec VMS/Stdio Win32 Win32API/File Win32CORE XS/APItest XS/Typemap XSLoader attributes autodie autouse base bignum constant encoding/warnings experimental if lib libnet mro parent perlfaq podlators re threads threads/shared version Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Cpanel/JSON/XS Text/CSV_XS'
+ ksh=''
+ ld='@ROOT@/recipes/wasi-cc'
+ ld_can_script='undef'
+@@ -1143,7 +1143,7 @@ st_ino_sign='1'
+ st_ino_size='8'
+ startperl='#!/usr/local/bin/perl'
+ startsh='#!/bin/sh'
+-static_ext='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode'
++static_ext='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Cpanel/JSON/XS Text/CSV_XS'
+ stdchar='char'
+ stdio_base='((fp)->_base)'
+ stdio_bufsiz='((fp)->_cnt + (fp)->_ptr - (fp)->_base)'
+diff --git a/recipes/cpan-extensions b/recipes/cpan-extensions
+new file mode 100644
+index 0000000..17a0d7b
+--- /dev/null
++++ b/recipes/cpan-extensions
+@@ -0,0 +1,5 @@
++# XS distributions from CPAN, linked statically like the core's own. Each line: the tarball
++# (pinned in downloads/SHA256SUMS) and the folder under cpan/ it is unpacked as, which is the
++# module name with "::" as "-", so Perl's make_ext.pl finds it from the static_ext entry.
++Cpanel-JSON-XS-4.83.tar.gz Cpanel-JSON-XS
++Text-CSV_XS-1.65.tgz Text-CSV_XS
+diff --git a/scripts/20_target.sh b/scripts/20_target.sh
+index 4e101b7..acb64cc 100755
+--- a/scripts/20_target.sh
++++ b/scripts/20_target.sh
+@@ -50,6 +50,22 @@ if [ -d "$PATCHES" ]; then
+         run "$LOG" patch -p1 -i "$p"
+     done
+ fi
++# XS distributions from CPAN join the tree under cpan/, so make_ext.pl builds them like the core's
++# own static extensions. Each tarball is checked against its pin before it is unpacked.
++grep -v '^#' "$ROOT/recipes/cpan-extensions" | while read -r tarball folder; do
++    [ -n "$tarball" ] || continue
++    sum=$(grep " $tarball " "$DOWNLOADS/SHA256SUMS" | cut -d' ' -f1)
++    [ -n "$sum" ] || fail "$tarball is not pinned in downloads/SHA256SUMS"
++    echo "$sum  $DOWNLOADS/$tarball" | sha256sum -c --status || fail "$tarball does not match downloads/SHA256SUMS"
++    rm -rf "$BUILD/unpack-cpan"
++    mkdir -p "$BUILD/unpack-cpan"
++    run "$LOG" tar -C "$BUILD/unpack-cpan" --no-same-owner -xzf "$DOWNLOADS/$tarball"
++    set -- "$BUILD/unpack-cpan"/*
++    [ $# -eq 1 ] && [ -d "$1" ] || fail "$tarball did not unpack to one folder"
++    [ ! -e "cpan/$folder" ] || fail "cpan/$folder already exists in the Perl tree"
++    mv "$1" "cpan/$folder"
++    rmdir "$BUILD/unpack-cpan"
++done
+ 
+ sed -e "s|@ROOT@|$ROOT|g" -e "s|@BUILD@|$BUILD|g" -e "s|@SDK@|$SDK|g" -e "s|@SYSROOT@|$SYSROOT|g" \
+     -e "s|@NATIVE@|$NATIVE|g" -e "s|@NATIVEPERL@|$BUILD/native-install/bin/perl|g" \

@@ -1,0 +1,13 @@
+json deep 100000: died: json text or perl structure exceeds maximum nesting level (max_depth set too low?),
+json deep 512: ok
+json truncated: died: , or ] expected while parsing array,
+json bad utf8: ok
+json huge number: ok
+json nul: died: unexpected end of string while parsing JSON string,
+json trailing: died: garbage after JSON object,
+csv unterminated quote: error 2027
+csv quote in field: error 2034
+csv nul: ok 3
+csv long field: ok 2
+json true is JSON::PP::Boolean: 1
+encode 5.0: [5,5.0,"5"]

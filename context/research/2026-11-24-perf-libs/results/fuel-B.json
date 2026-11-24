@@ -1,0 +1,50 @@
+{
+ "sort_numeric": {
+  "fuel": 5942797879,
+  "exit": 0,
+  "answer": "e39a59c2a5aeb45447e3085c16f442c5",
+  "stderr": ""
+ },
+ "sort_numeric+sortkey": {
+  "fuel": 2782849018,
+  "exit": 0,
+  "answer": "e39a59c2a5aeb45447e3085c16f442c5",
+  "stderr": ""
+ },
+ "yaml_core": {
+  "fuel": 1578945727,
+  "exit": 0,
+  "answer": "2000 9958736",
+  "stderr": ""
+ },
+ "yaml_xs+yamlxs": {
+  "fuel": 174296323,
+  "exit": 0,
+  "answer": "2000 9958736",
+  "stderr": ""
+ },
+ "yaml_pp+yamlpp": {
+  "fuel": 10977093845,
+  "exit": 0,
+  "answer": "2000 9958736",
+  "stderr": ""
+ },
+ "json_decode+cpanel": {
+  "fuel": 369641013,
+  "exit": 0,
+  "answer": "20000 99995000",
+  "stderr": ""
+ },
+ "csv_xs+csv_xs": {
+  "fuel": 1524912147,
+  "exit": 0,
+  "answer": "50000 25015654.65 651847",
+  "stderr": ""
+ },
+ "load_none": {
+  "fuel": 1655232,
+  "exit": 0,
+  "answer": "",
+  "stderr": ""
+ }
+}

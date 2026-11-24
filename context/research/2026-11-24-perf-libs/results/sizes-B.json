@@ -1,0 +1,30 @@
+{
+ "perl_wasm_bytes": 9558587,
+ "named_code_bytes": 3035255,
+ "ext": {
+  "Cpanel/JSON/XS": {
+   "functions": 62,
+   "code_bytes": 58881,
+   "data_bytes": 10154,
+   "archive_bytes": 98216
+  },
+  "Text/CSV_XS": {
+   "functions": 26,
+   "code_bytes": 49993,
+   "data_bytes": 5194,
+   "archive_bytes": 72448
+  },
+  "Sort/Key": {
+   "functions": 38,
+   "code_bytes": 12704,
+   "data_bytes": 2092,
+   "archive_bytes": 22990
+  },
+  "YAML/XS/LibYAML": {
+   "functions": 161,
+   "code_bytes": 147375,
+   "data_bytes": 11009,
+   "archive_bytes": 219524
+  }
+ }
+}

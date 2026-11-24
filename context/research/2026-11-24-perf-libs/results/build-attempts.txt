@@ -1,0 +1,48 @@
+# Build attempts of the static prototype (lines from build/logs/20_target.log of each attempt)
+
+## Attempt 1: Cpanel::JSON::XS + Text::CSV_XS
+00_download: ok
+10_native: ok (/home/user/wasi-perl-wt/perf-libs/build/native-install/bin/perl)
+20_target: ok (/home/user/wasi-perl-wt/perf-libs/build/artifacts/perl.wasm)
+30_library: ok (1457 files in /home/user/wasi-perl-wt/perf-libs/build/artifacts/MANIFEST)
+
+real	2m24.414s
+user	4m43.060s
+sys	0m26.573s
+exit 0
+
+## Attempt 2: + List::MoreUtils::XS, Sort::Key, Unicode::UTF8, YAML::XS
+6383-./miniperl -Ilib make_ext.pl lib/auto/List/MoreUtils/XS/XS.a  MAKE="make" LIBPERL_A=libperl.a LINKTYPE=static CCCDLFLAGS=
+6384:Can't load module IO, dynamic loading not available in this perl.
+6385-  (You may need to build a new perl executable which either supports
+--
+6398-BEGIN failed--compilation aborted at Makefile.PL line 16.
+6399:Unsuccessful Makefile.PL(cpan/List-MoreUtils-XS): code=65280 at make_ext.pl line 532.
+6400-make: *** [Makefile:588: lib/auto/List/MoreUtils/XS/XS.a] Error 2
+
+## Attempt 3: List::MoreUtils::XS removed
+6588-No C99 compiler found; Unicode::UTF8 requires a C99 compiler.
+6589:Unsuccessful Makefile.PL(cpan/Unicode-UTF8): code=65280 at make_ext.pl line 532.
+
+## Attempt 4: Unicode::UTF8 removed
+00_download: ok
+10_native: up to date
+20_target: ok (/home/user/wasi-perl-wt/perf-libs/build/artifacts/perl.wasm)
+30_library: ok (1466 files in /home/user/wasi-perl-wt/perf-libs/build/artifacts/MANIFEST)
+
+real	2m33.912s
+user	2m3.262s
+sys	0m9.535s
+exit 0
+
+## Native builds of the candidates (native_xs.sh, against the native perl 5.42.3)
+ok Types-Serialiser-1.01
+ok common-sense-3.75
+ok Cpanel-JSON-XS-4.83
+FAILED JSON-XS-4.06
+ok Text-CSV_XS-1.65
+ok Sort-Key-1.33
+ok Unicode-UTF8-0.75
+ok List-MoreUtils-XS-0.430
+ok YAML-LibYAML-v0.910.0
+Can't locate Canary/Stability.pm in @INC (you may need to install the Canary::Stability module) (@INC entries checked: /
