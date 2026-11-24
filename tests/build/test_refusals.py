@@ -303,8 +303,8 @@ def test_reopen_standard_handle_matches_native(guest, native_perl, tmp_path: Pat
         assert g.code == n.returncode
 
 
-# The fdopen forms share a descriptor with another handle, so it cannot be moved: the open fails
-# with "Not supported" and both handles keep writing where they did. Natively each succeeds.
+# The fdopen forms share one descriptor between two handles; Perl counts the handles, and the
+# descriptor stays open until the last of them closes. Each behaves as natively.
 FDOPEN = [
     (
         'open(STDERR, ">&=STDOUT") or print "fail: $!\\n"; print STDOUT "out\\n"; '
@@ -326,26 +326,20 @@ FDOPEN = [
 
 
 @pytest.mark.parametrize("code", FDOPEN, ids=range(len(FDOPEN)))
-def test_fdopen_of_a_shared_descriptor_fails_cleanly(guest, native_perl, tmp_path: Path, code):
-    g, n, gfiles, _ = _reopen(guest, code, tmp_path)
+def test_fdopen_of_a_shared_descriptor_matches_native(guest, native_perl, tmp_path: Path, code):
+    g, n, gfiles, nfiles = _reopen(guest, code, tmp_path)
     assert n.returncode == 0 and b"fail" not in n.stdout + n.stderr
-    assert g.code == 0
-    if "$h" in code:
-        assert gfiles == {"h": b"via h\n"}
-        assert (g.stdout, g.stderr) == (b"via stdout\n", b"fail: Not supported\n")
-    else:
-        assert (g.stdout, g.stderr) == (b"fail: Not supported\nout\n", b"err\n")
+    assert gfiles == nfiles
+    assert (g.code, g.stdout, g.stderr) == (n.returncode, n.stdout, n.stderr)
 
 
-def test_dup_of_a_handle_fails_clearly(guest, native, tmp_path: Path):
-    # Duplicating a descriptor needs dup(), which WASI preview1 does not have: the open fails
-    # and says so in $!, natively it succeeds.
+def test_dup_of_a_handle_works(guest, native):
+    # Duplicating a descriptor makes a second number for the same open file, as natively.
     code = 'open(STDERR, ">&", \\*STDOUT) or die "dup: $!\\n"; print STDERR "x\\n"'
     n = native("-e", code)
     assert (n.code, n.stdout, n.stderr) == (0, b"x\n", b"")
     g = guest("-e", code)
-    assert (g.stdout, g.stderr) == (b"", b"dup: Not supported\n")
-    assert g.code == 95  # ENOTSUP, in Linux's numbering
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
 
 
 # The runtime's own library may store a handler while it loads (Math::Complex: local $SIG{FPE});
@@ -436,11 +430,11 @@ BYPASSES = {
     "line-in-do-file": 'do "/work/evil.pl"; die $@ if $@; print "not reached\\n"',
     "inc-hook": (
         'my $want = "Evil.pm"; my $body = qq{#line 1 "/usr/local/lib/perl5/5.42/Evil.pm"\\n'
-        '\\$SIG{INT} = sub {};\\n1;\\n};' + HOOK + 'require Evil; print "not reached\\n"'
+        "\\$SIG{INT} = sub {};\\n1;\\n};" + HOOK + 'require Evil; print "not reached\\n"'
     ),
     "inc-hook-named-as-library": (
         'my $want = "Math/Complex.pm"; my $body = qq{#line 1 "/usr/local/lib/perl5/5.42/Math/'
-        'Complex.pm"\\n\\$SIG{INT} = sub {};\\n1;\\n};' + HOOK + 'require Math::Complex;'
+        'Complex.pm"\\n\\$SIG{INT} = sub {};\\n1;\\n};' + HOOK + "require Math::Complex;"
         'print "not reached\\n"'
     ),
     "inc-hook-spoofs-inc": (

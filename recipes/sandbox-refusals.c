@@ -16,9 +16,7 @@
 #include "perl.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <string.h>
-#include <wasi/libc.h>
 
 #define SANDBOX " is not available in the wasi-perl sandbox"
 
@@ -337,54 +335,4 @@ void __wrap_Perl_my_failure_exit(pTHX)
         status = (exitstatus & 255) ? (U32)exitstatus : 255;
     }
     my_exit(status);
-}
-
-/* dup2 as a move, for a descriptor that nothing else holds. WASI preview1 has no way to copy a
- * file descriptor, so wasi-libc's dup2 refuses ("Not supported"), and with it every reopen of
- * STDIN, STDOUT or STDERR onto a file: Perl opens the file at a new descriptor, dup2s it onto
- * 0, 1 or 2, and then closes the new one (S_openn_cleanup in doio.c), with no descriptor
- * opened in between. WASI's fd_renumber moves a descriptor onto another, which reaches the
- * same end state, except that the old number is closed already.
- *
- * A move is right only when the old descriptor has that one owner. The fdopen forms of open
- * (">&=", "<&=") reach the same dup2 with a descriptor another handle still uses; moving it
- * would take it from that handle. So the move happens only when PerlIO counts exactly one
- * handle on the old descriptor (the build has no threads, so the count needs no lock), and
- * anything else fails with ENOTSUP, as wasi-libc's dup2 does. Perl's other dup2 callers are
- * the child side of a fork, which the sandbox refuses before it is reached. */
-static int moved_fd = -1;
-
-int __real_dup2(int oldfd, int newfd);
-int __wrap_dup2(int oldfd, int newfd);
-int __wrap_dup2(int oldfd, int newfd)
-{
-    if (oldfd == newfd)
-        return fcntl(oldfd, F_GETFD) < 0 ? -1 : newfd;
-    if (oldfd < 0 || oldfd >= PL_perlio_fd_refcnt_size || PL_perlio_fd_refcnt[oldfd] != 1) {
-        errno = ENOTSUP;
-        return -1;
-    }
-    if (__wasilibc_fd_renumber(oldfd, newfd) != 0)
-        return -1;
-    moved_fd = oldfd;
-    return newfd;
-}
-
-/* The close that follows a dup2 finds the old number gone. Natively that close succeeds, so it
- * succeeds here too, and leaves errno as it was: a die takes its exit status from errno. Every
- * other close, and any later use of the moved number, behaves as WASI's does (EBADF). */
-int __real_close(int fd);
-int __wrap_close(int fd);
-int __wrap_close(int fd)
-{
-    int saved = errno;
-    int r = __real_close(fd);
-    if (fd >= 0 && fd == moved_fd) {
-        moved_fd = -1;
-        if (r < 0 && errno == EBADF) {
-            errno = saved;
-            return 0;
-        }
-    }
-    return r;
 }

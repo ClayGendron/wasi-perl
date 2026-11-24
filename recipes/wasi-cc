@@ -42,11 +42,26 @@ refusals="$here/../build/stubs/libwasi-perl-refusals.a"
 wraps=
 for s in Perl_pp_fork Perl_pp_wait Perl_pp_waitpid Perl_pp_alarm Perl_pp_pipe_op Perl_pp_getppid \
     Perl_do_exec3 Perl_do_aexec5 Perl_my_popen Perl_my_popen_list Perl_apply Perl_magic_setsig \
-    Perl_my_failure_exit Perl_my_unexec PerlIO_openn Perl_lex_start dup2 close; do
+    Perl_my_failure_exit Perl_my_unexec PerlIO_openn Perl_lex_start; do
     wraps="$wraps,--wrap=$s"
 done
+# The guest numbers its own descriptors (wasi-fd-table.c): every wasi-libc function that hands a
+# descriptor to the host is wrapped, and so are dup, dup2, dup3 and fcntl, which wasi-libc
+# defines to fail. Each __wasi_ function is defined in one wasi-libc object and called from
+# others, so the wrap catches every call. Unlike the refusals, these are wrapped in every
+# program, so the archive is built before the first link and a link without it fails.
+fdtable="$here/../build/stubs/libwasi-perl-fd-table.a"
+for s in fd_advise fd_allocate fd_close fd_datasync fd_fdstat_get fd_fdstat_set_flags \
+    fd_fdstat_set_rights fd_filestat_get fd_filestat_set_size fd_filestat_set_times fd_pread \
+    fd_prestat_dir_name fd_prestat_get fd_pwrite fd_read fd_readdir fd_renumber fd_seek fd_sync \
+    fd_tell fd_write path_create_directory path_filestat_get path_filestat_set_times path_link \
+    path_open path_readlink path_remove_directory path_rename path_symlink path_unlink_file \
+    poll_oneoff sock_accept sock_recv sock_send sock_shutdown; do
+    wraps="$wraps,--wrap=__wasi_$s"
+done
+wraps="$wraps,--wrap=dup,--wrap=dup2,--wrap=dup3,--wrap=fcntl"
 if [ "$link" = yes ]; then
-    set -- "$@" --no-wasm-opt "-Wl${wraps}"
+    set -- "$@" --no-wasm-opt "-Wl${wraps}" "$fdtable"
     [ -f "$refusals" ] && set -- "$@" "$refusals"
     set -- "$@" -lsetjmp \
         -lwasi-emulated-signal -lwasi-emulated-process-clocks -lwasi-emulated-getpid \
