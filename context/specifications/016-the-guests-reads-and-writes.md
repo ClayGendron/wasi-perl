@@ -1,6 +1,6 @@
 # 016 — The guest's reads and writes
 
-- **Status:** a draft by the orchestrator, 2026-11-24, for the owner to agree. The owner chose specifications 013 to 016 to come first (2026-11-24).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (L3, L4, L5).
 - **Owner:** Clay Gendron
 - **Kind:** the build recipe (`recipes/config.sh`, a new `recipes/wasi-memchr.c`, `recipes/wasi-fd-table.c`, `recipes/wasi-cc`, `scripts/20_target.sh`), checks in `tests/build/`.
 - **Depends on:** 009, 010, 013.
@@ -10,7 +10,7 @@
 
 Every WASI call that reaches the host's files costs 15–60 µs under wasmtime-py, against under 1 µs for one the guest answers itself (study C §3.5). Under vfs, a provider answers each one. Perl reads and writes 8 KiB at a time and asks whether every file it opens is a terminal. Its line search, `memchr`, checks 4 bytes a step.
 
-After this specification, on study C's workloads:
+After this specification, on study C's workloads (EXECUTED in study C, `results/time3-summary.md`):
 - `grep_log` drops from 111 to about 66 ms;
 - `-pi` from 203 to about 112 ms;
 - 200 small files from 67 to about 50 ms.
@@ -41,10 +41,10 @@ The fuel (guest instructions) drops by 10–20% on line work. Perl's behaviour d
 ## Checks (written first, seen failing; they count operations)
 
 1. **Reads and writes.** A counting probe linker records the guest's WASI calls. `perl -ne 'print if /x/'` over a 1 MiB granted file makes at most 17 `fd_read` calls, against 129 today. `-pi` over it makes at most 17 `fd_write` calls.
-2. **`memchr`.** A build check compiles `memchr-test.c` against the recipe's `memchr`. It compares with a byte loop at every start offset from 0 to 31, every length from 0 to 79 and every target position, with a match planted just before and just after the range, and `c` above 255. All 108,800 cases pass under wasmtime.
+2. **`memchr`.** The test program moves from study C's `proto/` to `tests/build/memchr-test.c`. The build compiles it against the recipe's `memchr` into `build/tests/memchr-test.wasm`, and a check in `tests/build/` runs it under wasmtime-py. It compares with a byte loop at every start offset from 0 to 31, every length from 0 to 79 and every target position, with a match planted just before and just after the range, and `c` above 255. All 108,800 cases pass under wasmtime.
 3. **Fuel.** `perl -ne '$n++ if /ERROR \d+/; END {print $n}'` over the baseline's 10 MB log uses at least 8% less fuel than the 0.1.0 module. This is a count, so it is stable.
 4. **`isatty`.**
-   - Opening 200 granted files makes 200 fewer `fd_fdstat_get` calls than today.
+   - Opening 200 granted files makes at least 200 fewer `fd_fdstat_get` calls than today: one fewer per file opened.
    - `-t $fh` is false on a regular file.
    - `-t STDIN` still asks the host.
    - A FIFO in a grant is still refused with `ENXIO`.

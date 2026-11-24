@@ -1,6 +1,6 @@
 # Every lever on wasi-perl's speed under vfs, ranked, and the specifications they become
 
-- **Status:** research synthesis, 2026-11-24. It proposes specifications; none is agreed yet. Section 5 lists what the owner decides.
+- **Status:** research synthesis, 2026-11-24. The owner agreed the speed work the same day. Specifications 013–022 supersede section 3's rows: for example, 013 serves `/dev/urandom` in the guest rather than wrapping `Perl_seed`, and 014 reads the `.cwasm` on Windows rather than stamping it. Section 5 lists what the owner was asked.
 - **Owner:** Clay Gendron
 - **Researcher:** an agent (Claude Opus 5.5), the orchestrator of the six studies.
 - **Stands on:**
@@ -60,7 +60,7 @@ Each row takes its "today" figure from one study's own base measurement at the p
 | call with a writable grant | 21–24 ms | about 3 ms | 2, 3 | A §1 |
 | fresh process, first call | 133–157 ms | about 34 ms | 2, 3 | A §1 |
 | `-ne` regex over a 10 MB file | 111 ms | about 63 ms | 2, 4 | C §1, minus A's 3 ms per call |
-| `-pi` over a 10 MB file, writable grant | 203 ms | about 90 ms | 2, 3, 4 | C §1 (112 ms, measured on a writable grant), minus A's L5 (−19 ms) and per-call levers (−3 ms) |
+| `-pi` over a 10 MB file, writable grant | 203 ms | about 97 ms | 2, 3, 4 | C §1 (112 ms, measured on a writable grant, with the artifacts outside the package), minus A's L5 in that layout (about −12 ms: a writable call of 15.0 ms, A §2) and per-call levers (−3 ms) |
 | 500 small rows | 156 ms through a grant | about 97 ms through a mount, before the provider's own cost | 5 | E §4.2 |
 | the same, with vfs's provider cache | 1,000–1,503 provider calls | 1–2 round trips | vfs's side | E §6 |
 | JSON decode, 1.4 MB | 1,350 ms | about 46 ms | 6 | F §3.1 |

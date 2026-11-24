@@ -22,9 +22,9 @@ PyPI publishing (spec 008) is by trusted publishing from `.github/workflows/rele
 
 The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) proposes ten specifications. The owner's answers on 2026-11-24:
 
-- **Order: "1–4 first."** These are 013–016 below. They are drafts for the owner to agree before they are built.
+- **Order: "1–4 first."** These are 013–016 below, agreed by the owner the same day ("Agree all four (Recommended)"). Then: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That makes 017–022.
 - **The preload snapshot: "Install-time images only."** It may be built only as an image the embedder makes itself, so that its fixed hash seed is never published. It is specified after the leaner `@INC`.
-- **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** That root-cause study is `research/2026-11-24-wasmtime-py-file-call-cost.md`, in progress.
+- **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** That root-cause study is running; its memo is to be written.
 - **`NO_TAINT_SUPPORT`: "Keep -T."** It is not built.
 
 | Spec | What it delivers | After |
