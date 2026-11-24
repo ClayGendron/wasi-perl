@@ -502,6 +502,9 @@ for my $try (["read", "<"], ["write", ">"], ["append", ">>"]) {
 }
 symlink("pipe", "link") or die "symlink: $!";
 open(my $l, "<", "link") ? print "link opened\n" : print "link refused $!\n";
+print utime(undef, undef, "pipe") ? "utime now\n" : "utime now: $!\n";
+print utime(1, 1, "pipe") ? "utime set\n" : "utime set: $!\n";
+print utime(undef, undef, "link") ? "utime link\n" : "utime link: $!\n";
 print -e "pipe" ? "still there\n" : "gone\n";
 """
 
@@ -540,6 +543,9 @@ def test_a_fifo_in_a_grant_is_refused(perl_set, tmp_path):
         "write opened",
         "append opened",
         "link opened",
+        "utime now",
+        "utime set",
+        "utime link",
         "still there",
     ], out.stdout
     folder = tmp_path / "g"
@@ -555,5 +561,9 @@ def test_a_fifo_in_a_grant_is_refused(perl_set, tmp_path):
         f"write refused {nxio}",
         f"append refused {nxio}",
         f"link refused {nxio}",
+        # Setting a FIFO's times opens nothing, as natively; through a link it is refused.
+        "utime now",
+        "utime set",
+        f"utime link: {nxio}",
         "still there",
     ], out.stdout

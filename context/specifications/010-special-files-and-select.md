@@ -109,3 +109,29 @@ On 009's module, before any of this: 18 of the 22 select and special-file checks
 ### Patches
 
 None. EXECUTED (`ls recipes/patches` finds nothing).
+
+### The review round (2026-11-24)
+
+Findings of `context/reviews/010-special-files-and-select-pr-2026-11-24.md`, fixed in one commit.
+
+- **H1, `utime` on a FIFO held the host.** Fixed. `__wasi_path_filestat_set_times` is wrapped. When the call follows links, the guest first looks with `path_filestat_get` and the same flags. A folder or a regular file goes on unchanged. A special file that is the name itself (looked at again with flags 0) goes on without following. wasmtime 51 then sets the times with `utimensat(parent, name, AT_SYMLINK_NOFOLLOW)` through the parent folder and opens nothing (`primitives/unix/mod.rs`, `set_times_nofollow`). That sets the same times, as natively. A link to a special file answers ENXIO. With following, wasmtime opens the file, for writing and then for reading, to call `futimens` (`set_times`, same file). That open was the hold. READ. Checks, all EXECUTED:
+  - The escape check's program now also runs `utime(undef, undef, "pipe")`, `utime(1, 1, "pipe")` and `utime` through a guest-made link: `utime now`, `utime set`, then `utime link: No such device or address`, inside the fuel limit. Its regular-file control sets all three.
+  - `test_utime_on_a_fifo_is_native` checks the times read back by `stat` (`1000 2000`) and a regular file beside the FIFO, against native.
+  - `test_utime_through_a_link_to_a_fifo_is_refused` checks ENXIO through a link, while a link to a regular file still sets its target's times.
+- **The audit of every host call that takes a path** (wasmtime-wasi 51.0.0's own `filesystem/primitives`, READ, from static.crates.io; Linux and macOS):
+  - `path_filestat_get` is `stat`. On Linux that is `open_beneath(O_PATH)`; an `O_PATH` open never opens a FIFO for I/O. Otherwise it is `stat_unchecked`, an `fstatat` on the last component. `metadata_hash_at` is the same `stat`.
+  - `path_readlink`, `path_link`, `path_rename`, `path_unlink_file`, `path_remove_directory`, `path_create_directory` and `path_symlink` each `open_parent` and then call the `*at` syscall on the last component (`readlinkat`, `linkat`, `renameat`, `unlinkat`, `mkdirat`, `symlinkat`). None opens it.
+  - Every component in the middle of a path is opened with `dir_options()`, which is `O_DIRECTORY` (plus `O_PATH` on Linux). The kernel refuses a FIFO there with ENOTDIR before opening anything.
+  - `path_filestat_set_times` without following is the `utimensat` above. With following it is now looked at first.
+  - `path_open` is looked at first (decision 1).
+  - The `fd_*` calls act on descriptors that are already open. `fd_readdir` lists entries and stats them. It opens none.
+
+  On Windows, `stat` and `metadata_hash_at` open a metadata handle (`open_metadata_handle`). Windows has no FIFO in a folder; its device names are the security review's L6, for 008's Windows leg.
+- **M1, an event past the caller's array.** Fixed. The host now writes into a buffer of the wrapper's own, one event per subscription it is sent. At most as many events as the caller's array has left are copied after the local ones, and the added zero clock's event is dropped. `tests/build/test_poll_buffer.py` compiles the table from the recipe with only its call to the host renamed to a fake host. The fake answers every subscription it is sent, and a canary follows the caller's two events. With the 010 head's table the canary breaks ("canary broken at 0"); with this one it is whole and the events are `10 11`. EXECUTED. `test_select.py` adds a no-timeout select of a file and STDOUT against native.
+- **L1.** Fixed. The error set is never passed to wasi-libc, which answers ENOSYS when it has nothing else to watch. On success its bits below the table's size come back clear, as natively (`error-set-only` in `test_select.py`, EXECUTED).
+- **L2.** Fixed. The reopen after a held rename is looked at first, as every open is. What it opened must be a regular file, or it is closed again and the number answers EBADF. The comment names the race with another host process.
+- **L3.** Fixed. Before anything is closed, each held file's current descriptor flags are read with `fd_fdstat_get`, and its rights are narrowed to the current ones. The reopen uses those.
+- **L4.** Fixed. Before any held descriptor is closed, the destination is opened once with those arguments and closed again. If that probe fails for any file, the rename's first error is returned and nothing is touched.
+- **L5.** Fixed. A file whose reopen failed is marked `GONE`. Its `close` succeeds without asking the host. `poll_oneoff` answers it locally with EBADF, for that entry alone. Every other call through it answers EBADF.
+- **L6.** The module is not byte-reproducible: `perl -V` embeds `__DATE__` and `__TIME__`, as 001 found. So a hash from one build is not another build's. The hash in "Commands and the artifact" is of the build made at the head named there, 6f355aa.
+

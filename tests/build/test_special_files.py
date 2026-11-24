@@ -128,3 +128,38 @@ def test_around_a_fifo_is_native(wasmtime_cli, perl_wasm, fifo_folder, tmp_path)
     g = _guest(wasmtime_cli, perl_wasm, fifo_folder, AROUND)
     assert (g.returncode, g.stdout, g.stderr) == (n.returncode, n.stdout, n.stderr)
     assert sorted(p.name for p in fifo_folder.iterdir()) == ["file", "new"]
+
+
+# Setting a FIFO's times opens nothing on the host when the call does not follow links, so the
+# guest sends it that way: the times are set as natively. Through a link to the FIFO it is
+# refused with ENXIO, as an open of it is (natively it sets the FIFO's times).
+UTIME = (
+    'print utime(undef, undef, "pipe") ? "now\\n" : "now: $!\\n"; '
+    'print utime(1000, 2000, "pipe") ? "set\\n" : "set: $!\\n"; '
+    'my @s = stat "pipe"; print "$s[8] $s[9]\\n"; '
+    'print utime(3, 4, "file") ? "file\\n" : "file: $!\\n"; '
+    '@s = stat "file"; print "$s[8] $s[9]\\n"'
+)
+
+
+def test_utime_on_a_fifo_is_native(wasmtime_cli, perl_wasm, fifo_folder, tmp_path):
+    native = tmp_path / "native"
+    native.mkdir()
+    os.mkfifo(native / "pipe")
+    (native / "file").write_text("text\n")
+    n = subprocess.run(
+        [str(NATIVE_PERL), "-e", UTIME], cwd=native, env={}, capture_output=True, timeout=20
+    )
+    assert (n.returncode, n.stdout) == (0, b"now\nset\n1000 2000\nfile\n3 4\n"), n
+    g = _guest(wasmtime_cli, perl_wasm, fifo_folder, UTIME)
+    assert (g.returncode, g.stdout, g.stderr) == (n.returncode, n.stdout, n.stderr)
+
+
+def test_utime_through_a_link_to_a_fifo_is_refused(wasmtime_cli, perl_wasm, fifo_folder):
+    code = (
+        'symlink("pipe", "link") or die; symlink("file", "flink") or die; '
+        'print utime(1, 1, "link") ? "set\\n" : "$!\\n"; '
+        'print utime(5, 6, "flink") ? "file\\n" : "$!\\n"; my @s = stat "file"; print "$s[9]\\n"'
+    )
+    p = _guest(wasmtime_cli, perl_wasm, fifo_folder, code)
+    assert (p.returncode, p.stdout, p.stderr) == (0, f"{NXIO}\nfile\n6\n".encode(), b"")
