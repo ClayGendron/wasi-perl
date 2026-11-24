@@ -28,7 +28,9 @@
  * (path_open), select reads Perl's bit vectors (select), a rename over a file the program
  * holds open succeeds where the host refuses it (path_rename), /dev/urandom and /dev/random
  * are a device of the guest's own that reads random_get (the random device), and an open with
- * no access mode reads, as on Linux (open, openat, wrapped as dup is). */
+ * no access mode reads, as on Linux (open, openat, wrapped as dup is). One more spares the
+ * host a call it would answer the same: isatty of a file the look before its open found to be
+ * a regular file is "not a terminal" (isatty, wrapped as dup is). */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -62,6 +64,7 @@ struct file {
     __wasi_rights_t base, inheriting;
     uint8_t reopenable;
     uint8_t device; /* which random device, when real is VIRTUAL_RANDOM */
+    uint8_t regular; /* the look before the open found a regular file: no terminal */
 };
 
 /* Each open file has at least one virtual number, so there are never more files than numbers.
@@ -88,7 +91,7 @@ __typeof__(__wasi_fd_close) __real___wasi_fd_close;
 __typeof__(__wasi_path_open) __real___wasi_path_open;
 __typeof__(__wasi_path_rename) __real___wasi_path_rename;
 static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
-                           __wasi_oflags_t oflags);
+                           __wasi_oflags_t oflags, uint8_t *regular);
 
 static void bind(int v, int file, int close_on_exec)
 {
@@ -104,6 +107,7 @@ static int new_file(__wasi_fd_t real)
             files[i].real = real;
             files[i].reopenable = 0;
             files[i].device = 0;
+            files[i].regular = 0;
             return i;
         }
     }
@@ -650,7 +654,7 @@ __wasi_errno_t __wrap___wasi_path_rename(__wasi_fd_t fd, const char *old_path, _
         __wasi_fd_t real;
         __wasi_oflags_t oflags =
             f->oflags & ~(__WASI_OFLAGS_CREAT | __WASI_OFLAGS_EXCL | __WASI_OFLAGS_TRUNC);
-        if (look(new_fd, 0, new_path, oflags) != __WASI_ERRNO_SUCCESS ||
+        if (look(new_fd, 0, new_path, oflags, NULL) != __WASI_ERRNO_SUCCESS ||
             __real___wasi_path_open(new_fd, 0, new_path, oflags, f->base, f->inheriting,
                                     f->fdflags, &real) != __WASI_ERRNO_SUCCESS)
             continue;
@@ -881,15 +885,20 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
  * and every other answer stays the host's. An exclusive create needs no look: the host refuses
  * an existing name before it opens anything. The guest's only code is Perl, which cannot call
  * a WASI import directly, so no program can skip the look. What it cannot close is another
- * process on the host swapping the name between the look and the open. */
+ * process on the host swapping the name between the look and the open. When regular is not
+ * NULL, it is set to whether the look saw a regular file. */
 static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
-                           __wasi_oflags_t oflags)
+                           __wasi_oflags_t oflags, uint8_t *regular)
 {
     __wasi_filestat_t st;
+    if (regular)
+        *regular = 0;
     if ((oflags & __WASI_OFLAGS_CREAT) && (oflags & __WASI_OFLAGS_EXCL))
         return __WASI_ERRNO_SUCCESS;
     if (__real___wasi_path_filestat_get(realdir, dirflags, path, &st) != __WASI_ERRNO_SUCCESS)
         return __WASI_ERRNO_SUCCESS;
+    if (regular)
+        *regular = st.filetype == __WASI_FILETYPE_REGULAR_FILE;
     switch (st.filetype) {
     case __WASI_FILETYPE_DIRECTORY:
     case __WASI_FILETYPE_REGULAR_FILE:
@@ -911,13 +920,14 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
     __wasi_fd_t real;
     __wasi_errno_t error;
     int v, f, slash = 0, which = is_open((int)fd) ? device_at((int)fd, path, &slash) : 0;
+    uint8_t regular;
     TO_REAL(fd);
     v = lowest_free(0);
     if (v < 0)
         return __WASI_ERRNO_MFILE;
     if (which != 0)
         return open_random(v, which, slash, oflags, base, fdflags, opened);
-    error = look(fd, dirflags, path, oflags);
+    error = look(fd, dirflags, path, oflags, &regular);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
     error = __real___wasi_path_open(fd, dirflags, path, oflags, base, inheriting, fdflags, &real);
@@ -929,6 +939,7 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
     files[f].base = base;
     files[f].inheriting = inheriting;
     files[f].reopenable = 1;
+    files[f].regular = regular;
     bind(v, f, 0);
     *opened = (__wasi_fd_t)v;
     return __WASI_ERRNO_SUCCESS;
@@ -1168,4 +1179,22 @@ int __wrap_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
         }
     }
     return found;
+}
+
+/* isatty asks the host for the descriptor's type (fd_fdstat_get), and PerlIO asks it of every
+ * file it opens. A file whose look before the open saw a regular file is no terminal, so the
+ * answer is given here, with the errno wasi-libc and Linux give. Every other descriptor asks the
+ * host: the standard ones, folders, a file created by the open (there was nothing to look at),
+ * and a file whose host descriptor was lost to a rename over it. A name swapped between the
+ * look and the open is the race the look already leaves: the worst it can do is make a terminal
+ * buffered as a file, and no terminal can be reached through a grant. */
+int __real_isatty(int fd);
+int __wrap_isatty(int fd);
+int __wrap_isatty(int fd)
+{
+    if (is_open(fd) && files[slot[fd] - 1].regular && files[slot[fd] - 1].real != GONE) {
+        errno = ENOTTY;
+        return 0;
+    }
+    return __real_isatty(fd);
 }

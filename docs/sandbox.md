@@ -2,6 +2,15 @@
 
 wasi-perl runs Perl inside WebAssembly with WASI preview1. WASI preview1 has no processes and no signals. So the operations that would start a process or handle a signal are refused. A refusal is an ordinary Perl `die`, never a crash.
 
+## What the host must run
+
+`perl.wasm` is one `wasm32-wasip1` command. A host needs WASI preview1 and two WebAssembly features:
+
+- **Exception handling.** `die` and `eval` unwind through it.
+- **SIMD128.** `memchr`, which finds each line's end, compares sixteen bytes a step with it. Nothing else in the module uses SIMD.
+
+wasmtime enables SIMD128 by default; the runner turns on exception handling. A host without either refuses to load the module.
+
 ## The refusal
 
 Every refusal dies with one message:
@@ -75,6 +84,9 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 
 ## Differences from native that remain
 
+- **PerlIO's buffer is 64 KiB, not 8 KiB.** Perl reads and writes a file 64 KiB at a time, which spares the host most of its calls. Two things follow.
+  - A call stopped by its deadline, its fuel or a trap keeps only the output the program had flushed. Standard output is a file, not a terminal, so Perl flushes it each time 64 KiB fill up. Up to 64 KiB printed just before the stop is lost, where natively a killed perl loses up to 8 KiB. `$| = 1` flushes every print.
+  - A buffered read reads ahead 64 KiB. After one `<F>` on a large file, `sysseek(F, 0, 1)` answers 65536, where natively it answers 8192. `tell(F)` is the same as natively.
 - **Descriptor numbers start higher.** Each granted folder holds a descriptor from 3 up, so the first file a program opens gets a number above them, not 3. New descriptors still take the lowest free number.
 - **A granted folder's number always names that folder.** `open my $fh, '<&=', 3` succeeds on it, where natively it gives EBADF. Closing it succeeds and leaves the folder granted. `dup2` or `dup3` onto it fails with EBADF, and no `open` or `dup` is given it.
 - **At most 256 open descriptors.** The standard streams and the granted folders count against them. Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").

@@ -29,6 +29,11 @@
 # -Werror=int-conversion: a pointer used as an integer, or the reverse, traps on wasm32 when it
 # goes wrong, so it never builds. (wasi-libc's clockid_t is a pointer; Time::HiRes gets integer
 # clock ids from include/wasi-perl-posix.h instead.)
+# -DPERLIOBUF_DEFAULT_BUFSIZ=65536: PerlIO reads and writes a file 64 KiB at a time, not 8 KiB
+# (wasi-libc's BUFSIZ is 1,024, so perlio.h would pick 8 KiB). Each WASI call that reaches the
+# host's files costs far more than the bytes it moves; only perlio.c reads the macro. A larger
+# buffer made opening many small files slower.
+# wasi-memchr.o in libs comes before libc, so its memchr stands in for wasi-libc's.
 #
 # Package name      : perl5
 # Source directory  : .
@@ -86,7 +91,7 @@ cat='cat'
 cc='@ROOT@/recipes/wasi-cc'
 cccdlflags=''
 ccdlflags=''
-ccflags='-D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Werror=int-conversion -fwrapv -fno-strict-aliasing'
+ccflags='-DPERLIOBUF_DEFAULT_BUFSIZ=65536 -D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Werror=int-conversion -fwrapv -fno-strict-aliasing'
 ccflags_uselargefiles=''
 ccname='clang'
 ccsymbols=''
@@ -932,7 +937,7 @@ lib_ext='.a'
 libc=''
 libperl='libperl.a'
 libpth=''
-libs='@BUILD@/stubs/wasi-stubs.o @BUILD@/stubs/wasi-posix-stubs.o -lm'
+libs='@BUILD@/stubs/wasi-stubs.o @BUILD@/stubs/wasi-memchr.o @BUILD@/stubs/wasi-posix-stubs.o -lm'
 libsdirs=''
 libsfiles=''
 libsfound=''
@@ -1027,7 +1032,7 @@ perl_patchlevel=''
 perl_static_inline='static __inline__'
 perl_thread_local=''
 perladmin='wasi-perl@localhost'
-perllibs='@BUILD@/stubs/wasi-stubs.o @BUILD@/stubs/wasi-posix-stubs.o -lm'
+perllibs='@BUILD@/stubs/wasi-stubs.o @BUILD@/stubs/wasi-memchr.o @BUILD@/stubs/wasi-posix-stubs.o -lm'
 perlpath='/usr/local/bin/perl'
 pg='pg'
 phostname='hostname'

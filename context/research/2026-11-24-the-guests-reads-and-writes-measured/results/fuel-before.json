@@ -1,0 +1,15 @@
+{
+ "set": "/home/user/wasi-perl-wt/016-the-guests-reads-and-writes/build/before/artifacts",
+ "perl_sha256": "1a566f80ffd503361d0f52ff3dda708a2225abed43976ace3ecf7936e497b343",
+ "fuel": {
+  "hello": 1598119,
+  "sum_csv": 1269392050,
+  "grep_log": 643902442,
+  "inplace": 843509876,
+  "json": 11135679828,
+  "loop": 603665063,
+  "count_lines": 304968397,
+  "cat_log": 427047918,
+  "many_files": 32027976
+ }
+}

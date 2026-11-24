@@ -49,7 +49,8 @@ done
 # The guest numbers its own descriptors (wasi-fd-table.c): every wasi-libc function that hands a
 # descriptor to the host is wrapped, and so are dup, dup2, dup3 and fcntl, which wasi-libc
 # defines to fail, select, which must read Perl's bit vectors, and open and openat, which must
-# read an open with no access mode as Linux does. Each __wasi_ function is defined in one
+# read an open with no access mode as Linux does, and isatty, which answers for a regular file
+# the table looked at before its open without asking the host. Each __wasi_ function is defined in one
 # wasi-libc object and called from others, so the wrap catches every call. Unlike the refusals, these are wrapped in every
 # program, so the archive is built before the first link and a link without it fails.
 fdtable="$here/../build/stubs/libwasi-perl-fd-table.a"
@@ -61,7 +62,7 @@ for s in fd_advise fd_allocate fd_close fd_datasync fd_fdstat_get fd_fdstat_set_
     poll_oneoff sock_accept sock_recv sock_send sock_shutdown; do
     wraps="$wraps,--wrap=__wasi_$s"
 done
-wraps="$wraps,--wrap=dup,--wrap=dup2,--wrap=dup3,--wrap=fcntl,--wrap=select,--wrap=open,--wrap=openat"
+wraps="$wraps,--wrap=dup,--wrap=dup2,--wrap=dup3,--wrap=fcntl,--wrap=select,--wrap=open,--wrap=openat,--wrap=isatty"
 if [ "$link" = yes ]; then
     set -- "$@" --no-wasm-opt "-Wl${wraps}" "$fdtable"
     [ -f "$refusals" ] && set -- "$@" "$refusals"
