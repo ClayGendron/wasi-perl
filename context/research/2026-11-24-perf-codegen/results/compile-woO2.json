@@ -1,0 +1,11 @@
+{
+ "wasm_bytes": 8527894,
+ "compile_s": 0.889,
+ "compile_all_s": [
+  0.889,
+  0.874,
+  0.917
+ ],
+ "cwasm_bytes": 14530008,
+ "deserialize_ms": 7.01
+}

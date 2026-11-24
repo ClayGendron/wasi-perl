@@ -1,0 +1,10 @@
+$ uv run pytest tests/oneliners  (WASI_PERL_ARTIFACTS=build/set-woO3)
+448 passed in 8.09s
+
+$ uv run python tests/perl_t/run_suite.py --only 'op/*.t' --jobs 4 --quiet --list-failures  (WASI_PERL_ARTIFACTS=build/set-woO3)
+perl t/: 227 run, 143 passed, 84 excluded (subprocess 74, signals 4, refused 1, platform 5), 0 failed, 0 stale exclusions, 0 regressed (13661 guarded oks)
+exit 0
+
+$ uv run python tests/perl_t/run_suite.py --only 're/*.t' --only 'uni/*.t' --jobs 4 --quiet --list-failures  (same)
+perl t/: 110 run, 86 passed, 24 excluded (subprocess 24), 0 failed, 0 stale exclusions, 0 regressed (4827 guarded oks)
+exit 0

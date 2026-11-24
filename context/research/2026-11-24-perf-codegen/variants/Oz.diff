@@ -1,0 +1,13 @@
+diff --git a/recipes/config.sh b/recipes/config.sh
+index 3c41b48..aa38be3 100644
+--- a/recipes/config.sh
++++ b/recipes/config.sh
+@@ -1009,7 +1009,7 @@ nvtype='double'
+ o_nonblock='O_NONBLOCK'
+ obj_ext='.o'
+ old_pthread_create_joinable=''
+-optimize='-O2'
++optimize='-Oz'
+ orderlib='false'
+ osname='wasi'
+ osvers='preview1'

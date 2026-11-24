@@ -1,0 +1,74 @@
+{
+ "engine": "opt_none",
+ "compile": {
+  "wasm_bytes": 9260141,
+  "compile_s": 0.784,
+  "compile_all_s": [
+   0.784,
+   0.84,
+   0.765
+  ],
+  "cwasm_bytes": 15616232,
+  "deserialize_ms": 8.43
+ },
+ "hello": {
+  "median_ms": 4.32,
+  "min_ms": 3.36,
+  "n": 30,
+  "stdout": "hello"
+ },
+ "sum_csv": {
+  "median_ms": 166.32,
+  "min_ms": 160.09,
+  "n": 7,
+  "stdout": "1000605790"
+ },
+ "grep_log": {
+  "median_ms": 128.33,
+  "min_ms": 121.0,
+  "n": 7,
+  "stdout": "28572"
+ },
+ "inplace": {
+  "median_ms": 233.75,
+  "min_ms": 223.12,
+  "n": 7,
+  "stdout": "28572"
+ },
+ "json": {
+  "median_ms": 1497.26,
+  "min_ms": 1492.43,
+  "n": 3,
+  "stdout": "20000"
+ },
+ "loop": {
+  "median_ms": 90.51,
+  "min_ms": 89.97,
+  "n": 5,
+  "stdout": "333333833333500000"
+ },
+ "subcall": {
+  "median_ms": 65.07,
+  "min_ms": 65.02,
+  "n": 5,
+  "stdout": "300000"
+ },
+ "eval_die": {
+  "median_ms": 41.79,
+  "min_ms": 40.87,
+  "n": 5,
+  "stdout": "50000"
+ },
+ "destroy": {
+  "median_ms": 46.14,
+  "min_ms": 45.19,
+  "n": 5,
+  "stdout": "100000"
+ },
+ "sort": {
+  "median_ms": 119.1,
+  "min_ms": 91.45,
+  "n": 5,
+  "stdout": "10006"
+ }
+}
