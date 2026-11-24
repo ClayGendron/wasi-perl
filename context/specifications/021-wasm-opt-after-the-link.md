@@ -100,3 +100,57 @@ They are never shipped.
 2. The one-liner oracle on every platform in CI, the escape tests and the whole of Perl's `t/` suite pass, with no new exclusion.
 3. `CHANGELOG.md` under "Unreleased", naming binaryen `version_133` as a new pinned input.
 4. A fresh agent's review lands.
+
+## Landing notes
+
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/021-wasm-opt-after-the-link`, from dev at `50e0298`, Linux x86-64, 4 vCPUs, CPython 3.13, wasmtime-py 51.0.0, as root. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise. Every build and every fuel run held `flock /home/user/wasi-perl-wt/machine.lock`, with `WASI_PERL_JOBS=4`. The numbers are in `../research/2026-11-24-wasm-opt-measured.md`.
+
+### What was built
+
+- **Decision 1.** The pin line, as written above, in `downloads/SHA256SUMS`. `lib.sh` names `BINARYEN_TARBALL` and `BINARYEN_NAME`. `00_download.sh` fetches and verifies it in its loop, then unpacks it on its own lines after the loop, as written above: `build/tools/binaryen-version_133/bin/wasm-opt`, then `.unpacked`. CI's download cache is keyed by the hash of `downloads/SHA256SUMS`, so the new pin makes a new key; the tarball comes from github.com, as wasi-sdk's and wasmtime's do.
+- **Decision 2.** Step 6 of `40_link.sh`: `wasm-opt -O3 <features> build/link/perl.wasm -o build/artifacts/perl.wasm`, then `SHA256SUMS`. The script holds `PASS='-O3'` and `FEATURES='…'`, one flag a line. `.link.stamp` is the SHA-256 of the four files 019 named, then one line each for `BINARYEN_NAME`, `BINARYEN_TARBALL`, the tarball's pin (`pin_of`), the pass and each feature.
+- **Decision 3.** The eleven flags of the table. The guard is `same_features <wasm-opt> <module> <flags…>` in `lib.sh`, run just before the pass: it compares `--print-features` with the list, sorted, and stops with one line naming what the module uses and the pass does not name, and what the pass names and the module does not use. The SIMD row is now EXECUTED: `--print-features` of this build's linked module gives eleven, `--enable-simd` among them, and so does the section.
+- **Decision 4.** Deterministic: one input gave the same bytes with 1 thread, 4 threads and every core. Check 1 runs the pass again on every build of the checks.
+- **Decision 5.** Seen on this build: no name section; producers and target_features unchanged; a datacount section and 11,958 data segments (the text's 11,955 was another build's); `.debug_line` 215,785 → 116,122 bytes.
+- **Decision 6.** `build/link/perl.wasm` is kept, and the checks read it.
+- **Decision 7.** `test_no_wasm_opt` reads `build/link/perl.wasm`, in its own commit, with its assertion unchanged.
+
+### Choices the specification left to the implementer
+
+- **`BINARYEN_CORES`.** The pass runs with `BINARYEN_CORES=$JOBS`, so `WASI_PERL_JOBS` caps its threads as it caps make's. The output does not depend on it (Decision 4).
+- **The guard is a `lib.sh` function**, so a check can run it on the real module with a list that drops or adds a flag, without running the whole step.
+- **Check 5's cases.** Spec 002's three `die`-and-`eval` cases of `test_modules.py` (`storable-corrupt`, `posix-strtol-junk`, `die-through-first`), with `test_perl_wasm.py`'s `DIE_IN_EVAL` and `NESTED`, an uncaught `die`, and an uncaught `die` with an `END` block. Each runs on both modules and must give the same exit code, stdout, stderr, exit-status export and error cause.
+- **Check 2's inputs** are made by the check: a CSV and a log of 50,000 lines. `PERL_HASH_SEED=0`, so each count is exact.
+
+### Findings
+
+- **Three more checks read function names** (Decision 5 says no result changes; that holds for the runner, not for `tests/build`). Each was seen failing on the optimised module, and each change is its own commit:
+  - `assert_exit_refused` read the innermost frame's name, `perl!__wasi_proc_exit`. Without names, it is `<unknown>!<wasm function 2982>`, and six checks failed. It now reads the module's byte at that frame's offset, which must be a call of the `proc_exit` import: the same claim, read from the instruction itself. A new check shows that a frame one byte off is refused.
+  - `test_the_memchr_linked_compares_sixteen_bytes_a_step[perl.wasm]` and `test_only_memchr_uses_simd` disassembled `<memchr>` by name, and both failed. Their claims are about the link, so they read `build/link/perl.wasm`, as Decision 7 does. A new check holds the shipped module to `i8x16.eq` and `i8x16.bitmask`. "Only memchr uses SIMD" is not true of the shipped module: the pass writes one 16-byte store of zeros as `v128.store`.
+  - Keeping names with `-g` was tried: 9,172,757 bytes, and every frame of the exit path kept, so far less inlining. It would change Decision 5, and was not taken.
+- **The `.debug_*` sections** stay, 534,499 bytes, 6.2% of the shipped module, as Decision 5 says.
+
+### The checks
+
+| check | before the pass | after |
+|---|---|---|
+| 1: the shipped module is the pass over the linked one; the two differ | failed: they were the same file | passed |
+| 1: the pass is `-O3` alone | failed: no `PASS` in the script | passed |
+| 2: four workloads at least 1.5% fewer instructions | failed: +0.00% each | passed |
+| 3: the script's features are both modules' `--print-features` and sections | failed: no `FEATURES` | passed |
+| 3: the guard passes the list; stops on a list without `--enable-simd` or with `--enable-tail-call` | failed: no guard | passed |
+| 3: the guard runs before the pass, the pass before `SHA256SUMS` | failed | passed |
+| 4: imports and exports unchanged | passed (the same module) | passed |
+| 5: seven `die` and `eval` cases | passed (the same module) | passed |
+| the link stamp covers binaryen and the flags | failed | passed |
+
+### The acceptance runs
+
+| command | result |
+|---|---|
+| `flock …machine.lock scripts/build.sh` from an empty `build/` | 00–40 ok; 1,462 files in `MANIFEST`, 1,464 in `SHA256SUMS`; a second run: 00 ok, every other step "up to date" |
+| `uv run pytest tests/build -ra` | 594 passed, 0 skipped; CI's build-job gate over its JUnit file: "154 checks of the CPAN modules, the library index and wasm-opt (at least 54), 0 skipped" |
+| `WASI_PERL_ORACLE=build/native-install/bin/perl uv run pytest tests/runner tests/escapes tests/oneliners -ra` | 761 passed, 2 skipped ("root can write every folder"; "macOS, run in CI"), 020's fuel-ratio checks among the passed |
+| `uv run python tests/perl_t/run_suite.py --quiet --list-failures --jobs 4` | 616 run, 439 passed, 177 excluded, 0 failed, 0 stale exclusions, 0 regressed (19,052 guarded oks), as 019's; `tests/perl_t/exclusions.toml` unchanged |
+| `uv run pytest -m "not slow"` | 528 passed, 2 skipped ("root can write every folder"; "macOS, run in CI"), 273 deselected |
+| `uv run ruff check`; `uv run ruff format --check` | all checks passed; 43 files already formatted |
