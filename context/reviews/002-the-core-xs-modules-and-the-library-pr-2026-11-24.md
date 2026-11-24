@@ -53,3 +53,58 @@ Probes below ran the author's `perl.wasm` under the pinned wasmtime 51 command l
 ## Verdict
 
 Does not land: H1 is a reachable trap behind the very flag the review was asked to check, and M1 and M3 are claims in `docs/` that the binary contradicts. The rest of the branch is sound and well evidenced. With H1 fixed and checked, and M1 to M3 fixed or answered in writing, it lands.
+
+## Round 2
+
+- **Reviewed:** the fix commit 0e17674 (`git diff 83e45e8 0e17674`), rebuilt from scratch in a fresh worktree.
+
+### What was run
+
+    WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=2 scripts/build.sh      EXECUTED
+    # 00_download ok / 10_native ok / 20_target ok / 30_library ok (1453 files in MANIFEST)
+    # perl.wasm 9251730 bytes; MANIFEST 638af04f…b371, the same as the landing notes give
+    grep -c Wint-conversion build/logs/20_target.log                                               EXECUTED
+    # 0 (332 warning lines in all); -Werror=int-conversion is in ccflags
+    uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q                 EXECUTED
+    # 156 passed in 7.63s
+    uvx ruff check tests/build; uvx ruff format --check tests/build                                 EXECUTED
+    # clean
+    sums(build/artifacts) == SHA256SUMS   # 004's write_sums.py                                    EXECUTED
+    # True
+
+Round 1's H1 probes, run on the new `perl.wasm` and on native perl (EXECUTED):
+
+| Call | Guest | Native |
+|---|---|---|
+| `CLOCK_REALTIME`, `CLOCK_MONOTONIC` | 0, 1 | 0, 1 |
+| `clock_gettime(-1)`, `clock_getres(-1)` | -1, "Invalid argument" (no trap) | the same |
+| `clock_gettime(1)` | the monotonic clock (small, same clock as `CLOCK_MONOTONIC`) | the same |
+| `clock_gettime(99)`, `(2**32-1)` | -1, "Invalid argument" | the same |
+| `clock_gettime(4)` | -1, "Invalid argument" | succeeds (`CLOCK_MONOTONIC_RAW`); documented in `docs/modules.md` |
+| `clock_nanosleep(-1, 1000)` | returns 1000, no trap | the same |
+| `clock_nanosleep(CLOCK_MONOTONIC, 1000)` | sleeps | the same |
+
+Also checked: `POSIX::SigSet->new(2)->ismember(15)` is 0 and `addset(15)` is refused with "Invalid argument", as the docs now say; `WIFSIGNALED(0xff)` is 0, as natively; `Devel::PPPort` 3.73 loads; the library has no `*.h`, `*.e2x`, `xsubpp` or `typemap`.
+
+### Round 1's findings
+
+| # | Status |
+|---|---|
+| H1 | Fixed. Recipe shims, used only when Time::HiRes's own `TIME_HIRES_CLOCK_GETTIME` is defined, give integer ids 0 to 3 and refuse others with EINVAL; nothing traps, and `time-hires-clocks` compares this with native. |
+| M1 | Fixed the honest way: one-byte sets, said so in the comments and docs, `sigismember` never answers -1, and a check pins it. |
+| M2 | Fixed: `-Werror=int-conversion` everywhere; the log has none. |
+| M3 | Fixed: Devel::PPPort is linked in and loads. |
+| L1–L5, L8 | Fixed, each seen above or in the checks. |
+| L6 | Answered: the deviation is recorded, and 004's docstring and 008's text are to follow the set as built. Acceptable. |
+| L7 | Answered: `CHANGELOG.md` is left to 008. Acceptable, as dev has none yet. |
+| L9 | Handed to 003. |
+
+### New findings
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| R2-L1 | Low | `recipes/wasi-posix-stubs.c` (`cpu_time`); `docs/modules.md` "Clocks" | `CLOCK_PROCESS_CPUTIME_ID` and `CLOCK_THREAD_CPUTIME_ID` give the time since the program began, not CPU time. That is wasi-libc's own `clock()` emulation, and the docs say so. No action needed beyond keeping that line. | None. |
+
+### Verdict
+
+Lands: every High and Medium finding is fixed and checked against native, the build and all 156 checks pass from a clean rebuild, and the remaining items are answered in writing.
