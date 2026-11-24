@@ -14,6 +14,7 @@ Agents write the Perl they have seen. Some common forms cost 4–6× more than a
 
 1. **The page says the fact and the number, and stops**, as `AGENTS.md` asks of `docs/`. Each item:
    - **Whole-file regex work:** `perl -0777 -ne` or `-0777 -pi -e` instead of a line loop, when the pattern does not depend on lines. It runs 4.8–5.6× fewer instructions (F §6).
+     - *Re-measured 2026-11-24, after spec 016:* the forms the page shows run 9.07× fewer instructions (a count, `$n++ while /ERROR/g`; F's `$n++ if /ERROR/` form gives 7.05×) and 7.55× (`-pi -e 's/ERROR/WARN/g'`), so the page quotes 9× and 7.5× and its checks centre on them (`../research/2026-11-24-fast-perl-measured.md`).
    - **Keyed sorts:** a Schwartzian transform instead of `split` inside the `sort` block: 5× (F §6).
    - **JSON:** `use JSON::MaybeXS` or `use Cpanel::JSON::XS`, not `JSON::PP`: 29× on decode (spec 018).
    - **CSV:** `use Text::CSV`, which uses the XS parser.
