@@ -300,11 +300,11 @@ def test_modules_that_copy_stdout_load(guest, native, module):
     assert (g.code, g.stdout, g.stderr) == (0, b"ok\n", b"")
 
 
-# Past the table's 1,024 numbers, a copy fails with EMFILE, as it does natively under the same
+# Past the table's 256 numbers, a copy fails with EMFILE, as it does natively under the same
 # open-file limit; closing one lets the next copy succeed.
 EMFILE = (
     'my @h; while (1) { open my $h, ">&", STDOUT or last; push @h, $h } '
-    'print @h > 1000 ? "many\\n" : "few: " . scalar(@h) . "\\n"; '
+    'print @h > 240 ? "many\\n" : "few: " . scalar(@h) . "\\n"; '
     'print $!{EMFILE} ? "EMFILE\\n" : "other: $!\\n"; '
     'print defined(open my $x, "<", "f") ? "opened\\n" '
     ': $!{EMFILE} ? "EMFILE\\n" : "other: $!\\n"; '
@@ -313,6 +313,6 @@ EMFILE = (
 
 
 def test_dup_past_the_limit_is_emfile(guest, tmp_path: Path):
-    g, n, gfiles, nfiles = _both(guest, EMFILE, tmp_path, ulimit=1024)
+    g, n, gfiles, nfiles = _both(guest, EMFILE, tmp_path, ulimit=256)
     assert n.stdout == b"many\nEMFILE\nEMFILE\nagain\n", n
     _assert_same(g, n, gfiles, nfiles)

@@ -31,11 +31,34 @@ static struct {
     unsigned char canary[64];
 } buf;
 
+/* A caller's own clock whose userdata is the largest value, sliced like any wait over 10 ms,
+ * must come back as its one event. */
+static int clock_case(void)
+{
+    __wasi_subscription_t sub;
+    __wasi_event_t ev[1];
+    __wasi_size_t got = 0;
+    __wasi_errno_t error;
+    memset(&sub, 0, sizeof sub);
+    sub.userdata = UINT64_MAX;
+    sub.u.tag = __WASI_EVENTTYPE_CLOCK;
+    sub.u.u.clock.id = __WASI_CLOCKID_MONOTONIC;
+    sub.u.u.clock.timeout = 20000000;
+    error = __wasi_poll_oneoff(&sub, ev, 1, &got);
+    printf("error %d, %u events", (int)error, (unsigned)got);
+    if (got == 1)
+        printf(": %s", ev[0].userdata == UINT64_MAX ? "the caller's clock" : "another");
+    printf("\n");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     __wasi_subscription_t subs[2];
     __wasi_size_t got = 0;
     __wasi_errno_t error;
+    if (argc > 1 && strcmp(argv[1], "clock") == 0)
+        return clock_case();
     int fd = open(argc > 1 ? argv[1] : "/g/file", O_RDONLY);
     if (fd < 0) {
         perror("open");
