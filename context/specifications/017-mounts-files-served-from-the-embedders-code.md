@@ -469,4 +469,5 @@ Each is a correction of an inference or of a prototype's count, with the guest's
 - `flock …/machine.lock uv run pytest -m "not slow"`: 593 passed, 3 skipped (EXECUTED; the 3 skips are the suite's own, from before this change).
 - `flock …/machine.lock uv run pytest -m slow tests/runner tests/escapes tests/mounts`: 131 passed (EXECUTED).
 - `uv run ruff check` and `uv run ruff format --check`: clean (EXECUTED).
+- `flock …/machine.lock uv run pytest -m slow tests/oneliners` with `WASI_PERL_ORACLE` set to perf-base's native perl: 209 passed (EXECUTED).
 - The API check, `tests/mounts/test_mount_api.py::test_the_mount_api_is_wasi_pythons`, passes (EXECUTED).
