@@ -200,3 +200,12 @@ def test_snapshot_does_not_take_a_link_for_a_folder(tmp_path):
     state = oo.snapshot(tmp_path)
     assert state["real/"] is None
     assert state["link"] == b"symlink -> real"
+
+
+def test_a_host_entry_applies_on_its_hosts_alone():
+    entry = {"id": "one", "fields": ["stdout"], "kind": "accepted", "hosts": ["win32"]}
+    assert oo.known_here(entry, "win32") is entry
+    assert oo.known_here(entry, "linux") is None
+    everywhere = {"id": "one", "fields": ["stdout"], "kind": "accepted"}
+    assert oo.known_here(everywhere, "darwin") is everywhere
+    assert oo.known_here(None, "win32") is None

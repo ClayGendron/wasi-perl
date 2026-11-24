@@ -248,7 +248,9 @@ jobs:
           "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/oneliners \
             -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/junit.xml"
       # A guest check that skipped proved nothing: the escape tests and the guest one-liners must
-      # all have run (a known difference, an expected failure, is reported and allowed).
+      # all have run (a known difference, an expected failure, is reported and allowed). The one
+      # exception is a check of a host feature the system does not have, by its exact reason:
+      # Windows has no POSIX links an unprivileged process can make, and no FIFOs.
       - name: No guest check was skipped
         if: always()
         run: |
@@ -259,6 +261,7 @@ jobs:
           "$WHEEL_PY" -I - "$RUNNER_TEMP/junit.xml" <<'PY'
           import sys, xml.etree.ElementTree as ET
           ran = skipped = 0
+          host_lacks = {"POSIX links", "POSIX FIFOs"} if sys.platform == "win32" else set()
           for case in ET.parse(sys.argv[1]).iter("testcase"):
               where = case.get("classname", "")
               if not (where.startswith("tests.escapes") or (
@@ -268,6 +271,9 @@ jobs:
               ran += 1
               skip = case.find("skipped")
               if skip is not None and skip.get("type") != "pytest.xfail":
+                  if skip.get("message") in host_lacks:
+                      print(f"allowed: {where}::{case.get('name')}: this host lacks {skip.get('message')}")
+                      continue
                   skipped += 1
                   print(f"skipped: {where}::{case.get('name')}: {skip.get('message')}")
           print(f"{ran} guest checks, {skipped} skipped")

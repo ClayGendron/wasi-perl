@@ -46,6 +46,8 @@ def test_corpus_is_well_formed():
         assert fields and set(fields) <= oo.FIELDS, (
             f"{cid}: fields is a non-empty list of {oo.FIELDS}"
         )
+        hosts = entry.get("hosts", list(oo.HOSTS))
+        assert hosts and set(hosts) <= oo.HOSTS, f"{cid}: hosts is a non-empty list of {oo.HOSTS}"
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +148,7 @@ def test_guest_matches_native(case, expected_results, guest, tmp_path):
     expected = expected_results(case, tmp_path / "native")
     actual = run_guest(guest, case, tmp_path / "guest")
     diff = oo.differences(expected, actual)
-    outcome, message = oo.verdict(case.id, diff, KNOWN.get(case.id))
+    outcome, message = oo.verdict(case.id, diff, oo.known_here(KNOWN.get(case.id)))
     if outcome == "xfail":
         pytest.xfail(message)
     if outcome == "fail":

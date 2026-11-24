@@ -9,4 +9,25 @@
 # starts to match is an error until its entry is removed. A difference in a field that is
 # not listed is a plain failure.
 #
+# An entry with `hosts` (sys.platform names: "linux", "darwin", "win32") is a difference of
+# those host systems alone; on every other host the case must match native perl.
+#
 # Entries are added from an observed guest run, each in its own commit.
+
+[[difference]]
+id = "files-tests"
+fields = ["stdout"]
+kind = "accepted"
+hosts = ["win32"]
+reason = """A directory's size is the host file system's. NTFS, as wasmtime reports it, gives a
+directory size 0, so `-z` on a directory is true on a Windows host; Linux's ext4, where the
+oracle is recorded, gives 4096."""
+
+[[difference]]
+id = "files-errors"
+fields = ["stdout"]
+kind = "accepted"
+hosts = ["win32"]
+reason = """Opening a directory for writing fails everywhere; the errno is the host's. wasmtime on
+a Windows host reports EINVAL ("Invalid argument") where Linux reports EISDIR ("Is a
+directory")."""
