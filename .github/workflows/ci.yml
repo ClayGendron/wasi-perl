@@ -1,12 +1,14 @@
 # Every change's check, and the build and test half of a release.
 #
 # lint runs ruff and the fast tests from the checkout. build makes the artifact set from the pins
-# on x86-64 Linux, copies it into the package, builds the one py3-none-any wheel and the sdist, and
-# records native perl's answers to the one-liner corpus in oracle.json. test installs that wheel
-# into a fresh virtual environment on each of the four systems, with the checkout's src/ removed so
-# only the installed package can be imported, and runs the runner, escape, module, refusal and
-# one-liner tests against it. The one-liners are compared with oracle.json, so the same bytes must
-# give native perl's answers everywhere. perl-t runs Perl's own suite on x86-64 Linux.
+# on x86-64 Linux, runs the checks on the built perl.wasm (tests/build, which need the build tree
+# and the wasmtime command line, so they run here alone), copies the set into the package, builds
+# the one py3-none-any wheel and the sdist, and records native perl's answers to the one-liner
+# corpus in oracle.json. test installs that wheel into a fresh virtual environment on each of the
+# four systems, with the checkout's src/ removed so only the installed package can be imported,
+# and runs the runner, escape and one-liner tests against the set inside it. The one-liners are
+# compared with oracle.json, so the same bytes must give native perl's answers everywhere. perl-t
+# runs Perl's own suite on x86-64 Linux.
 #
 # release.yml calls this workflow and publishes what build uploaded.
 
@@ -82,6 +84,25 @@ jobs:
           key: downloads-${{ hashFiles('downloads/SHA256SUMS') }}
       - name: Build from the pins
         run: scripts/build.sh
+      # A build that does not seal its set yet gets the same seal here: MANIFEST as
+      # `<sha256>  <path>` for every file under lib/ and dev/, then SHA256SUMS over every file of
+      # the set by the tool the runner's checks are written against. A build that seals is left as
+      # it is.
+      - name: Seal the set
+        run: |
+          set -eu
+          cd build/artifacts
+          if [ ! -f SHA256SUMS ]; then
+            if [ ! -f MANIFEST ]; then
+              find lib dev -type f | LC_ALL=C sort | xargs sha256sum > ../MANIFEST.tmp
+              mv ../MANIFEST.tmp MANIFEST
+            fi
+            uv run --no-project python -I ../../scripts/write_sums.py .
+            echo "sealed here: the build wrote no SHA256SUMS"
+          fi
+          wc -l MANIFEST SHA256SUMS
+      - name: The checks on the built perl.wasm
+        run: uv run pytest tests/build -p no:cacheprovider -ra
       - name: Keep the verified downloads for the next run
         if: steps.downloads.outputs.cache-hit != 'true'
         run: |
@@ -142,8 +163,11 @@ jobs:
           mkdir -p oracle
           uv run python tests/oneliners/record_oracle.py \
             --perl build/native-install/bin/perl --out oracle/oracle.json
-      - name: Pack the artifact set
-        run: tar -cf artifact-set.tar -C build artifacts
+      # Perl's own suite needs the set and the target tree's generated lib/ (Config.pm and kin).
+      - name: Pack the set and the target library
+        run: |
+          tar -cf artifact-set.tar -C build artifacts
+          tar -cf target-lib.tar -C build target/lib
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
@@ -163,12 +187,15 @@ jobs:
             build/artifacts/MANIFEST
             build/artifacts/SHA256SUMS
           if-no-files-found: error
-      # The whole set as one tar, so empty files and the folder layout survive, for perl-t.
+      # As tars, so empty files and the folder layout survive, for perl-t.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: artifact-set
-          path: artifact-set.tar
+          path: |
+            artifact-set.tar
+            target-lib.tar
           if-no-files-found: error
+          retention-days: 7
 
   test:
     name: test the installed wheel (${{ matrix.os }})
@@ -225,13 +252,40 @@ jobs:
           print(done)
           assert (done.exit_code, done.stdout) == (0, b"hello\n"), done
           PY
+      # The shared fixtures find a set through WASI_PERL_ARTIFACTS: here it names the one inside
+      # the installed wheel, so every guest run uses the wheel's own bytes.
       - name: The tests, against the installed wheel
         env:
-          # No native perl on these systems: the one-liner tests read the oracle's recorded answers.
+          # No native perl is the oracle here: the one-liners compare with the recorded answers.
           WASI_PERL_ORACLE_JSON: ${{ github.workspace }}/oracle/oracle.json
         run: |
-          "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/build tests/oneliners \
-            -p no:cacheprovider --import-mode=importlib -ra
+          set -eu
+          WASI_PERL_ARTIFACTS=$("$WHEEL_PY" -I -c "import pathlib, wasi_perl; print(pathlib.Path(wasi_perl.__file__).parent / 'artifacts')")
+          export WASI_PERL_ARTIFACTS
+          "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/oneliners \
+            -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/junit.xml"
+      # A guest check that skipped proved nothing: the escape tests and the guest one-liners must
+      # all have run (a known difference, an expected failure, is reported and allowed).
+      - name: No guest check was skipped
+        if: always()
+        run: |
+          "$WHEEL_PY" -I - "$RUNNER_TEMP/junit.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          ran = skipped = 0
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              where = case.get("classname", "")
+              if not (where.startswith("tests.escapes") or (
+                  where.startswith("tests.oneliners") and case.get("name", "").startswith("test_guest_")
+              )):
+                  continue
+              ran += 1
+              skip = case.find("skipped")
+              if skip is not None and skip.get("type") != "pytest.xfail":
+                  skipped += 1
+                  print(f"skipped: {where}::{case.get('name')}: {skip.get('message')}")
+          print(f"{ran} guest checks, {skipped} skipped")
+          sys.exit(1 if skipped or not ran else 0)
+          PY
 
   perl-t:
     name: Perl's own suite
@@ -240,42 +294,54 @@ jobs:
     timeout-minutes: 120
     env:
       WASI_PERL_DOWNLOAD_CACHE: ${{ github.workspace }}/download-cache
+      WASI_PERL_ARTIFACTS: ${{ github.workspace }}/build/artifacts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      # The suite's harness arrives with its own specification; until then this job says so and
+      # passes, and every later step is skipped.
+      - name: Is the suite's harness here?
+        id: suite
+        run: |
+          if [ -f tests/perl_t/run_suite.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::tests/perl_t/run_suite.py is not in this checkout; Perl's own suite did not run"
+          fi
+      - if: steps.suite.outputs.present == 'true'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: steps.suite.outputs.present == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: download-cache
           key: downloads-${{ hashFiles('downloads/SHA256SUMS') }}
+      # The harness copies t/ from the pinned tarball, verified here like every download.
       - name: The verified tarball
+        if: steps.suite.outputs.present == 'true'
         run: scripts/00_download.sh
-      # The suite reads the pristine t/ and lib/ of the pinned tarball from build/target/; the
-      # build job's tree is not carried over, so the verified tarball is unpacked there afresh.
-      - name: The pristine source tree
-        run: |
-          set -eu
-          mkdir -p build/target
-          tarball=$(awk '$2 ~ /^perl-[0-9.]+\.tar\.xz$/ {print $2}' downloads/SHA256SUMS)
-          tar -xJf "downloads/$tarball" -C build/target --strip-components=1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: steps.suite.outputs.present == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: artifact-set
-      - name: The build job's artifact set, in the package
+      - name: The build job's set and target library
+        if: steps.suite.outputs.present == 'true'
         run: |
           tar -xf artifact-set.tar -C build
-          uv run --no-project python -I scripts/assemble_artifacts.py
-      - run: uv sync
+          tar -xf target-lib.tar -C build
       - name: Run the suite
-        run: uv run python tests/perl_t/run_suite.py
+        if: steps.suite.outputs.present == 'true'
+        run: uv run python tests/perl_t/run_suite.py --quiet --list-failures
       - name: The scoreboard
-        if: always()
+        if: always() && steps.suite.outputs.present == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: perl-t-results
-          path: build/perl_t/results.json
+          path: |
+            build/perl_t/results.json
+            build/perl_t/logs/
           if-no-files-found: ignore

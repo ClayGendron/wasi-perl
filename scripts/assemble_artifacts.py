@@ -4,9 +4,11 @@ The set is build/artifacts/: perl.wasm, the library folder lib/, the dev/ folder
 null file, MANIFEST and SHA256SUMS. Perl's licence notices, Artistic and Copying, come from the
 target tree build/target/, or from the pinned tarball when that tree is gone.
 
-Nothing is copied unless every hash agrees: SHA256SUMS over perl.wasm and MANIFEST, and MANIFEST
-over every file under lib/ and dev/, with no file left unlisted and no symbolic link anywhere. The
-copy is checked again in place, so a wheel never carries bytes the build did not hash.
+Nothing is copied unless SHA256SUMS hashes every file of the set (perl.wasm, MANIFEST and every
+file under lib/ and dev/), each file matches, none is left unlisted and none is a symbolic link:
+the same rules the runner applies to a set before it uses one. The copy is checked again in
+place, so a wheel never carries bytes the build did not hash. The licence notices sit beside the
+set, outside SHA256SUMS, since Perl never reads them.
 
 Run with `uv run --no-project python scripts/assemble_artifacts.py`.
 """
@@ -77,25 +79,24 @@ def verify(base: Path) -> int:
         raise Refused(f"{links[0]} is a symbolic link; the set holds plain files only")
 
     sums = read_sums(base / "SHA256SUMS")
-    for needed in ("perl.wasm", "MANIFEST"):
+    for needed in ("perl.wasm", "MANIFEST", "dev/null"):
         if needed not in sums:
             raise Refused(f"SHA256SUMS does not hash {needed}")
     check(base, sums, "SHA256SUMS")
-
-    manifest = read_sums(base / "MANIFEST")
-    check(base, manifest, "MANIFEST")
     on_disk = {
         p.relative_to(base).as_posix()
         for folder in ("lib", "dev")
         for p in (base / folder).rglob("*")
         if p.is_file()
-    }
-    unlisted = sorted(on_disk - manifest.keys())
+    } | {"perl.wasm", "MANIFEST"}
+    unlisted = sorted(on_disk - sums.keys())
     if unlisted:
-        raise Refused(f"{unlisted[0]} is in the set but not in MANIFEST ({len(unlisted)} such)")
+        raise Refused(f"{unlisted[0]} is in the set but not in SHA256SUMS ({len(unlisted)} such)")
+    if {name for name in on_disk if name.startswith("dev/")} != {"dev/null"}:
+        raise Refused("dev/ must hold exactly one file, null")
     if (base / "dev" / "null").stat().st_size != 0:
         raise Refused("dev/null is not empty")
-    return len(on_disk | sums.keys())
+    return len(on_disk)
 
 
 def licence_texts(target: Path, downloads: Path) -> dict[str, bytes]:
