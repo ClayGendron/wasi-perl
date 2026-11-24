@@ -1,6 +1,6 @@
 # wasi-perl against Monty, on speed and on the wall
 
-- **Status:** research, 2026-11-24. A comparison the owner asked for. It changes no code. Section 8 names the gaps and where each stands among the specifications. Amended the same day for the review `../reviews/research-monty-comparison-pr-2026-11-24.md` (H1, M1–M4, L1–L5), section 10.
+- **Status:** research, 2026-11-24. A comparison the owner asked for. It changes no code. Section 8 names the gaps and where each stands among the specifications. Amended the same day for the review `../reviews/research-monty-comparison-pr-2026-11-24.md` (H1, M1–M4, L1–L5), and again for its round 2 (R2-M1, R2-M2, R2-L1–L4), section 10.
 - **Owner:** Clay Gendron
 - **Researcher:** an agent (Claude Opus 5.5), on branch `research/monty-comparison`.
 - **The question, in the owner's words:** "Can we compare to the speed of something like Monty? Have a sub agent study that project and find out if it is faster/more performant than our wasi perl implementation. If so, are there gaps we can close."
@@ -14,6 +14,7 @@
   - `workloads.py`: the tasks, once per language;
   - `bench_perl.py`, `bench_monty.py`, `native.py`: the harnesses;
   - `hashprobe.py`: the library hash by file and as one file;
+  - `podscan.py`: how much of the library is POD;
   - `measure.sh`, `counts.sh`: the runs;
   - `tables.py`: every table below, and the check that every runtime printed the same bytes.
 
@@ -30,7 +31,7 @@ Labels: EXECUTED means run and seen. READ means read from a file, cited by path.
 - **A bare call** (§4.2):
   - Back to back, Monty takes 0.15–0.20 ms with its default reused worker, against wasi-perl's 1.9–2.1 ms.
   - With a pause before each call, as an agent's calls have, Monty with a **fresh worker process per session** takes 0.79–1.2 ms. wasi-perl takes 2.7–3.2 ms.
-  - So even at our level of isolation Monty is about 3× faster (EXECUTED). It does the start-up work before the call arrives: the pool spawns the next worker as each session ends (READ: `crates/monty-pool/src/lib.rs:127-133`, `pool.rs:495-511`, `:562-602`).
+  - So even at our level of isolation Monty is 2.6–3.7× faster (EXECUTED: 2.7–3.7× in this memo's sessions, 2.6× in the review's re-run at 50 ms). It does the start-up work before the call arrives: the pool spawns the next worker as each session ends (READ: `crates/monty-pool/src/lib.rs:127-133`, `pool.rs:495-511`, `:562-602`).
   - Part of that can be done in wasi-perl too (§8, row 2).
 - **A fresh process's first call** (§4.1):
   - Monty is ready about 4 ms after its import; wasi-perl takes 103–143 ms.
@@ -49,15 +50,15 @@ Labels: EXECUTED means run and seen. READ means read from a file, cited by path.
   - Today Monty's pool is 1.6–3.2× faster.
   - With wasmtime's `allow_blocking_current_thread` set on the host side, wasi-perl reads 100 small files in 2.3–3.0 ms, and one 10 MB file in 5.8–7.6 ms (EXECUTED).
   - That is 2–10× faster than **Monty's pool with a mount**, which pays a pipe round trip for every OS call.
-  - It is level to 1.9× ahead of **the `monty` CLI**, which serves its mount in-process. The CLI takes 2.7–3.2 ms and 9.5–11.1 ms, a process start included.
+  - Against **the `monty` CLI**, which serves its mount in-process, our time is 0.52–1.12× the CLI's (§5). The CLI takes 2.7–3.2 ms and 9.5–11.1 ms, a process start included.
 - **Memory**: level. A trivial call needs 13.4 MiB of wasi-perl linear memory, and a fresh Monty worker peaks at 11.3–12.2 MiB (EXECUTED, §4.7).
 
 **The gaps worth closing** (§8), largest first on this comparison:
-1. **The file-call hand-off.** It is upstream's: a C API setter, then a wasmtime-py release. It is worth 7–16× on file-heavy calls.
-2. **Start-up work done before the call** (new): take `Store.close` and the store's set-up off the caller's path. About 0.3–0.45 ms of a 1.3–1.9 ms call (INFERRED from the phase profile). It shares no state between calls and changes no API.
+1. **The file-call hand-off.** It is upstream's: a C API setter, then a wasmtime-py release. It is worth 7–15× on file-heavy calls.
+2. **Start-up work done before the call** (new): make the store and the instance ahead, and take `Store.close` off the caller's path. About 0.30–0.37 ms of a 1.3–1.9 ms call (INFERRED from the phase profile). It shares no state between calls and changes no API. We would still be 2.4–3.3× behind Monty's fresh worker.
 3. **JSON in XS, spec 018:** from 1.3 s to about 46 ms (INFERRED from study F).
 4. **The guest's I/O, spec 016:** built, `grep_log` 113.6 → 61.3 ms (READ: its memo §1).
-5. **The library check, as one file** (new): spec 015 leaves 43–47 ms of check in each first call. The bytes alone hash in 22 ms (EXECUTED).
+5. **A leaner library check** (new): spec 015 leaves 43–47 ms of check in each first call. The library's bytes alone hash in about 22 ms (EXECUTED). The rest, the walk and the per-file work, is not yet measured, so its gain is not yet known.
 
 What is not worth copying:
 - Monty's 0.15 ms reuse of a worker across sessions. It weakens the wall (§7).
@@ -186,7 +187,11 @@ Seven fresh processes per session, two sessions, warm module cache (EXECUTED: `r
 - **Spec 015, built:** its first call is about 73 ms (73.2 ms, median of five), against 104 ms before. Its check is 42.7–47.0 ms (READ: the fixed-cost memo §8.2, on branch `spec/015-the-runners-checks-kept-across-calls`).
   - The record that would have made it 34 ms was dropped, because a write through a mapping can change a file and move no stamp. The owner agreed (READ: spec 015's Status line).
   - Our import-to-answer would then be about 92–100 ms, about twice Monty's (INFERRED).
-- **What the check is made of:** SHA-256 over the library's 22.6 MB takes 22.5 ms read file by file, and 21.9 ms as one file (EXECUTED: `hashprobe.py`, median of 9, `results/hashprobe.json`). So the hashing itself is about half of 015's 43–47 ms check. The rest is per-file work around the hash (INFERRED). §8 row 6 takes this up.
+- **What the check is made of:** SHA-256 over the library's 22.6 MB takes 22.5 ms read file by file, and 21.9 ms as one file (EXECUTED: `hashprobe.py`, median of 9, `results/hashprobe.json`).
+  - So reading and hashing 1,452 files costs only about 0.6 ms more than one file.
+  - The probe lists the folder before its timer starts, so the walk is in neither figure.
+  - The other 21–25 ms of 015's 43–47 ms check is therefore the walk plus 015's own per-file work. It is not measured here (INFERRED).
+  - §8 row 6 takes this up.
 
 ### 4.2 (b) A bare call, a trivial program
 
@@ -211,7 +216,7 @@ Seven fresh processes per session, two sessions, warm module cache (EXECUTED: `r
 | Monty `fresh`, a new worker process per session | 2.1 | **0.79–0.94** | **1.0–1.2** |
 | Monty `checkout`, worker reused | 0.15–0.20 | 0.45–0.90 | 0.62–0.78 |
 
-- **At equal isolation, after a pause, Monty is about 3× faster than us:** 0.79–1.2 ms against 2.7–3.2 ms. Back to back the two are level, but only because Monty's next worker is not ready yet.
+- **At equal isolation, after a pause, Monty is 2.6–3.7× faster than us:** 0.79–1.2 ms against 2.7–3.2 ms. The ratio is 2.7–3.7× within this memo's sessions. The review's re-run under the lock gave 2.20 ms against 0.85 ms at 50 ms, 2.6×, and 3.13 against 1.16 ms at 1 s (READ: the review's round 2). Back to back the two are level, but only because Monty's next worker is not ready yet.
   - The back-to-back `fresh` figure is a race: its calls run from 0.40 ms to 4.3 ms within one series (EXECUTED: the `min_ms` and `max_ms` of `monty-paced-fresh-*.json`).
   - It was 1.5–1.6 ms in the first sessions, and the review measured 2.16 ms.
 - Monty's `checkout` after 1 s, 0.62–0.78 ms, matches its published 0.77 ms (READ, §2). So this machine is comparable to theirs for this measure.
@@ -223,7 +228,8 @@ Seven fresh processes per session, two sessions, warm module cache (EXECUTED: `r
   - the guest's `_start`, `Func.__call__`: 783–804 µs, for about 0.2 ms of instructions (INFERRED from the fuel at study C's rate);
   - `Store.close`: 205–206 µs;
   - `runner._set_up`: 40–47 µs;
-  - the rest of `_call`, which holds the unwrapped `InstancePre.instantiate`: 100–140 µs;
+  - instantiation, `InstancePre.instantiate`, which runs inside `_drive` (READ: `src/wasi_perl/runner.py:401`) and is not wrapped: `_drive` less `_start` and `exports`, 56–78 µs over the four phase files (EXECUTED, by subtraction);
+  - the rest of `_call` beyond its timed children: 59–101 µs;
   - in all, `run()`: 1,316–1,401 µs.
 
   With a read-only grant, `Store.close` is 232–242 µs, `_set_up` 54–56 µs and `run()` 1,855–1,907 µs (`perl-phases-ro-*.json`).
@@ -305,7 +311,7 @@ The other host paths (EXECUTED):
 - **Today the hand-off dominates our reads.** `read_big` runs 13 M wasm instructions, about 1.5 ms (INFERRED at study C's 8.5 B/s), but takes about 50 ms. That is about 1,250 `fd_read` calls of 8 KiB at about 27 µs each (INFERRED from the file-call memo §3.2). `read_small` makes about 9 calls per file (READ: synthesis §1).
 - **With the flag on:**
   - against **Monty's pool**, wasi-perl reads host files 2–10× faster: ratios 0.10–0.50 (EXECUTED, §5);
-  - against **the `monty` CLI**, it is level on small files (2.3–3.0 against 2.7–3.2 ms) and 1.3–1.9× ahead on one big file. The CLI serves its mount in its own process, and its figures include a process start of 1.8–2.1 ms (its `hello`).
+  - against **the `monty` CLI**, our time is 0.52–1.12× the CLI's over the two tasks (§5): 2.3–3.0 against 2.7–3.2 ms on small files, and 1.3–1.9× ahead on one big file. The CLI serves its mount in its own process, and its figures include a process start of 1.8–2.1 ms (its `hello`).
 
   So Monty's slow reads in the pool come from serving the mount across the worker's pipe, not from its interpreter (INFERRED). A Monty host call in the pool costs about 0.11–0.12 ms: 100 calls took 11.4–12.0 ms. With the flag on, a WASI file call costs 0.42–1.49 µs, by kind of call (READ: the file-call memo §3.2).
 - Monty can hand the program structured values (`inputs=`, host functions), and wasi-perl cannot. That is a feature, not speed (§6). Spec 017's mounts, proposed, are the WASI-only way to serve files from the embedder's code.
@@ -344,7 +350,7 @@ wasi-perl's median over Monty's, within each session, then ranged; below 1 means
 | (e) JSON | json_decode, json_encode | 22.8–84.8× | | 16.2–63.5× | |
 | (f) host files | read_big, read_small | 1.57–3.17× | 0.103–0.504× | 4.51–13.4× | 0.524–1.12× |
 
-The bare call against Monty `fresh` after a pause is about 3× (§4.2).
+The bare call against Monty `fresh` after a pause is 2.6–3.7× (§4.2).
 
 ## 6. What each side cannot do
 
@@ -380,7 +386,7 @@ A feature gap is not a speed win.
 
 - Line counts measure size, not risk. Monty's interpreter is reachable directly by the attacker's program. Most of wasmtime's code is reached only through `perl.wasm`, which we build, and through WASI calls (INFERRED).
 - **So Monty's 0.15 ms bare call is not like for like.** It is a reused process, behind a wall of Rust code rather than a virtual machine.
-- Its like-for-like mode, a fresh worker per session, costs 0.79–1.2 ms after a pause, about a third of our 2.7–3.2 ms. It costs that much because the start-up is done before the call (§4.2). That part is a lever we can copy (§8, row 2).
+- Its like-for-like mode, a fresh worker per session, costs 0.79–1.2 ms after a pause: 2.6–3.7× less than our 2.7–3.2 ms. It costs that much because the start-up is done before the call (§4.2). That part is a lever we can copy (§8, row 2).
 - Pydantic sells OS-level isolation separately, as Commercial Support (READ: `docs/server.md`).
 
 ## 8. The gaps, and whether we can close them
@@ -399,12 +405,12 @@ The rows are ordered by gain on this comparison. That is not the synthesis's bui
 
 | # | gap | mechanism | gain | cost | risk | fits | already ranked? |
 |---|---|---|---|---|---|---|---|
-| 1 | **host reads** (f) | set wasmtime-wasi's `allow_blocking_current_thread` before the first preopen, once wasmtime's C API and wasmtime-py expose it | EXECUTED, flag off → on: `read_small` 35.7–39.5 → 2.3–3.0 ms; `read_big` 52.2–53.9 → 5.8–7.6 ms; `grep_log` 106–113 → 64–80 ms; `sum_csv` 134 → 112–114 ms; bare call unchanged. Against Monty's pool with mounts, our worst row becomes our best (0.10–0.50×). Against the `monty` CLI we go from 4.5–13× behind to level or 1.9× ahead | S on our side (one property in the runner); the patch is upstream's to take | low: the same bytes in every arm | yes: host-side only | **yes**, as "outside this repository" (synthesis §3). The owner will file it later (`../roadmap.md`; the drafts in `../upstream/wasmtime-allow-blocking-current-thread.md`). The largest lever measured here |
-| 2 | **the warm call's fixed cost** (b): start-up done before the call | as Monty's `fresh` pool does: make the next call's `Store` ahead of time, and close the last one off the caller's path, on a helper thread or after the result is handed back. Each call still gets its own fresh store and instance; nothing is shared. The `WasiConfig` (argv, environment, grants) still depends on the call, so only the parts that do not can move | INFERRED from the phase profile (§4.2): `Store.close` 205–242 µs, plus most of `_set_up` (40–56 µs) and perhaps the instantiation (part of the 100–140 µs rest), so about 0.3–0.45 ms of 1.3–1.9 ms. That holds if instantiation can come before the call's WASI context is set, which was not checked. The guest's `_start`, 0.78–0.97 ms, remains, so after a pause we would stay about 2–2.5× Monty `fresh` (INFERRED) | S–M: a helper thread, one prepared store per process | medium: wasmtime-py stores across threads need care; a prepared store holds about 13 MiB of reserved, mostly untouched memory; the deadline and fuel must still start at the call | yes, all four: internal to the runner, and wasi-python's runner has the same shape and could do the same | **new** (the review's H1). Worth a prototype before a specification |
+| 1 | **host reads** (f) | set wasmtime-wasi's `allow_blocking_current_thread` before the first preopen, once wasmtime's C API and wasmtime-py expose it | EXECUTED, flag off → on: `read_small` 35.7–39.5 → 2.3–3.0 ms; `read_big` 52.2–53.9 → 5.8–7.6 ms; `grep_log` 106–113 → 64–80 ms; `sum_csv` 134 → 112–114 ms; bare call unchanged. Against Monty's pool with mounts, our worst row becomes our best (0.10–0.50×). Against the `monty` CLI we go from 4.5–13× its time to 0.52–1.12× | S on our side (one property in the runner); the patch is upstream's to take | low: the same bytes in every arm | yes: host-side only | **yes**, as "outside this repository" (synthesis §3). The owner will file it later (`../roadmap.md`; the drafts in `../upstream/wasmtime-allow-blocking-current-thread.md`). The largest lever measured here |
+| 2 | **the warm call's fixed cost** (b): start-up done before the call | as Monty's `fresh` pool does: make the next call's `Store` and instance ahead of time, and close the last store off the caller's path, on a helper thread or after the result is handed back. Each call still gets its own fresh store and instance; nothing is shared. The call's `WasiConfig` (argv, environment, grants) is set just before `_start`. **The premise holds:** `InstancePre.instantiate` needs only a store, and the WASI context is looked up only at the guest's first WASI call. READ in the review's round 2: `wasmtime/_instance_pre.py`; `_store.py:92-98`; wasmtime v51 `crates/c-api/src/store.rs:236-243`, `linker.rs:116-117`. `perl.wasm` has no start section. EXECUTED in the review's `order.py`: `hello`, `read_small` and `grep_log` ran correctly in that order | INFERRED from the phase files (§4.2): `Store.close` 205–242 µs, `Store.__init__` and `set_limits` 17–21 µs, instantiation 56–78 µs, and the call-independent part of `_set_up` (the config and the two runtime preopens, about 20–25 µs). In all about 0.30–0.37 ms of 1.3–1.9 ms, before the profile's own timers (about 0.1 ms) are taken off. The guest's `_start`, 0.78–0.97 ms, remains. Taking 0.30–0.37 ms off each paced median leaves us 2.4–3.3× behind Monty `fresh` in the same session and pause (INFERRED, by arithmetic on the paced files) | S–M: a helper thread, one prepared store per process | medium. wasmtime-py stores across threads need care. A prepared store holds about 13 MiB of reserved, mostly untouched memory. The deadline and fuel must still start at the call. **`memory_bytes` reaches the store through `set_limits` before instantiation**, and a lower limit makes instantiation fail if the module needs more (READ: `_store.py`, `set_limits`). So a store made ahead fits only calls with the default memory limit; any other call takes today's path | yes, all four: internal to the runner, and wasi-python's runner has the same shape and could do the same | **new** (the review's H1). Worth a prototype before a specification |
 | 3 | **JSON** (e) | Cpanel::JSON::XS with JSON::MaybeXS, statically linked | INFERRED from study F §3.1: decode 1,293–1,310 → about 46 ms; encode 7×, 355 → about 50 ms. Monty's pool: 15 ms | S–M | low | yes | yes: spec 018, **proposed, not yet agreed** |
 | 4 | **line-oriented text** (d) | a 64 KiB PerlIO buffer, a SIMD `memchr`, `isatty` from the fd-table | READ, spec 016's memo §1: `grep_log` 113.6 → 61.3 ms, `count_lines` 72.8 → 32.2 ms; overlaps row 1 on the count of `fd_read` calls | S–M | low; SIMD narrows the hosts | yes | yes: spec 016, **agreed and built**, not yet merged |
 | 5 | **idioms** (e) | docs: keyed sorts, `-0777` for whole-file work | READ, study F §6: 4–6× on the programs they fit; `wordfreq` is the case here | S | none | yes | yes: spec 020, proposed |
-| 6 | **first call after 015** (a): the library check as one file | spec 015 keeps hashing the whole library in every new process: about 73 ms of first call, with a 43–47 ms check. Hashing the same 22.6 MB costs 22 ms by file or as one file (EXECUTED, §4.1), so about half of the check is per-file work. One archive, read by `require` through a guest-side `@INC` hook, would leave one file to check | INFERRED: the check from 43–47 ms to about 22 ms, so the first call from about 73 to about 50 ms. Stripping POD, 4.4 MB of the 22.6 MB (EXECUTED: a scan for `=pod`…`=cut` blocks), would save about 4 ms more | M | medium: `%INC` and `__FILE__` read differently; tools that read a module's file need it from the archive | yes: an `@INC` hook is plain Perl, and the archive is read through WASI | **new.** Larger than first thought, now that 015 keeps the per-process hash |
+| 6 | **first call after 015** (a): a leaner library check | spec 015 keeps hashing the whole library in every new process: a first call of about 73 ms, with a 43–47 ms check. Hashing the bytes costs about 22 ms whether in 1,452 files or one (EXECUTED, §4.1). The other 21–25 ms is the walk plus 015's per-file work, **not yet measured**. **Option (a), first: the same layout, a leaner check.** Spec 015's string paths already cut 33 ms of that kind of work (READ: its memo §8.2), so more may go with no change of layout, `%INC` or `__FILE__` (INFERRED). **Option (b): the library as one archive**, read by `require` through a guest-side `@INC` hook | unknown until measured. The next step is a phase timing of 015's check (the walk, the stats, the hash, the comparison), under the lock. At most the 21–25 ms beyond hashing (INFERRED). Stripping POD, 4.41 MB of the 22.61 MB (EXECUTED: `python3 podscan.py <artifacts>/lib results/podscan.json`), would take about a fifth off the 22 ms of hashing | (a) S; (b) M | (a) low. (b) medium: **every call pays for it**, since each module load would go through a pure-Perl `@INC` hook reading the archive over WASI, at about 27 µs per file call today. `%INC` and `__FILE__` read differently, and tools that read a module's file need it from the archive | yes: an `@INC` hook is plain Perl, and the archive is read through WASI | **new.** It overlaps spec 019 (proposed), whose guest-side index answers lookups of missing library files. Measure (a) first |
 | 7 | **reusing one interpreter across calls** (b) | Monty's default: one live process for many sessions | INFERRED: up to about 1.2 ms of a call (the guest's `_start` and `Store.close`) | M–L | **high**: Perl reads its own linear memory (`unpack "P"`), so a call would see what an earlier call left there. That is the reuse Monty itself warns about (§7). Safe only within one caller | (1)–(3) yes; (4) no: wasi-python has no session API | **new; not recommended.** If wanted, a joint wasi-python feature ("a session"), for the owner |
 | 8 | **CPU loops** (c) | the wall's price: fuel 1.65–1.82× native perl's Ir on `fib25`, `loop`, `sum_csv` and `grep_log`, and 2.5–3.1× wall time on `fib25` and `loop` | READ: `wasm-opt -O3`, −2.7% (study B); nothing else measured gains (synthesis §4) | S | low–medium | yes | yes: spec 021, proposed. The rest cannot be closed: running perl natively in-process removes the wall |
 | 9 | **snapshots of a running call** | Monty serializes its own heap and frames | none in speed | not feasible: wasmtime keeps the wasm call stack outside linear memory, so a paused call cannot be dumped and resumed without Asyncify, which the constitution forbids (INFERRED) | | no | spec 022 (proposed) covers start images made at install time; mid-run snapshots are ruled out |
@@ -412,7 +418,7 @@ The rows are ordered by gain on this comparison. That is not the synthesis's bui
 
 **What is new here:** rows 2, 6 and 7.
 - Row 2 is the lesson of Monty's fast isolated mode. It fits every constraint and is worth a prototype.
-- Row 6 grew when 015 dropped its record.
+- Row 6 grew when 015 dropped its record. Its gain is not yet measured; the next step is a phase timing of 015's check.
 - Row 7 should not be built as a default.
 
 **What changes rank:** row 1, which the owner has chosen to file upstream later.
@@ -431,7 +437,7 @@ The rows are ordered by gain on this comparison. That is not the synthesis's bui
 - Fuel (wasm) and `Ir` (x86-64) are different units; their ratio is a proxy.
 - The probes of Monty's growth on `strcat` and `re.sub` ran once each, without the lock. They show shape, not timing.
 - The flag arms use an unreleased, patched wasmtime C API. They show what an upstream release would give, not what the runner can ship today.
-- Row 2's and row 6's gains in §8 are estimates from profiles and a probe, not prototypes.
+- Row 2's gain in §8 is an estimate from the phase profile, not a prototype. Row 6's gain is not measured at all.
 - The `monty-wasm-runtime` component was not built: it needs Rust 1.98 (1.97 is here) and a component host. So Monty's instructions under wasm were not counted.
 - Monty's wheels were installed without a hash pin. They were checked against PyPI's digests afterwards (§2).
 
@@ -440,10 +446,10 @@ The rows are ordered by gain on this comparison. That is not the synthesis's bui
 `../reviews/research-monty-comparison-pr-2026-11-24.md`:
 - **H1:**
   - new paced runs on both sides (§4.2);
-  - §1, §4.2 and §7 corrected: Monty pre-spawns, and after a pause its fresh mode is about 3× faster than us;
+  - §1, §4.2 and §7 corrected: Monty pre-spawns, and after a pause its fresh mode is 2.6–3.7× faster than us (round 2);
   - a new §8 row 2, start-up done before the call;
   - a phase profile run for its estimate.
-- **M1:** the `monty -c` column in §4.6 and §5. "2–10×" now says it is against Monty's pool with mounts, and that we are level with the CLI or up to 1.9× ahead. The roadmap line is qualified too.
+- **M1:** the `monty -c` column in §4.6 and §5. "2–10×" now says it is against Monty's pool with mounts, and that our time is 0.52–1.12× the CLI's (round 2). The roadmap line is qualified too.
 - **M2:** the upstream draft's numbers are given per kind of call, as the file-call memo's tables give them. The CLI's flag is "unless a timeout is given".
 - **M3:**
   - §7 gives both sides' limits as their defaults, and §9 what setting Monty's costs;
@@ -461,3 +467,11 @@ The rows are ordered by gain on this comparison. That is not the synthesis's bui
 - **Facts added since:**
   - spec 016 is built (§4.4, §8 row 4);
   - spec 015's first call is about 73 ms, not 35, which grows §8 row 6.
+
+**Round 2:**
+- **R2-M1:** §8 row 6 now lists "the same layout, a leaner check" first. It names the unmeasured walk and per-file work, and the phase timing of 015's check as the next step. It names the archive's cost on every call, a pure-Perl `@INC` hook over WASI, and its overlap with spec 019. §1 no longer gives 73 → 50 ms as the archive's gain.
+- **R2-M2:** §8 row 2 now uses only what the phase files support. Instantiation runs inside `_drive`, 56–78 µs. The movable parts total about 0.30–0.37 ms, and we would stay 2.4–3.3× behind. It adds the `memory_bytes` risk, and cites the review's check of the premise.
+- **R2-L1:** "about 3×" is now 2.6–3.7×.
+- **R2-L2:** `podscan.py` and its command stand beside the 4.4 MB of POD.
+- **R2-L3:** "7–16×" is now 7–15×.
+- **R2-L4:** the CLI comparison is now 0.52–1.12×.
