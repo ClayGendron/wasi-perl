@@ -1,0 +1,2 @@
+{"kind": "read", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 4.055, "us_per_call_min": 3.927, "us_per_call_max": 4.354}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 7.566, "us_per_call_min": 7.495, "us_per_call_max": 7.635}

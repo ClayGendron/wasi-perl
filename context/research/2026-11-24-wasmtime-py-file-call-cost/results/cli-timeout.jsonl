@@ -1,0 +1,7 @@
+{"kind": "read", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 29.561, "us_per_call_min": 27.912, "us_per_call_max": 30.496}
+{"kind": "eof", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 29.73, "us_per_call_min": 28.059, "us_per_call_max": 36.133}
+{"kind": "fstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 63.197, "us_per_call_min": 57.74, "us_per_call_max": 74.06}
+{"kind": "fdstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 58.715, "us_per_call_min": 58.205, "us_per_call_max": 61.937}
+{"kind": "pstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 58.104, "us_per_call_min": 54.319, "us_per_call_max": 61.859}
+{"kind": "open", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 32.548, "us_per_call_min": 32.024, "us_per_call_max": 34.415}
+{"kind": "clock", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 0.167, "us_per_call_min": 0.109, "us_per_call_max": 0.172}
