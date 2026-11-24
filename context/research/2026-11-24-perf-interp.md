@@ -232,14 +232,14 @@ Each cell is the median of the three rounds' medians, with the lowest and highes
 
 ### 4.4 Build choices in `config.sh`
 
-Each is a full rebuild with `scripts/20_target.sh` in a build root that differs from this checkout only in `recipes/config.sh` (`mkvariant.sh`; the edits are `recipes-diffs/config-*.diff`). A build takes 4 to 6 minutes at `-j4` (EXECUTED: `buildall.out`).
+Each is a full rebuild with `scripts/20_target.sh` in a build root that differs from this checkout only in `recipes/config.sh` (`mkvariant.sh`; the edits are `recipes-diffs/config-*.diff`). A build takes 1 to 6 minutes at `-j4`, with the lock (EXECUTED: `buildall.out`, `build2.out`).
 
 | choice | what was built | fuel | verdict |
 |---|---|---|---|
 | `-DNO_TAINT_SUPPORT` | `ccflags` | −1.0 to −1.6% on every workload that does work | real but small; it removes `-T` (section 6) |
 | `PERL_HASH_FUNC_ZAPHOD32` in place of SIPHASH13 | `ccflags` | ±0.0% everywhere | no gain: keys of 24 bytes or fewer are hashed by SBOX32 under either function (READ: `hv_func.h`, `PERL_HASH_USE_SBOX32_ALSO`), and these workloads' keys are short |
-TBD-NOSBOX
-TBD-MYMALLOC
+| `PERL_HASH_USE_SBOX32_ALSO=0` | `ccflags` | −5.0% of startup (`e1` 1,578 K → 1,499 K), +0.1% `json`, ±0.0% elsewhere | no gain worth having: it saves filling SBOX32's seeded table at startup, 79 K instructions or about 0.01 ms (INFERRED at the baseline's 8.5 B instructions per second), and makes short keys a little dearer to hash. Both are seeded, so the flooding defence stays (READ: `hv_func.h`). A note for study D. |
+| `usemymalloc` (Perl's own malloc in place of wasi-libc's dlmalloc) | `usemymalloc`, `mallocobj`, `mallocsrc`, `d_mymalloc`, `d_malloc_usable_size` | — | not measurable: two strikes (section 7). The guest profile gives the upper bound: dlmalloc's `malloc` and `free` are 1.5 to 3% of `sum_csv`'s samples, the most allocation-heavy workload, so no allocator could save more. |
 | `PERL_PERTURB_KEYS` | not built | | INFERRED no gain: it changes only the order of iteration after an insert, a few instructions per insert (READ: `hv.c` `PL_hash_rand_bits` updates); dropped to save machine time |
 | `-DPERL_NO_COW` | not built | | INFERRED a loss: copy-on-write spares a copy on every `$x = $y` of a string, which `sv_gets`, `split` and `JSON::PP` do per line; dropped to save machine time |
 | `d_memrchr` (undef today; wasi-libc has it) | not built | | no gain: musl's `memrchr` is a byte loop (READ: disassembly of `__memrchr`, one `i32.load8_u` per step), the same as Perl's own `my_memrchr`, and none of these workloads calls it (READ: `util.c` `rninstr`, `toke.c`) |
@@ -248,14 +248,14 @@ TBD-MYMALLOC
 | `-DPERL_DISABLE_PMC` | not built | | 4 fewer failed `path_filestat_get` per `require` (READ: the trace, a `.pmc` probe in each of 4 `@INC` folders): about 4 × 31 µs = 0.12 ms per module (INFERRED from section 3.5). It changes behaviour (a `.pmc` beside a `.pm` is no longer preferred), which no shipped file uses. A startup matter for study D. |
 | locale (`-DNO_LOCALE`) | not built | | INFERRED no gain on these workloads: no locale function is in any profile but startup's, and all of startup is 1.6 M instructions. |
 
-The hash, taint and allocator choices were all measured by fuel only. None but taint moved it by more than the 0.02% noise, so their wall time was not measured.
+The hash, taint and allocator choices were measured by fuel only. Only taint, on the work, and SBOX32, on startup, moved it beyond the 0.02% noise, and neither by enough to pay for a wall-time run on the shared machine.
 
 ## 5. Correctness of what is recommended
 
 - **`tests/oneliners`**, the native oracle (EXECUTED: `WASI_PERL_ARTIFACTS=<set> uv run pytest tests/oneliners -q`, with each variant assembled as a full artifact set and its `SHA256SUMS` rewritten by `scripts/write_sums.py`): 448 passed for 64 KiB with SIMD `memchr`, for 256 KiB with SIMD `memchr`, and for 64 KiB with SIMD `memchr` and the `isatty` answer. Pointing the variable at a missing folder skips every slow case, so the tests do read it.
 - **`tests/perl_t`, a slice** of 92 files on I/O, line reading, split, hashes, sort, regex, substitution, numbers, `-t` and stat (EXECUTED: `run_suite.py --only io/* --only op/readline.t … --jobs 2`, the list in section 8): base and the three-part candidate both "92 run, 50 passed, 42 excluded, 0 failed, 0 regressed (3266 guarded oks)" (`results/perl_t-slice.txt`). 256 KiB with `memchr` gave the same on the first 84 of them.
 - **The `memchr` itself**: 108,800 cases against a byte loop (section 4.2).
-- **The recipe diff builds**: TBD-CANDBUILD
+- **The recipe diff builds**: `recipes-diffs/buffer-and-memchr.diff` applied to a copy of `recipes/` and `scripts/` and built with `scripts/20_target.sh` (EXECUTED: `v/cand`, "20_target: ok" in 168 s). Its fuel equals the relinked prototype's within 0.0001% on every workload (`results/fuel-cand-built.json` against `fuel-buf65536-memchr.json`), its `memchr` holds `i8x16` instructions (READ: `llvm-objdump`), and `tests/oneliners` passes 448 of 448 on it. The `isatty` diff was tested as a relink only.
 
 ## 6. Ranking
 
@@ -268,7 +268,7 @@ Gain is on the workloads above; cost is the work to land it; vfs relevance follo
 | 3 | the fd-table answers `isatty` for a regular file it opened | one host call (about 60 µs) per file opened; 20% on `many_files` | about 25 lines in `wasi-fd-table.c` and one `--wrap` | low | none: the look it reuses is the existing guard | **high**: per file opened, the plan's second cost |
 | 4 | `-DNO_TAINT_SUPPORT` (or `SILENT_NO_TAINT_SUPPORT`) | 1.0 to 1.6% of instructions | one `-D`; but `-T` then dies (or is ignored, with the silent form), so `op/taint.t` and every `#!perl -T` test need exclusions, and the docs a line | medium: a feature leaves | taint is no sandbox boundary, but a program that relies on `-T` to check its inputs loses that check silently with the silent form | low |
 | 5 | `-DPERL_DISABLE_PMC` | 4 failed stats (about 0.12 ms) per module loaded | one `-D` | low | none | low; study D's |
-| — | hash function, SBOX32, key perturbation, copy-on-write, `memrchr`, `use64bitint`, locale | none measured or none expected | | | | |
+| — | hash function, SBOX32, key perturbation, copy-on-write, `memrchr`, `use64bitint`, locale, Perl's malloc | none measured, none expected, or (malloc) at most 3% and not made to run | | | | |
 
 Ranks 1 to 3 together are the recommendation, for one specification: they keep every behaviour the checks see, and they act on the two costs vfs cares most about. Rank 4 is the owner's call: 1.5% for a feature. Rank 5 belongs with study D's startup work.
 
@@ -279,7 +279,7 @@ Two findings for the other studies:
 
 ## 7. What was not done, and why
 
-- **Perl's own malloc (`usemymalloc`).** The first build failed: `malloc.c` says "MYMALLOC is not defined", because `config.sh` also needs `d_mymalloc='define'` (EXECUTED: `v/mymalloc/build/logs/20_target.log`). TBD-MYMALLOC2
+- **Perl's own malloc (`usemymalloc`).** The first build failed: `malloc.c` says "MYMALLOC is not defined", because `config.sh` also needs `d_mymalloc='define'` (EXECUTED: `v/mymalloc/build/logs/20_target.log`). The second build, with that set too, links but aborts at the first allocation: `abort < sbrk < getpages < Perl_malloc < Perl_calloc < Perl_init_constants < perl_construct` (EXECUTED: `wasmtime run … perl-mymalloc.wasm -e …`). Perl's malloc grows its arena with `sbrk` in sizes of its own, and wasi-libc's `sbrk` aborts on those (INFERRED: it can only grow linear memory by whole 64 KiB pages). Two strikes, so it stops here. Making it work would need a stand-in `sbrk` or Perl's `PERL_SBRK_VIA_MALLOC`, and the bound in section 4.4 says it could save at most 3%.
 - **`PERL_PERTURB_KEYS`, `PERL_NO_COW`, `PERL_DISABLE_PMC`, 32-bit IVs**: variant roots were made (`mkvariant.sh`) but not built, to spend the shared machine on the larger levers; section 4.4 gives the reasoning for each.
 - **A whole `tests/perl_t` run** of the candidate: only the slice of section 5. A specification that lands ranks 1 to 3 should run the whole suite.
 - **Line reading itself.** `count_lines` spends about 1,200 instructions per line even with the SIMD `memchr` (EXECUTED: 244 M for 200,000 lines). `sv_gets`, `do_readline` and the `-n` loop's ops are the same functions natively; that cost is Perl's, not WebAssembly's.
