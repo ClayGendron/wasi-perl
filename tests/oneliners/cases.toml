@@ -1409,3 +1409,112 @@ id = "paths-glob-subfolders"
 category = "paths"
 argv = ["-le", 'print for glob "src/*/*.c"']
 fixtures = ["nested"]
+
+# ---------------------------------------------------------------------------
+# The examples of docs/fast-perl.md, each as the page writes it. The page's slow and fast
+# forms are both here, so both must match native perl. The cases with group = "cpan" use the
+# CPAN modules built into the guest; native perl runs them with build/native-cpan on PERL5LIB.
+
+[[case]]
+id = "fast-count-lines"
+category = "counting"
+argv = ["-ne", '$n++ while /ERROR/g; END { print "$n\n" }', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fast-count-whole-file"
+category = "counting"
+argv = ["-0777", "-ne", '$n++ while /ERROR/g; print "$n\n"', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fast-substitute-lines"
+category = "inplace"
+argv = ["-pi", "-e", 's/ERROR/WARN/g', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fast-substitute-whole-file"
+category = "inplace"
+argv = ["-0777", "-pi", "-e", 's/ERROR/WARN/g', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fast-sort-split-in-block"
+category = "fields"
+argv = ["-e", 'print sort { (split /,/, $b)[2] <=> (split /,/, $a)[2] } <>', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fast-sort-schwartzian"
+category = "fields"
+argv = ["-e", 'print map { $_->[1] } sort { $b->[0] <=> $a->[0] } map { [(split /,/)[2], $_] } <>', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fast-json-pp"
+category = "modules"
+argv = ["-MJSON::PP", "-0777", "-ne", 'print "$_->{name}\n" for grep { $_->{active} } @{ decode_json($_) }', "users.json"]
+files = { "users.json" = '[{"id": 1, "name": "ann", "active": true, "tags": ["a"]}, {"id": 2, "name": "ben", "active": false, "tags": []}, {"id": 3, "name": "cat", "active": true, "tags": ["b", "c"]}]' }
+
+[[case]]
+id = "fast-json-maybexs"
+category = "modules"
+group = "cpan"
+argv = ["-MJSON::MaybeXS", "-0777", "-ne", 'print "$_->{name}\n" for grep { $_->{active} } @{ decode_json($_) }', "users.json"]
+files = { "users.json" = '[{"id": 1, "name": "ann", "active": true, "tags": ["a"]}, {"id": 2, "name": "ben", "active": false, "tags": []}, {"id": 3, "name": "cat", "active": true, "tags": ["b", "c"]}]' }
+
+[[case]]
+id = "fast-json-cpanel"
+category = "modules"
+group = "cpan"
+argv = ["-MCpanel::JSON::XS", "-0777", "-ne", 'print "$_->{name}\n" for grep { $_->{active} } @{ decode_json($_) }', "users.json"]
+files = { "users.json" = '[{"id": 1, "name": "ann", "active": true, "tags": ["a"]}, {"id": 2, "name": "ben", "active": false, "tags": []}, {"id": 3, "name": "cat", "active": true, "tags": ["b", "c"]}]' }
+
+[[case]]
+id = "fast-json-cpanel-canonical"
+category = "modules"
+group = "cpan"
+argv = ["-MCpanel::JSON::XS", "-0777", "-ne", 'my $j = Cpanel::JSON::XS->new->canonical; print $j->encode([grep { $_->{active} } @{ $j->decode($_) }]), "\n"', "users.json"]
+files = { "users.json" = '[{"id": 1, "name": "ann", "active": true, "tags": ["a"]}, {"id": 2, "name": "ben", "active": false, "tags": []}, {"id": 3, "name": "cat", "active": true, "tags": ["b", "c"]}]' }
+
+[[case]]
+id = "fast-csv-parsewords"
+category = "modules"
+argv = ["-MText::ParseWords", "-ne", 'chomp; my @f = parse_line(",", 0, $_); print "$f[1]\n"', "people.csv"]
+files = { "people.csv" = "id,name,note\n1,\"Smith, Ann\",\"said \"\"hi\"\"\"\n2,Ben,\"two\nlines\"\n3,\"Cho, Cat\",ok\n" }
+
+[[case]]
+id = "fast-csv-text-csv"
+category = "modules"
+group = "cpan"
+argv = ["-MText::CSV", "-e", 'my $csv = Text::CSV->new({binary => 1}); open my $fh, "<", "people.csv" or die "people.csv: $!\n"; while (my $row = $csv->getline($fh)) { print "$row->[1]\n" }']
+files = { "people.csv" = "id,name,note\n1,\"Smith, Ann\",\"said \"\"hi\"\"\"\n2,Ben,\"two\nlines\"\n3,\"Cho, Cat\",ok\n" }
+
+[[case]]
+id = "fast-csv-text-csv-fields"
+category = "modules"
+group = "cpan"
+argv = ["-MText::CSV", "-e", 'my $csv = Text::CSV->new({binary => 1}); open my $fh, "<", "people.csv" or die "people.csv: $!\n"; while (my $row = $csv->getline($fh)) { print join("|", map { s/\n/\\n/gr } @$row), "\n" }']
+files = { "people.csv" = "id,name,note\n1,\"Smith, Ann\",\"said \"\"hi\"\"\"\n2,Ben,\"two\nlines\"\n3,\"Cho, Cat\",ok\n" }
+
+[[case]]
+id = "fast-posix-default-import"
+category = "modules"
+argv = ["-MPOSIX", "-le", 'print POSIX::floor(-2.5)']
+
+[[case]]
+id = "fast-posix-no-import"
+category = "modules"
+argv = ["-mPOSIX", "-le", 'print POSIX::floor(-2.5)']
+
+[[case]]
+id = "fast-posix-two-names"
+category = "modules"
+argv = ["-MPOSIX=floor,ceil", "-le", 'print floor(-2.5), " ", ceil(-2.5)']
+
+[[case]]
+id = "fast-file-find"
+category = "files"
+argv = ["-MFile::Find", "-e", 'my @f; find(sub { push @f, $File::Find::name if -f }, "."); print "$_\n" for sort @f']
+fixtures = ["nested"]

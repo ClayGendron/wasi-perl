@@ -8,6 +8,9 @@ Three kinds of check:
   oracle);
 - every case gives the same result in the guest as natively (needs the guest runner, and
   either the native oracle or a recorded oracle named by WASI_PERL_ORACLE_JSON).
+
+The cases of the cpan group need the CPAN modules. Natively they run with build/native-cpan
+on PERL5LIB, and an oracle without the pinned versions there fails them rather than skipping.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ import pytest
 CASES = oo.load_corpus()
 KNOWN = oo.load_known_differences()
 IDS = [c.id for c in CASES]
+PLAIN = [c for c in CASES if c.group is None]
+MODULE_CASES = [c for c in CASES if c.group == "cpan"]
 
 # The guest's hang guard counts operations, not seconds: the heaviest case (num-fib) uses
 # about 1.5e8 units of fuel, this is some 700 times that, and a slow host changes nothing.
@@ -68,13 +73,32 @@ def oracle() -> Path:
     return path
 
 
-@pytest.mark.parametrize("case", CASES, ids=IDS)
+@pytest.fixture(scope="session")
+def module_oracle(oracle) -> Path:
+    """The native oracle, for the module cases: with the pinned CPAN modules, or it fails."""
+    try:
+        oo.check_module_versions(oo.module_versions(oracle))
+    except oo.OracleRefused as e:
+        pytest.fail(str(e))
+    return oracle
+
+
+@pytest.mark.parametrize("case", PLAIN, ids=[c.id for c in PLAIN])
 def test_native_is_deterministic(case, oracle, tmp_path):
+    _check_deterministic(case, oracle, tmp_path)
+
+
+@pytest.mark.parametrize("case", MODULE_CASES, ids=[c.id for c in MODULE_CASES])
+def test_native_module_case_is_deterministic(case, module_oracle, tmp_path):
+    _check_deterministic(case, module_oracle, tmp_path)
+
+
+def _check_deterministic(case, oracle, tmp_path):
     first = oo.run_native(oracle, case, tmp_path / "w")
     second = oo.run_native(oracle, case, tmp_path / "a-longer-second-work-dir", oo.OTHER_SEED_ENV)
     diff = oo.differences(first, second)
     assert not diff, f"{case.id} is not deterministic natively:\n" + _render(diff)
-    leaked = [str(oracle.parent.parent), str(tmp_path)]
+    leaked = [str(oracle.parent.parent), str(oo.NATIVE_CPAN_LIB.parent.parent), str(tmp_path)]
     for blob in (first.stdout, first.stderr, *[v for v in first.files.values() if v]):
         for host_path in leaked:
             assert host_path.encode() not in blob, f"{case.id} prints a host path: {host_path}"
@@ -93,6 +117,23 @@ def expected_results():
     """
     try:
         kind, source = oo.choose_expected(
+            recorded_path=os.environ.get("WASI_PERL_ORACLE_JSON"), case_ids=IDS
+        )
+    except (oo.OracleRefused, oo.StaleOracle) as e:
+        pytest.fail(str(e))
+    if kind == "native":
+        return lambda case, scratch: oo.run_native(source, case, scratch)
+    if kind == "recorded":
+        return lambda case, scratch: source[case.id]
+    pytest.skip(source)
+
+
+@pytest.fixture(scope="session")
+def module_expected_results():
+    """`expected_results`, for the module cases: a native oracle without the pinned CPAN
+    modules fails them, as a recording made with other versions does."""
+    try:
+        kind, source = oo.choose_module_expected(
             recorded_path=os.environ.get("WASI_PERL_ORACLE_JSON"), case_ids=IDS
         )
     except (oo.OracleRefused, oo.StaleOracle) as e:
@@ -143,8 +184,18 @@ def run_guest(wasi_perl, case: oo.Case, workdir: Path) -> oo.Result:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("case", CASES, ids=IDS)
+@pytest.mark.parametrize("case", PLAIN, ids=[c.id for c in PLAIN])
 def test_guest_matches_native(case, expected_results, guest, tmp_path):
+    _check_guest(case, expected_results, guest, tmp_path)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("case", MODULE_CASES, ids=[c.id for c in MODULE_CASES])
+def test_guest_module_case_matches_native(case, module_expected_results, guest, tmp_path):
+    _check_guest(case, module_expected_results, guest, tmp_path)
+
+
+def _check_guest(case, expected_results, guest, tmp_path):
     expected = expected_results(case, tmp_path / "native")
     actual = run_guest(guest, case, tmp_path / "guest")
     diff = oo.differences(expected, actual)
