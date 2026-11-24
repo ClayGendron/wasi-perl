@@ -127,3 +127,15 @@ The timings are `../research/2026-11-24-the-runners-fixed-cost-measured.md`, fro
 
 - The spec's macOS check runs only in CI (the macOS wheel job). It was not seen run here.
 - A writable call is still about 20 ms (EXECUTED, `calls.py`): the runtime-file scan is L5, specification 015, as decided.
+
+### After the review (round 1)
+
+The review `../reviews/014-the-runners-fixed-cost-pr-2026-11-24.md` found that decision 5's argument was incomplete (H1). "The runner never writes a `.cwasm` in place" covers the runner, not a guest. A module stays mapped for the process's life, and every later call runs it whatever cache that call names. So a later call could grant an earlier call's cache folder writable, and its guest could truncate the mapped file (the host died with `SIGBUS`) or rewrite it (`SIGSEGV`; the bytes reached the host's code). EXECUTED by the reviewer.
+
+The fix, with its checks seen failing first (EXECUTED, `uv run pytest tests/runner/test_fixed_cost.py`, with the fix stashed):
+- **The rule.** `_cache` keeps every folder a module was mapped from, for the process's life. `_cache.every` returns them with this call's caches. So a grant at or inside one, or a writable grant above one, is refused like a grant of today's cache, whatever `cache_dir` or `$WASI_PERL_CACHE` the later call names. Check: `test_no_later_grant_reaches_a_folder_a_module_was_mapped_from`, for `cache_dir` and for the variable changed between the calls. Without the fix it failed with "DID NOT RAISE".
+- **A bound.** At most 1,000 folders are kept. Past that, a module is read into memory through its checked descriptor, which ties it to no file. Check: `test_past_its_bound_a_module_is_read_not_mapped`.
+- **L2.** Linking is under one lock, so calls started at once link once. Check: `test_calls_started_at_once_link_once_and_see_only_their_own` (12 threads). Without the lock it failed in 1 of 3 runs.
+- **L3** was there before this change. The tree check is now recorded under the stamp the list was read under, and not recorded when the list changed while it was read. Check: `test_a_tree_checked_against_one_list_is_not_recorded_for_its_successor`. Without the fix it failed with "DID NOT RAISE".
+- **L1.** The README says that a loaded module stays mapped from its file while the process runs.
+- **The note.** The memo's warm-up runs are now under the lock too. No number depended on them.

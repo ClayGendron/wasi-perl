@@ -23,6 +23,7 @@ _modules: dict[tuple[bool, str], Any] = {}
 _compiling: dict[tuple[bool, str], threading.Lock] = {}
 # id(module): the module, held so that its id names no other, and its InstancePre
 _linked: dict[int, tuple[Any, Any]] = {}
+_linking = threading.Lock()  # one linking at a time; linking is once per module
 _counts = {"compiled": 0, "loaded": 0, "written": 0}
 
 
@@ -150,18 +151,24 @@ def linked(metered: bool, mod: Any) -> Any:
     """`mod` linked once against WASI preview1, as an `InstancePre` every call instantiates from.
     The WASI functions a linker defines read the WASI context of the store they are called in, so
     one linking serves every store of the engine, each with its own grants, arguments and
-    environment; and no import is resolved again per call."""
+    environment; and no import is resolved again per call. One thread links; calls started at
+    once wait for it."""
     wt = wasmtime()
     with _lock:
         found = _linked.get(id(mod))
     if found is not None and found[0] is mod:
         return found[1]
-    linker = wt.Linker(engine(metered))
-    linker.define_wasi()
-    pre = linker.instantiate_pre(mod)
-    with _lock:
-        found = _linked.setdefault(id(mod), (mod, pre))  # a thread that linked first wins
-    return found[1]
+    with _linking:
+        with _lock:
+            found = _linked.get(id(mod))
+        if found is not None and found[0] is mod:
+            return found[1]
+        linker = wt.Linker(engine(metered))
+        linker.define_wasi()
+        pre = linker.instantiate_pre(mod)
+        with _lock:
+            _linked[id(mod)] = (mod, pre)
+        return pre
 
 
 def engine(metered: bool) -> Any:

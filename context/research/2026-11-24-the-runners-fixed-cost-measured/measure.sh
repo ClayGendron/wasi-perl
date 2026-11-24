@@ -15,8 +15,8 @@ unset WASI_PERL_ARTIFACTS
 cache=$(mktemp -d)
 chmod 700 "$cache"
 # Warm the module cache for both trees (they share a key: the same perl.wasm and wasmtime-py).
-PYTHONPATH=$base_src $py "$study/first_call.py" "$cache" > /dev/null
-$py "$study/first_call.py" "$cache" > /dev/null
+flock "$lock" env PYTHONPATH=$base_src $py "$study/first_call.py" "$cache" > /dev/null
+flock "$lock" $py "$study/first_call.py" "$cache" > /dev/null
 for who in base after; do
   if [ "$who" = base ]; then pp=$base_src; else pp=; fi
   flock "$lock" env PYTHONPATH=$pp $py "$study/calls.py" "$who-$session" 60 "$out/calls.jsonl"

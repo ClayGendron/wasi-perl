@@ -25,6 +25,7 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -43,6 +44,31 @@ _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 # Windows included, there is no such name, and the bytes are read through the descriptor.
 _FD_FOLDER = {"linux": "/proc/self/fd", "darwin": "/dev/fd"}.get(sys.platform)
 _NAME_OPEN = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+
+
+# Every folder this process has mapped a module from. wasmtime reads a mapped `.cwasm` for as long
+# as the module lives, which is the process's life, and every later call runs that module
+# whatever cache it names. So no later grant may reach any of these folders: a guest that
+# writes or truncates a mapped file changes or stops the host's own code.
+_mapped_lock = threading.Lock()
+_mapped_from: dict[Path, None] = {}
+MAPPED_FROM_MAX = 1_000  # folders; past it, a module is read through its descriptor, not mapped
+
+
+def _map_from(folder: Path) -> bool:
+    """Whether a module may be mapped from `folder`, recording it for the process's life."""
+    with _mapped_lock:
+        if folder in _mapped_from:
+            return True
+        if len(_mapped_from) >= MAPPED_FROM_MAX:
+            return False
+        _mapped_from[folder] = None
+        return True
+
+
+def mapped_from() -> tuple[Path, ...]:
+    with _mapped_lock:
+        return tuple(_mapped_from)
 
 
 class Cache(NamedTuple):
@@ -121,9 +147,11 @@ def given(value: Any) -> Cache:
 
 
 def every(chosen: Cache) -> tuple[Path, ...]:
-    """Every cache a call of this user could load native code from: this call's, the one the
-    variable names, and every platform default. No grant may reach any of them."""
+    """Every cache a call of this user could load native code from, or this process runs native
+    code from: this call's, the one the variable names, every platform default, and every folder
+    a module was mapped from. No grant may reach any of them."""
     found = [p for p in (chosen.folder, chosen.named, *default_dirs()) if p is not None]
+    found.extend(mapped_from())
     return tuple(dict.fromkeys(found))
 
 
@@ -295,12 +323,14 @@ def load(
     where there is no such name, by `by_bytes` from the bytes read through that descriptor. And
     whether the runner may put its own file at that name. A mapped file stays the checked one for
     the module's life: the runner never writes a `.cwasm` in place, since `write` renames a new
-    file over the name, which leaves a mapped one as it was. An error of wasmtime's is raised."""
+    file over the name, which leaves a mapped one as it was; and its folder is kept among those no
+    grant may reach for the rest of the process, so no guest writes it. An error of wasmtime's is
+    raised."""
     fd, may_write = _open_checked(cwasm)
     if fd is None:
         return None, may_write
     try:
-        name = _fd_name(fd)
+        name = _fd_name(fd) if _map_from(cwasm.parent) else None
         if name is not None:
             return by_name(name), False
         return by_bytes(_read_all(fd, os.fstat(fd).st_size)), False

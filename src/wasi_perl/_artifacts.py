@@ -98,7 +98,8 @@ def artifacts() -> Artifacts:
 
 _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
 _lock = threading.Lock()
-_digests: dict[tuple[str, int, int, int, int, int], str] = {}
+_Stamp = tuple[str, int, int, int, int, int]
+_digests: dict[_Stamp, str] = {}
 _trees: set[tuple[str, int, int, int, int, int]] = set()  # SHA256SUMS stamps whose tree passed
 # SHA256SUMS parsed, by its stamp; callers only read it
 _sums: dict[tuple[str, int, int, int, int, int], dict[str, str]] = {}
@@ -143,11 +144,12 @@ def digest(path: Path) -> str:
     return got
 
 
-def _read_sums(found: Artifacts) -> dict[str, str]:
+def _read_sums(found: Artifacts) -> tuple[dict[str, str], _Stamp | None]:
     """SHA256SUMS parsed, kept per stamp of the file as `digest` keeps a hash: it is parsed again
     when its inode, size, mtime or ctime changes. A parse is kept only when the file's stamp is
     the same after the read as before it, so a file replaced or written meanwhile is not kept
-    under a stamp it does not have."""
+    under a stamp it does not have. With it, the stamp the list is held to, or None when there is
+    none, so a tree checked against this list is recorded under this list's stamp alone."""
     try:
         before = _stamp(found.sums)
     except OSError:
@@ -156,7 +158,7 @@ def _read_sums(found: Artifacts) -> dict[str, str]:
         with _lock:
             kept = _sums.get(before)
         if kept is not None:
-            return kept
+            return kept, before
     sums = _parse_sums(found)
     try:
         after = _stamp(found.sums)
@@ -166,7 +168,8 @@ def _read_sums(found: Artifacts) -> dict[str, str]:
         with _lock:
             _sums.clear()  # one list kept at a time
             _sums[before] = sums
-    return sums
+        return sums, before
+    return sums, None
 
 
 def _parse_sums(found: Artifacts) -> dict[str, str]:
@@ -204,7 +207,7 @@ def checked() -> tuple[Artifacts, str]:
     root = found.perl.parent
     if found.lib != root / "lib" / "perl5" or found.manifest.parent != root:
         raise ArtifactsMissing(f"{root} is not laid out as an artifact set")
-    sums = _read_sums(found)
+    sums, key = _read_sums(found)
     got_perl = ""
     for path in (found.manifest, found.perl):
         want = sums.get(path.name)
@@ -217,13 +220,13 @@ def checked() -> tuple[Artifacts, str]:
         if got != want:
             raise _refuse(path, found.sums, got, want)
         got_perl = got
-    key = _stamp(found.sums)
     with _lock:
-        done = key in _trees
+        done = key is not None and key in _trees
     if not done:
         _check_tree(root, sums, found.sums)
-        with _lock:
-            _trees.add(key)
+        if key is not None:  # the stamp the list was read under, never one taken after
+            with _lock:
+                _trees.add(key)
     return found, got_perl
 
 

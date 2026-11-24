@@ -5,9 +5,11 @@ and each saving is held to the rule it must keep."""
 
 from __future__ import annotations
 
+import concurrent.futures
 import importlib.metadata
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -202,6 +204,26 @@ def test_a_sha256sums_changed_while_it_is_read_is_not_kept(found, monkeypatch):
     assert len(reads) == 2
 
 
+def test_a_tree_checked_against_one_list_is_not_recorded_for_its_successor(found, monkeypatch):
+    # A list replaced while it is read: the tree passed against the old list, which says nothing
+    # of the new one, so the next call checks the tree against the new list and refuses it.
+    sums = found / "SHA256SUMS"
+    lines = sums.read_text().splitlines()
+    wrong = "\n".join("0" * 64 + ln[64:] if ln.endswith("strict.pm") else ln for ln in lines)
+    assert wrong != "\n".join(lines)
+
+    def replace_once(n: int) -> None:
+        if n == 1:
+            fresh = found / "SHA256SUMS.new"
+            fresh.write_text(wrong + "\n")
+            os.replace(fresh, sums)
+
+    _count_reads(monkeypatch, sums, then=replace_once)
+    assert run(["hello"]).stdout == b"hello\n"  # held to the list it read
+    with pytest.raises(ArtifactsMissing, match="strict.pm"):
+        run(["hello"])
+
+
 # Rule inputs.
 
 _INPUTS = ((runner, "_runtime_folders"), (runner, "_runtime_files"), (_cache, "every"))
@@ -277,6 +299,27 @@ def test_calls_from_one_linking_see_only_their_own_grants_and_environment(
         assert run(["write", "/data/out"], grants=w, artifacts=standin).stdout == b"ok\n"
         done = run(["write", "/data/out"], grants=[Grant(a, "/data")], artifacts=standin)
         assert done.stdout == b"open /data/out: Operation not permitted\n"
+    assert len(made) == 1
+
+
+def test_calls_started_at_once_link_once_and_see_only_their_own(standin, tmp_path, monkeypatch):
+    made = _count_linkers(monkeypatch)
+    _engines.forget()
+    _engines.module(False, standin.perl, None, None)  # compiled before; only the linking races
+    start = threading.Barrier(12)
+
+    def one(n: int) -> tuple[bytes, bytes]:
+        d = tmp_path / str(n)
+        d.mkdir()
+        (d / "f").write_text(f"from {n}\n")
+        start.wait()
+        cat = run(["cat", "/data/f"], grants=[Grant(d, "/data")], artifacts=standin)
+        env = run(["env"], env={"WHO": str(n)}, artifacts=standin)
+        return cat.stdout, env.stdout
+
+    with concurrent.futures.ThreadPoolExecutor(12) as pool:
+        seen = list(pool.map(one, range(12)))
+    assert seen == [(f"from {n}\n".encode(), f"WHO={n}\n".encode()) for n in range(12)]
     assert len(made) == 1
 
 
@@ -401,6 +444,48 @@ def test_a_cwasm_swapped_after_its_check_still_loads_the_checked_file(
     assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
     assert cwasm.read_bytes() == swapped  # the swap happened, and was not what ran
     assert len(by_name if way == "mapped" else by_bytes) == 1
+
+
+@POSIX
+@pytest.mark.parametrize("named", ["cache_dir", "variable"])
+def test_no_later_grant_reaches_a_folder_a_module_was_mapped_from(
+    standin, cache, monkeypatch, tmp_path, named
+):
+    # A mapped .cwasm is read for the module's whole life, and every later call runs that module
+    # whatever cache it names: a guest that wrote or truncated the file would change or stop the
+    # host. So the folder stays out of every grant's reach, whatever later calls name.
+    if FD_PREFIX is None:
+        pytest.skip("a system with no name for a descriptor")
+    if named == "variable":
+        monkeypatch.setenv("WASI_PERL_CACHE", str(cache))
+        assert _fresh_call(standin, None)["written"] == 1
+        by_name, _ = _count_loads(monkeypatch)
+        assert _fresh_call(standin, None)["loaded"] == 1
+        monkeypatch.setenv("WASI_PERL_CACHE", str(tmp_path / "elsewhere"))
+    else:
+        assert _fresh_call(standin, cache)["written"] == 1
+        by_name, _ = _count_loads(monkeypatch)
+        assert _fresh_call(standin, cache)["loaded"] == 1
+    assert len(by_name) == 1  # mapped
+    refused = (Grant(cache, "/c", writable=True), Grant(cache, "/c"), Grant(tmp_path, "/t", True))
+    for grant in refused:
+        with pytest.raises(ValueError, match="reaches the module cache"):
+            run(["hello"], grants=[grant], cache_dir=False, artifacts=standin)
+    beside = tmp_path / "beside"
+    beside.mkdir()
+    done = run(["hello"], grants=[Grant(beside, "/b", writable=True)], artifacts=standin)
+    assert done.stdout == b"hello\n"  # a folder beside it is granted as before
+
+
+def test_past_its_bound_a_module_is_read_not_mapped(standin, cache, monkeypatch):
+    # Past the bound on folders kept, a module is copied into memory, which ties it to no file.
+    assert _fresh_call(standin, cache)["written"] == 1
+    monkeypatch.setattr(_cache, "_mapped_from", {Path(f"/kept/{n}"): None for n in range(5)})
+    monkeypatch.setattr(_cache, "MAPPED_FROM_MAX", 5)
+    by_name, by_bytes = _count_loads(monkeypatch)
+    assert _fresh_call(standin, cache)["loaded"] == 1
+    assert (len(by_name), len(by_bytes)) == (0, 1)
+    assert cache not in _cache.mapped_from()
 
 
 # The engine.
