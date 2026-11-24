@@ -1,0 +1,8 @@
+/home/user/wasi-perl-wt/perf-base/build/artifacts/perl.wasm (643780719, b'28572')
+/home/user/wasi-perl-wt/perf-base/build/artifacts/perl.wasm (643780719, b'28572')
+build/before/artifacts/perl.wasm (643845616, b'28572')
+build/before/artifacts/perl.wasm (643845616, b'28572')
+build/artifacts/perl.wasm (574055110, b'28572')
+build/artifacts/perl.wasm (574055110, b'28572')
+build/before/artifacts/perl.wasm ne fd_read 129 | pi fd_write 128 fd_read 129 | 200 files fdstat 413 1 file 15 on opened 201
+build/artifacts/perl.wasm ne fd_read 17 | pi fd_write 16 fd_read 17 | 200 files fdstat 212 1 file 13 on opened 0

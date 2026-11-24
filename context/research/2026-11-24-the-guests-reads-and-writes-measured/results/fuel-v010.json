@@ -1,0 +1,15 @@
+{
+ "set": "/home/user/wasi-perl-wt/perf-base/build/artifacts",
+ "perl_sha256": "38c80f9ceacee58547b0cf8f0262a6087695b9c81f6176dece7e971d6599ab30",
+ "fuel": {
+  "hello": 1597187,
+  "sum_csv": 1269362241,
+  "grep_log": 643837545,
+  "inplace": 843383769,
+  "json": 11135655987,
+  "loop": 603664131,
+  "count_lines": 304903500,
+  "cat_log": 426921916,
+  "many_files": 31943244
+ }
+}
