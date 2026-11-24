@@ -45,6 +45,20 @@ class Result:
     status: int | None = None
 
 
+def assert_exit_refused(r: Result, status: int) -> None:
+    """The program exited with a status of 126 or more, which wasmtime refuses to pass on.
+
+    The error must be that refusal and nothing else: the innermost frame is the WASI exit call
+    itself, so no trap happened on the way, and the export kept the status.
+    """
+    assert r.code is None, r
+    assert r.status == status, r
+    frames = [ln.split() for ln in r.error.splitlines() if ln.strip()[:1].isdigit()]
+    assert frames and frames[0][-1] == "perl!__wasi_proc_exit", r.error
+    cause = r.error.rsplit("Caused by:", 1)[-1].strip()
+    assert cause == "exit with invalid exit status outside of [0..126)", r.error
+
+
 def _need(path: Path, script: str) -> None:
     if not path.exists():
         pytest.skip(
