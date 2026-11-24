@@ -31,11 +31,10 @@ import tarfile
 import tempfile
 import threading
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-
-import tomllib
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
