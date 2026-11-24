@@ -1,6 +1,6 @@
 # 014 — The runner's fixed cost
 
-- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (M5, L1, L2, L3).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (M5, L1, L2, L3). Decision 5 was narrowed after the PR review `../reviews/014-the-runners-fixed-cost-pr-2026-11-24.md`, and the owner agreed the narrowed form on 2026-11-24 ("Sealed copy (Recommended)": a sealed copy is mapped on Linux, the bytes are read elsewhere, and a first call is about 114 ms).
 - **Owner:** Clay Gendron
 - **Kind:** `src/wasi_perl/` (`_engines.py`, `_artifacts.py`, `_cache.py`, `_grants.py`, `runner.py`), checks in `tests/runner/`.
 - **Depends on:** 004, 012.
@@ -8,7 +8,7 @@
 
 ## Intent
 
-A bare call in a warm process costs 3.5–4.4 ms, and Perl's own share of it is about 0.2 ms. The rest is Python work that does not need to happen on every call. After this specification, a bare call costs about 1.3–1.5 ms (EXECUTED in study A, `results/calls.jsonl`, levers L1–L4 and L7–L8), and a fresh process's first call about 100 ms, against 138–153 ms (INFERRED: study A's base, less L7's 22–28 ms and L8's 8 ms). The library check, 80–88 ms of that first call, stays until specification 015. Every rule of specs 004 and 012 holds unchanged.
+A bare call in a warm process costs 3.5–4.4 ms, and Perl's own share of it is about 0.2 ms. The rest is Python work that does not need to happen on every call. After this specification, a bare call costs about 1.3–1.5 ms (EXECUTED in study A, `results/calls.jsonl`, levers L1–L4 and L7–L8), and a fresh process's first call about 114 ms, against about 135 ms (EXECUTED: `../research/2026-11-24-the-runners-fixed-cost-measured.md` §7, session s3). The library check, 80–88 ms of that first call, stays until specification 015. Every rule of specs 004 and 012 holds unchanged.
 
 The two levers that keep a rule by a new argument, L5 and L6, are specification 015.
 
@@ -26,14 +26,17 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
    - One `Linker` with `define_wasi` is made per module, and every call instantiates from it.
    - It is safe because `define_wasi` reads each store's own WASI context, so one linking serves every store.
    - The saving is 50–60 µs.
-5. **The checked `.cwasm` is mapped, not read (L7).**
+5. **On Linux, the checked `.cwasm` runs from a sealed copy that wasmtime maps (L7, narrowed).**
    - `_cache` keeps its checks on the open descriptor: owner, mode, one name, a private folder.
-   - It then gives `Module.deserialize_file` that descriptor's own name, after checking that the name opens the same inode:
-     - `/proc/self/fd/N` on Linux;
-     - `/dev/fd/N` on macOS, as wasi-python does (READ: `wasi_python/_platform_posix.py`, `_FD_NAMES`). Study A measured Linux only, so macOS has its own check, run in CI.
-   - Elsewhere, Windows included, the bytes are read through the descriptor as today.
-   - The runner never writes a `.cwasm` in place: `_cache.write` renames a new file over the name. So the mapped inode is the checked one for the module's whole life.
-   - A first call saves 22–28 ms and 33 MiB of peak memory.
+   - **The copy.** It then copies the bytes, through that descriptor, into a `memfd` (`sendfile`). It seals the copy against writes, shrinking, growing and new seals, and checks the seals.
+   - **The name.** It gives `Module.deserialize_file` the copy's `/proc/self/fd/N` name, after checking that the name opens the same inode.
+   - **Why a copy.** wasmtime reads a mapped file for the module's whole life, which is the process's. A cache file mapped directly could be truncated or rewritten later: by a later grant, through a renamed folder, or through a hard link. The host's code would then stop or change (EXECUTED by the PR review: `SIGBUS`, `SIGSEGV`).
+     - The copy is named by no folder, so no grant, rename or link reaches it.
+     - The seals refuse a write through any descriptor.
+     - A file swapped at the path after the check is not the one copied.
+   - **The fallback.** If any step fails, or wasmtime refuses the copy, the bytes are read through the descriptor, as today.
+   - **Elsewhere,** macOS and Windows included, the bytes are read through the descriptor, as today. macOS has no `memfd`, and a mapped file there could change under the module.
+   - **The saving.** A first call saves about 15 ms against reading the bytes (a 22.6 ms load becomes 7.2 ms), and peak memory falls 75.0 → 38.7 MiB (EXECUTED, memo §7). The copy is about 15 MB of memory per process.
 6. **wasmtime-py's version comes from the one `wasmtime-*.dist-info` folder beside the imported module (L8).**
    - Only that folder's `METADATA` file is read.
    - With no such folder, or more than one, `importlib.metadata` decides, as today.
@@ -53,11 +56,17 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
 2. **`SHA256SUMS` reads.** Ten calls with an unchanged file parse it once. A rewrite of `SHA256SUMS` between two calls makes the second call parse it again, and refuse a wrong digest, as today.
 3. **Rule inputs.** A call with no grant runs none of the three input functions, counted by a patch. A writable grant runs all three. Every grant check of `tests/runner` and `tests/escapes` still refuses what it refuses today.
 4. **Linking.** Ten calls on one module make one `Linker`. Two calls with different preopens and environments each see only their own.
-5. **The mapping.**
-   - On Linux, the module is loaded by `deserialize_file` with a `/proc/self/fd/` name.
-   - A `.cwasm` swapped at its path between the check and the load still loads the checked inode: a probe renames another file over the path from a patched hook.
-   - With `/proc` unavailable (patched), the bytes are read as today.
-   - On macOS, in CI, the module is loaded by `deserialize_file` with a `/dev/fd/` name.
+5. **The sealed copy.**
+   - On Linux, the module is loaded by `deserialize_file` with a `/proc/self/fd/` name. That name opens a file with no link and all four seals.
+   - **After the load.** Three cases, each in a child process:
+     - the host truncates the cache's file after the load;
+     - the host rewrites it;
+     - a later call grants its folder writable, and the guest rewrites it.
+
+     In each, the next call still runs the checked module.
+   - **The swap.** A `.cwasm` swapped at its path after the check and before the copy still loads the checked bytes: a probe renames another file over the path from a patched hook.
+   - **The fallbacks.** With `/proc` unavailable (patched), with `memfd_create` refused, or with wasmtime refusing the copy, the bytes are read, and the module loads without a compile.
+   - **On macOS,** in CI, the module is loaded by `deserialize` from the bytes.
 6. **The engine.** A fake `Config` records the seven settings `engine()` makes, the four new ones included.
 
 ## Acceptance

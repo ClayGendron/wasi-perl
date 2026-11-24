@@ -346,7 +346,9 @@ def load(
                 if name is not None:
                     try:
                         return by_name(name), False
-                    except Exception:  # noqa: BLE001 - the bytes below decide, and raise
+                    except (
+                        Exception
+                    ):  # wasmtime refused the copy: the bytes below decide, and raise
                         pass
             finally:
                 os.close(copy)

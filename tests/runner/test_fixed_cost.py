@@ -458,17 +458,46 @@ def test_a_cwasm_swapped_after_its_check_still_loads_the_checked_file(
     swapped = decoy.read_bytes()
     if way == "read":
         monkeypatch.setattr(_cache, "_FD_FOLDER", str(tmp_path / "no-proc" / "self" / "fd"))
-    real = _cache._fd_name
+    real = _cache._sealed_copy
 
-    def swap_then_name(fd: int) -> str | None:  # between the check and the load
+    def swap_then_copy(fd: int, size: int) -> int | None:  # after the check, before any read
         os.replace(decoy, cwasm)
-        return real(fd)
+        return real(fd, size)
 
-    monkeypatch.setattr(_cache, "_fd_name", swap_then_name)
+    monkeypatch.setattr(_cache, "_sealed_copy", swap_then_copy)
     by_name, by_bytes = _count_loads(monkeypatch)
     assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
     assert cwasm.read_bytes() == swapped  # the swap happened, and was not what ran
     assert len(by_name if way == "mapped" else by_bytes) == 1
+
+
+@POSIX
+def test_without_a_sealed_copy_the_bytes_are_read(standin, cache, monkeypatch):
+    assert _fresh_call(standin, cache)["written"] == 1
+
+    def refused(*args):
+        raise OSError(38, "Function not implemented")
+
+    monkeypatch.setattr(os, "memfd_create", refused, raising=False)
+    by_name, by_bytes = _count_loads(monkeypatch)
+    assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
+    assert (len(by_name), len(by_bytes)) == (0, 1)
+
+
+@pytest.mark.skipif(FD_PREFIX is None, reason="a system that maps no module")
+def test_a_sealed_copy_wasmtime_refuses_falls_back_to_the_bytes(standin, cache, monkeypatch):
+    assert _fresh_call(standin, cache)["written"] == 1
+    tried: list = []
+
+    def refused(engine, name):
+        tried.append(name)
+        raise wasmtime.WasmtimeError("refused")
+
+    monkeypatch.setattr(wasmtime.Module, "deserialize_file", staticmethod(refused))
+    by_bytes: list = []
+    _counted(monkeypatch, wasmtime.Module, "deserialize", by_bytes)
+    assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
+    assert len(tried) == 1 and len(by_bytes) == 1  # loaded from the bytes, not compiled again
 
 
 _AFTER_THE_LOAD = """

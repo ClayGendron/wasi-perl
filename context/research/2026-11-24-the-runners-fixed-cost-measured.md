@@ -169,4 +169,4 @@ So on Linux the runner now copies the checked bytes, through the checked descrip
 | peak RSS after two calls (median of three) | 75.0 MiB | **38.7 MiB** |
 
 - The sealed copy costs about 6 ms of a first call against mapping the file (7.2 against 1.0–1.2 ms). It keeps about three quarters of L7's saving.
-- Peak RSS is lower than with the mapped file. `ru_maxrss` counts the copy's pages only as they are touched through the mapping, as it does for a mapped file (INFERRED). The copy's 14.9 MB lives in the kernel's shared memory for the module's life either way.
+- Peak RSS is lower than with the mapped file. `ru_maxrss` counts the copy's pages only as they are touched through the mapping, as it does for a mapped file (INFERRED). The copy is about 15 MB of memory per process for the module's life, charged to the process. A mapped file's pages were the page cache's, which processes share. So several host processes each hold their own copy (INFERRED, from `memfd_create(2)`: a memfd is anonymous memory). The round-3 review noted this.
