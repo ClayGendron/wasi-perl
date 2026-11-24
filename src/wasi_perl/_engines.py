@@ -220,16 +220,18 @@ def _miss(
             cwasm = folder / f"{digest[:32]}-wasmtime{version}-{flavor}.cwasm"
     may_write = False
     if cwasm is not None:
-        blob, may_write = _cache.read(cwasm)
-        if blob is not None:
-            try:
-                mod = wt.Module.deserialize(eng, blob)
-            except wt.WasmtimeError:
-                may_write = True  # stale or foreign: compiled again and replaced
-            else:
-                with _lock:
-                    _counts["loaded"] += 1
-                return mod
+        try:
+            mod, may_write = _cache.load(
+                cwasm,
+                lambda name: wt.Module.deserialize_file(eng, name),
+                lambda blob: wt.Module.deserialize(eng, blob),
+            )
+        except wt.WasmtimeError:
+            mod, may_write = None, True  # stale or foreign: compiled again and replaced
+        if mod is not None:
+            with _lock:
+                _counts["loaded"] += 1
+            return mod
     # Compiled from one read, held to the digest: a file changed between its hash and its
     # compile is never compiled, so it is never cached under a digest it does not have.
     data = binary.read_bytes()

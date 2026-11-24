@@ -1,8 +1,10 @@
 """The module cache on disk: where it is, whether a folder or a `.cwasm` is as the runner makes
 it, and the load and the store. Adapted from wasi-python's `_engines.py` (`_cache_given`,
 `_caches`, `_load`, `_store`) and the cache checks of its `_platform_posix.py` and
-`_platform_windows.py` (same owner, Apache-2.0), trimmed: a `.cwasm` is read through the
-descriptor that was checked and handed to wasmtime as bytes, so no name is opened twice.
+`_platform_windows.py` (same owner, Apache-2.0), with `open_cached` and `_fd_name` of its
+`_platform_posix.py`, trimmed: a `.cwasm` is checked through its open descriptor, and wasmtime
+maps it by that descriptor's own name, so a file put at the path after the check is not the one
+loaded; where the system has no such name, its bytes are read through the descriptor.
 
 A `.cwasm` is native code that wasmtime runs as it finds it, so it is used only as the runner
 makes it. On POSIX: a folder at 0700 and files at 0600 with one name, owned by this user, on a
@@ -24,6 +26,7 @@ import stat
 import sys
 import tempfile
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -34,6 +37,12 @@ _DIR_OPEN = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLO
 _FILE_OPEN = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 _FILE_OPEN |= getattr(os, "O_BINARY", 0)
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+# wasmtime maps a compiled module from a file it opens by name. It is given a name of the
+# descriptor the runner checked, which opens that very file whatever is at the path by then:
+# Linux's /proc/self/fd/N reopens it, and macOS's /dev/fd/N duplicates the descriptor. Elsewhere,
+# Windows included, there is no such name, and the bytes are read through the descriptor.
+_FD_FOLDER = {"linux": "/proc/self/fd", "darwin": "/dev/fd"}.get(sys.platform)
+_NAME_OPEN = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
 
 
 class Cache(NamedTuple):
@@ -219,11 +228,11 @@ def _read_all(fd: int, size: int) -> bytes:
         parts.append(block)
 
 
-def read(cwasm: Path) -> tuple[bytes | None, bool]:
-    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
-    was checked, so a file put at the name after the check is not the file read; and whether the
-    runner may put its own file at that name (when there is none, or the one there is refused,
-    but never over a folder)."""
+def _open_checked(cwasm: Path) -> tuple[int | None, bool]:
+    """A descriptor of a `.cwasm` that is as the runner makes it, checked through itself, so a
+    file put at the name after the check is not the file used; and whether the runner may put
+    its own file at that name (when there is none, or the one there is refused, but never over a
+    folder). The caller closes the descriptor."""
     try:
         before = os.lstat(cwasm)
     except FileNotFoundError:
@@ -251,9 +260,50 @@ def read(cwasm: Path) -> tuple[bytes | None, bool]:
         return None, True
     try:
         st = os.fstat(fd)
-        if _stamp(st) != _stamp(before) or _as_made(st, is_dir=False) is not None:
-            return None, True  # another file since its name was read
-        return _read_all(fd, st.st_size), False
+        ok = _stamp(st) == _stamp(before) and _as_made(st, is_dir=False) is None
+    except OSError:
+        ok = False
+    if not ok:
+        os.close(fd)
+        return None, True  # another file since its name was read
+    return fd, False
+
+
+def _fd_name(fd: int) -> str | None:
+    """A name that opens the very file open at `fd`, whatever is at its path by then, checked by
+    opening it; None where the system has no such name, or it opens another file."""
+    if _FD_FOLDER is None:
+        return None
+    name = f"{_FD_FOLDER}/{fd}"
+    try:
+        held = os.fstat(fd)
+        other = os.open(name, _NAME_OPEN)
+        try:
+            named = os.fstat(other)
+        finally:
+            os.close(other)
+    except OSError:
+        return None
+    return name if (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino) else None
+
+
+def load(
+    cwasm: Path, by_name: Callable[[str], Any], by_bytes: Callable[[bytes], Any]
+) -> tuple[Any, bool]:
+    """The module a `.cwasm` that is as the runner makes it holds, made by `by_name` from a name
+    of the descriptor that was checked, so wasmtime maps the checked file and copies none of it;
+    where there is no such name, by `by_bytes` from the bytes read through that descriptor. And
+    whether the runner may put its own file at that name. A mapped file stays the checked one for
+    the module's life: the runner never writes a `.cwasm` in place, since `write` renames a new
+    file over the name, which leaves a mapped one as it was. An error of wasmtime's is raised."""
+    fd, may_write = _open_checked(cwasm)
+    if fd is None:
+        return None, may_write
+    try:
+        name = _fd_name(fd)
+        if name is not None:
+            return by_name(name), False
+        return by_bytes(_read_all(fd, os.fstat(fd).st_size)), False
     except OSError:
         return None, True
     finally:
