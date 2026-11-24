@@ -1,0 +1,3 @@
+notaint rc=0 376s 20_target: ok ($S/v/notaint/build/artifacts/perl.wasm)
+mymalloc rc=1 272s FAILED: make -j4 perl utils/Makefile (see $S/v/mymalloc/build/logs/20_target.log)
+zaphod rc=0 242s 20_target: ok ($S/v/zaphod/build/artifacts/perl.wasm)

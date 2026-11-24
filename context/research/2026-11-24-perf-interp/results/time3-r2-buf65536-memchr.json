@@ -1,0 +1,12 @@
+{
+ "perl": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/interp/perl-buf65536-memchr.wasm",
+ "time": {
+  "hello": 3.76,
+  "sum_csv": 116.03,
+  "grep_log": 68.06,
+  "inplace": 117.38,
+  "count_lines": 38.69,
+  "many_files": 63.05,
+  "loop": 75.01
+ }
+}

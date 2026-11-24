@@ -1,0 +1,15 @@
+{
+ "perl": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/interp/perl-cand.wasm",
+ "fuel": {
+  "hello": 1596964,
+  "sum_csv": 1238060128,
+  "grep_log": 574045898,
+  "inplace": 733596333,
+  "json": 11134640523,
+  "loop": 603663601,
+  "e1": 1577893,
+  "cat_log": 365945027,
+  "count_lines": 244309255,
+  "many_files": 26765255
+ }
+}

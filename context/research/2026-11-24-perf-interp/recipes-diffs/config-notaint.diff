@@ -1,0 +1,11 @@
+--- /home/user/wasi-perl-wt/perf-interp/recipes/config.sh	2026-11-24 11:16:17.950933861 +0000
++++ /tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/interp/v/notaint/recipes/config.sh	2026-11-24 11:33:09.382193061 +0000
+@@ -86,7 +86,7 @@
+ cc='@ROOT@/recipes/wasi-cc'
+ cccdlflags=''
+ ccdlflags=''
+-ccflags='-D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Werror=int-conversion -fwrapv -fno-strict-aliasing'
++ccflags='-DNO_TAINT_SUPPORT -D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Werror=int-conversion -fwrapv -fno-strict-aliasing'
+ ccflags_uselargefiles=''
+ ccname='clang'
+ ccsymbols=''
