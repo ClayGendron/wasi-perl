@@ -113,9 +113,12 @@ def guest():
         import wasi_perl
     except ImportError as e:
         pytest.skip(f"the wasi_perl runner is not importable ({e})")
-    artifacts = os.environ.get("WASI_PERL_ARTIFACTS")
-    if artifacts and not (Path(artifacts) / "perl.wasm").is_file():
-        pytest.skip(f"WASI_PERL_ARTIFACTS={artifacts} holds no perl.wasm")
+    try:
+        found = wasi_perl.artifacts()
+    except Exception as e:  # the runner's ArtifactsMissing: no perl.wasm to run
+        pytest.skip(f"no perl.wasm for the runner: {e}")
+    if not Path(found.perl).is_file():
+        pytest.skip(f"{found.perl} does not exist")
     return wasi_perl
 
 
