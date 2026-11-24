@@ -4,6 +4,7 @@ from wasi-python's `_engines.py` (same owner, Apache-2.0): `_wasmtime`, `_engine
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import threading
 import time
@@ -131,6 +132,18 @@ def _miss(
         with _lock:
             _counts["written"] += 1
     return mod
+
+
+def _release_at_exit() -> None:
+    """Free the modules and engines while wasmtime-py's bindings still exist: left to the
+    interpreter's own teardown, their finalizers run after the bindings are gone and print an
+    ignored TypeError."""
+    with _lock:
+        _modules.clear()
+        _engines.clear()
+
+
+atexit.register(_release_at_exit)
 
 
 class _Ticker:

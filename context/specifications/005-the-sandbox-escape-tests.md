@@ -43,4 +43,57 @@ The constitution's goal 5: "wasi-python's sandbox escape tests, ported to Perl, 
 
 ## Landing notes
 
-(Written when built.)
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/005-escapes`, branched from `spec/004-runner` at `c9f38bf`, Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise.
+
+### The perl.wasm they ran against
+
+Spec 001's build in its own worktree, `../wasi-perl-wt/001-build/build/artifacts/` (read only; never written by these checks): `perl.wasm` of 4,029,132 bytes, SHA-256 `c544325d3989c8456b19d42248e2630c6d6531f03c2eb9c555e6ca69be9d6116`, a library of 1,622 files, `dev/null`. That set has no `MANIFEST` or `SHA256SUMS` yet, so a found set is refused by spec 004's check (`ArtifactsMissing: …/SHA256SUMS cannot be read`, EXECUTED). The checks ran against a scratch copy sealed by `scripts/write_sums.py` (1,625 lines; `sha256sum -c` passes), which also runs spec 004's tree check over the real library on every found-set call.
+
+It has the start-up `chdir($PWD)` (spec 004's `test_cwd` passes, not skips) and the `wasi_perl_exit_status` export (`die "x\n"` gives `exit_code` 255, `trapped` null, through `wasi-perl run`). It has no XS modules yet (spec 002): `Fcntl`, `Socket` and `IO::Socket::INET` are absent, so the `sysopen` row says "absent Fcntl" and is not counted, and the network check sees only the core `socket` operator.
+
+### The checks
+
+```
+$ WASI_PERL_ARTIFACTS=<sealed copy> uv run pytest -q -rsx
+SKIPPED [1] tests/runner/test_arguments.py:207: root can write every folder
+XFAIL tests/escapes/test_escapes.py::test_a_fifo_in_a_grant_is_refused - wasmtime opens a guest's path with a blocking open(2) on the host thread, which epoch interruption cannot stop: a FIFO in a grant holds the call past its deadline (spec 005, Decision 4)
+160 passed, 1 skipped, 1 xfailed, 4 warnings in 29.45s
+$ uv run pytest -q          # no perl.wasm: every real-Perl check skips with its message
+141 passed, 21 skipped, 4 warnings in 4.81s
+$ uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
+All checks passed!
+19 files already formatted
+```
+
+The 160 include spec 004's seven real-Perl checks (`tests/runner/test_perl.py`), all passing with this perl.wasm.
+
+### What the guests printed (errno texts as Perl's `$!` gives them)
+
+- Outside every grant: `/etc/passwd` "No such file or directory"; `/outside/…`, the host's absolute path, `/tmp/x`, a relative path without `cwd` and `opendir("/")` all refused.
+- `..`: `/ro/../outside/secret.txt`, `/ro/sub/../../…`, and with `cwd` `../outside/secret.txt` and `../../../../etc/passwd`, from `/ro` and from `/rw`: all refused; nothing outside was created.
+- Host-made links in `ro` and `rw` to `outside` and to `secret.txt`, absolute and relative: every read, write and `opendir` through them refused.
+- Guest-made links in `rw`: `symlink("../outside")` and `symlink("../outside/secret.txt")` are **made** (`ok`), `symlink("<host path>")` and `symlink("/etc")` are refused "Operation not permitted"; reading or writing through the made ones is "Operation not permitted"; `rename("/rw/up/", "/rw/stolen")` is "Not a directory"; nothing named `stolen` exists. A made link stays in the host folder after the call: the guest cannot follow it, but the embedder's own code can (the README's "Not protected" says so).
+- A read-only grant: `open` for `>`, `>>`, `+<`, `+>`, a new file, `unlink`, `rename` inside, out and in, `mkdir`, `rmdir`, `symlink`, `link` in place, out and in, `utime` of a file and of the grant, `truncate` by name and by handle: each "Operation not permitted"; `chmod` "Function not implemented" (WASI preview1 has none); `syswrite` on a read handle "Bad file descriptor". The tree's names, modes, times and bytes are unchanged; the control write to `rw` succeeded.
+- `-pi -e 's/a/b/' /ro/f.txt`: exit 0, stderr `Can't do inplace edit on /ro/f.txt: Cannot make temp name: Operation not permitted.`, the file unchanged; the same edit in `rw` changed it.
+- No grant: `/x`, `x`, `/tmp/x`, `/usr/local/lib/perl5/x`, appending to `strict.pm`, `mkdir("/tmp")`, `opendir("/")`: all refused; `print 6*7` printed 42.
+- The library and `/dev`: appending to `strict.pm`, a new `Evil.pm`, `unlink` and `rename` of `strict.pm`, `/dev/null` for `>` and `>>`, a new `/dev/tty`: all refused; `/dev/null` reads end of file; the set's `lib/` and `dev/` hash as before.
+- Network: `socket(my $s, 2, 1, 0)` dies `Unsupported socket function "socket" called`; `IO::Socket::INET` is absent in this build.
+- The module cache: climbs and a link from `rw` to the cache cannot list, read or write it; the cache's listing and bytes are unchanged; `run()` refuses a grant at it (both modes) and a writable one above it.
+- Planted code: writes into `/usr/local/lib/perl5/5.42` and `site_perl` refused; `require Evil` fails in a second call even with `cwd` at the writable grant holding `Evil.pm`; `@INC` is `/usr/local/lib/perl5/5.42/site_perl/wasm32-wasi`, `…/5.42/site_perl`, `…/5.42/wasm32-wasi`, `…/5.42` (no `.`). `run()` refuses writable grants at `/usr/local/lib/perl5/site_perl`, `/usr/local/lib/perl5/5.42`, `/usr/local` and of the set's `lib/` folder.
+
+### Seen failing first
+
+Against stand-ins of the runner, each one change made by text replacement and restored, run with a freshly sealed copy (`build/logs/005-mutations.txt`): grants always writable (2 checks fail: the read-only rows and the in-place edit); the library preopened writable (5: the library check, the planted-code check, and three that then found `strict.pm` gone, since a guest under that stand-in really did unlink it from the scratch copy; the copy was rebuilt afterwards); `/dev` writable (1); the cache rule off (1); the reserved guest paths off (1). The first run of the last three, without a fresh copy, failed 11 each, from that damaged copy; the rerun is the record.
+
+### Found while building
+
+- **A FIFO in a grant blocks past the deadline** (Decision 4; the second probe, EXECUTED). Not fixed: a follow-up specification.
+- **A guest can leave a link that climbs out** in a writable grant (`symlink("../outside", …)` is made). wasmtime refuses to follow it, so the guest gains nothing; a host reading the folder later would follow it. Recorded in the README; not a hole in the wall.
+- **wasmtime-py objects finalized at interpreter exit** printed `Exception ignored in: <function Managed.__del__ …> TypeError: 'NoneType' object is not callable` after `wasi-perl run`. Fixed in this branch: `_engines` frees its modules and engines in an `atexit` hook, as wasi-python's `release_at_exit` does (EXECUTED: the message is gone).
+- **The README's outputs** were run with this perl.wasm and replaced; one example changed: allocating `"x" x (512 * 1024 * 1024)` as a constant is folded at compile time and panics (`Out of memory in perl:util:safesysrealloc` then `panic: fold_constants JMPENV_PUSH returned 2`, exit 48); a run-time size gives exit 1 with Perl's own `Out of memory` line, which the README now shows. Whether the fold-time panic is right is spec 002's or 007's question.
+
+### Left over
+
+- The FIFO refusal (a `path_open` that checks the file's kind first), its own specification.
+- Re-run with spec 002's build, when `Fcntl`, `Socket` and `IO::Socket::INET` exist: the `sysopen` row then counts, and the network check reaches `IO::Socket::INET`'s connect.
+- Spec 001's assembly should write `MANIFEST` and `SHA256SUMS` (with `scripts/write_sums.py`) so the found-set path runs without a scratch copy.
