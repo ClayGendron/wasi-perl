@@ -21,6 +21,7 @@ Five distributions that are not in Perl's own tarball are built in, each from a 
 | Algorithm-Diff | 1.201 | library | `Algorithm::Diff`: diffs and longest common subsequences of two lists, such as two files' lines. |
 
 - **For JSON, use `JSON::MaybeXS` or `Cpanel::JSON::XS`.** JSON::PP, in the core library, is pure Perl. `JSON` (JSON.pm) is not shipped: it would pick JSON::PP.
+- **For CSV, use `Text::CSV`.** [Fast Perl](fast-perl.md) gives the instruction ratios, with examples.
 - **One difference from JSON::PP.** Cpanel::JSON::XS writes a number held as a float with a whole value as `5.0`; JSON::PP writes `5`. Python's `json` writes `5.0` too.
 - Their booleans are `JSON::PP::Boolean` objects, as JSON::PP's are.
 - Hostile input ends in an error the program can catch: JSON nested deeper than 512 levels, truncated, or with trailing garbage; CSV with a broken quote.

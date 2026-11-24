@@ -9,6 +9,12 @@ The native run sees its work directory at a host path; the guest sees the same l
 ``/work``. ``normalise`` rewrites the host path to ``/work`` in every byte the native run
 produced, and it is the only rewriting anywhere: the live tests and ``record_oracle.py``
 both get their native results from ``run_native``, which always applies it.
+
+The cases of the ``cpan`` group use the five CPAN distributions the guest has built in. Native
+perl runs them with ``PERL5LIB`` naming ``build/native-cpan``, where ``scripts/10_native.sh``
+installs the same five, apart from the oracle's own library; every other case runs with no
+``PERL5LIB``. An oracle whose ``build/native-cpan`` lacks one of the five, or has another
+version, is refused for that group, and so is a recording made with one.
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ GUEST_ROOT = "/work"
 # A recording is refused when cases.toml changes. Any change to how a case is run or summed
 # up (BASE_ENV, GUEST_ROOT, the placeholder, `normalise`, `snapshot`, the JSON layout) must
 # bump this number, so recordings made the old way are refused too.
-ORACLE_JSON_FORMAT = 1
+ORACLE_JSON_FORMAT = 2
 
 # In argv, this stands for the work directory: the host path natively, /work in the guest.
 # Agents pass absolute paths, and the guest resolves those through its preopens rather than
@@ -43,7 +49,32 @@ WORK_PLACEHOLDER = "{work}"
 # The compared fields, as `differences` names them and known_differences.toml lists them.
 FIELDS = {"exit_code", "stdout", "stderr", "files", "trapped"}
 
-CASE_KEYS = {"id", "category", "argv", "fixtures", "files", "stdin", "env"}
+CASE_KEYS = {"id", "category", "argv", "fixtures", "files", "stdin", "env", "group"}
+
+# A case with `group = "cpan"` needs the CPAN distributions; no other group exists.
+GROUPS = ("cpan",)
+
+# Where scripts/10_native.sh installs the CPAN distributions for native perl.
+NATIVE_CPAN_LIB = REPO / "build" / "native-cpan" / "lib" / "perl5"
+
+
+def _pinned_cpan_versions() -> dict[str, str]:
+    """Module -> version, for each distribution recipes/cpan-xs and recipes/cpan-pure pin: the
+    tarball `Text-CSV_XS-1.65.tgz` is Text::CSV_XS 1.65."""
+    versions = {}
+    for recipe in ("cpan-xs", "cpan-pure"):
+        for line in (REPO / "recipes" / recipe).read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            tarball = line.split()[0]
+            for ext in (".tar.gz", ".tgz"):
+                tarball = tarball.removesuffix(ext)
+            dist, _, version = tarball.rpartition("-")
+            versions[dist.replace("-", "::")] = version
+    return versions
+
+
+CPAN_VERSIONS = _pinned_cpan_versions()
 
 CATEGORIES = (
     "grep",
@@ -90,6 +121,7 @@ class Case:
     files: dict[str, bytes | None]
     stdin: bytes | None
     env: dict[str, str]
+    group: str | None = None
 
 
 @dataclass
@@ -157,6 +189,8 @@ def load_corpus(text: str | None = None) -> list[Case]:
         unknown = set(raw) - CASE_KEYS
         if unknown:
             raise ValueError(f"case {raw.get('id')!r}: unknown keys {sorted(unknown)}")
+        if raw.get("group", GROUPS[0]) not in GROUPS:
+            raise ValueError(f"case {raw.get('id')!r}: group is one of {GROUPS}")
         missing = [n for n in raw.get("fixtures", []) if n not in fixtures]
         if missing:
             raise ValueError(f"case {raw.get('id')!r}: no fixture named {missing}")
@@ -175,6 +209,7 @@ def load_corpus(text: str | None = None) -> list[Case]:
                 files=files,
                 stdin=None if stdin is None else stdin.encode("utf-8"),
                 env=dict(raw.get("env", {})),
+                group=raw.get("group"),
             )
         )
     return cases
@@ -293,11 +328,50 @@ def find_oracle(explicit: Path | str | None = None) -> Path | None:
     return path
 
 
+def group_env(case: Case) -> dict[str, str]:
+    """What a native run of the case adds to BASE_ENV for its group."""
+    return {"PERL5LIB": str(NATIVE_CPAN_LIB)} if case.group == "cpan" else {}
+
+
+def module_versions(oracle: Path) -> dict[str, str | None]:
+    """The version of each pinned CPAN module the oracle loads with the group's PERL5LIB, or
+    None for one it cannot load."""
+    prog = 'for (@ARGV) { print "$_\t", (eval "require $_; 1" ? $_->VERSION : ""), "\n" }'
+    out = subprocess.run(
+        [str(oracle), "-e", prog, *CPAN_VERSIONS],
+        capture_output=True,
+        env={"PERL5LIB": str(NATIVE_CPAN_LIB)},
+        timeout=RUN_TIMEOUT_SECONDS,
+        check=False,
+    )
+    found: dict[str, str | None] = dict.fromkeys(CPAN_VERSIONS)
+    for line in out.stdout.decode(errors="replace").splitlines():
+        name, _, version = line.partition("\t")
+        if name in found:
+            found[name] = version or None
+    return found
+
+
+def check_module_versions(found: dict[str, str | None]) -> None:
+    """Refuse an oracle that lacks one of the pinned CPAN modules or has another version."""
+    wrong = [
+        f"{name} {found.get(name) or 'missing'} (pinned {want})"
+        for name, want in CPAN_VERSIONS.items()
+        if found.get(name) != want
+    ]
+    if wrong:
+        raise OracleRefused(
+            f"the oracle's {NATIVE_CPAN_LIB} does not hold the pinned CPAN modules: "
+            + ", ".join(wrong)
+            + "; run scripts/10_native.sh"
+        )
+
+
 def run_native(
     oracle: Path, case: Case, workdir: Path, extra_env: dict[str, str] | None = None
 ) -> Result:
     lay_out(case, workdir)
-    env = {**BASE_ENV, **(extra_env or {}), **case.env, "PWD": str(workdir)}
+    env = {**BASE_ENV, **group_env(case), **(extra_env or {}), **case.env, "PWD": str(workdir)}
     proc = subprocess.run(
         [str(oracle), *expand_argv(case.argv, str(workdir))],
         input=case.stdin if case.stdin is not None else b"",
@@ -320,10 +394,15 @@ def run_native(
 
 
 def record(oracle: Path, cases: list[Case], scratch: Path) -> dict:
+    """Every case's native result, with the CPAN versions the module cases ran with. An oracle
+    without the pinned versions is refused: OracleRefused."""
+    versions = module_versions(oracle)
+    check_module_versions(versions)
     return {
         "format": ORACLE_JSON_FORMAT,
         "perl": ORACLE_VERSION.removeprefix("v"),
         "corpus_sha256": corpus_sha256(),
+        "cpan_versions": versions,
         "cases": {case.id: run_native(oracle, case, scratch / case.id).to_json() for case in cases},
     }
 
@@ -349,6 +428,11 @@ def load_recorded(path: Path, case_ids: list[str]) -> dict[str, Result]:
             f"{path} was recorded from another cases.toml "
             f"(sha256 {data.get('corpus_sha256')}); record it again with record_oracle.py"
         )
+    if data.get("cpan_versions") != CPAN_VERSIONS:
+        raise StaleOracle(
+            f"{path}: recorded with the CPAN modules {data.get('cpan_versions')!r}, "
+            f"expected {CPAN_VERSIONS}"
+        )
     cases = data.get("cases", {})
     missing = [cid for cid in case_ids if cid not in cases]
     if missing:
@@ -371,6 +455,21 @@ def choose_expected(
         "no oracle: build native perl 5.42.3 at build/native-install, name one with "
         "WASI_PERL_ORACLE, or name a recorded oracle with WASI_PERL_ORACLE_JSON"
     )
+
+
+def choose_module_expected(
+    find=lambda: find_oracle(),
+    versions=module_versions,
+    recorded_path: str | None = None,
+    case_ids: list[str] = (),
+):
+    """`choose_expected`, for the cases of the cpan group: a native oracle must also load the
+    five pinned CPAN modules at their versions with the group's PERL5LIB, or OracleRefused
+    fails the group. `versions(perl)` asks it."""
+    kind, source = choose_expected(find, recorded_path, case_ids)
+    if kind == "native":
+        check_module_versions(versions(source))
+    return kind, source
 
 
 def verdict(case_id: str, diff: dict[str, str], known: dict | None) -> tuple[str, str]:

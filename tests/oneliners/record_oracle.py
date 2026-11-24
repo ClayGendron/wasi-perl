@@ -2,8 +2,10 @@
 
     uv run python tests/oneliners/record_oracle.py [--perl PATH] --out build/oracle.json
 
-The file carries the corpus's SHA-256; the tests refuse it once cases.toml changes.
-Point WASI_PERL_ORACLE_JSON at it to compare the guest against it.
+The file carries the corpus's SHA-256; the tests refuse it once cases.toml changes. The module
+cases run with build/native-cpan on PERL5LIB, and the file records the CPAN versions they ran
+with; an oracle without the pinned versions is refused. Point WASI_PERL_ORACLE_JSON at the
+file to compare the guest against it.
 """
 
 from __future__ import annotations
@@ -41,7 +43,11 @@ def main() -> int:
         return 2
     cases = oo.load_corpus()
     with tempfile.TemporaryDirectory() as scratch:
-        data = oo.record(oracle, cases, Path(scratch))
+        try:
+            data = oo.record(oracle, cases, Path(scratch))
+        except oo.OracleRefused as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     sha = data["corpus_sha256"][:12]

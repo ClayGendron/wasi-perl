@@ -1,5 +1,6 @@
 """The judge's own logic, checked without any perl: the recorded oracle, the choice of
-where expected results come from, the known-difference verdicts, and the corpus loader."""
+where expected results come from, the CPAN modules the module cases need, the
+known-difference verdicts, and the corpus loader."""
 
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ def _recording(**overrides) -> dict:
         "format": oo.ORACLE_JSON_FORMAT,
         "perl": oo.ORACLE_VERSION.removeprefix("v"),
         "corpus_sha256": oo.corpus_sha256(),
+        "cpan_versions": dict(oo.CPAN_VERSIONS),
         "cases": {cid: _result().to_json() for cid in IDS},
     }
     data.update(overrides)
@@ -121,6 +123,73 @@ def test_find_oracle_refuses_a_named_path_that_is_missing(monkeypatch, tmp_path)
     monkeypatch.setenv("WASI_PERL_ORACLE", str(tmp_path / "nope"))
     with pytest.raises(oo.OracleRefused):
         oo.find_oracle()
+
+
+# ---------------------------------------------------------------------------
+# The module cases' CPAN distributions
+
+
+def test_the_pinned_versions_are_the_recipes_five():
+    assert oo.CPAN_VERSIONS == {
+        "Cpanel::JSON::XS": "4.83",
+        "Text::CSV_XS": "1.65",
+        "JSON::MaybeXS": "1.004008",
+        "Text::CSV": "2.06",
+        "Algorithm::Diff": "1.201",
+    }
+
+
+def _oracle_with(versions: dict[str, str | None]):
+    return lambda: Path("/x/perl"), lambda perl: versions
+
+
+def test_an_oracle_with_all_five_at_the_pinned_versions_is_used():
+    find, versions = _oracle_with(dict(oo.CPAN_VERSIONS))
+    assert oo.choose_module_expected(find, versions, None, IDS) == ("native", Path("/x/perl"))
+
+
+def test_an_oracle_missing_a_cpan_module_fails_rather_than_skips(tmp_path):
+    find, versions = _oracle_with({**oo.CPAN_VERSIONS, "Text::CSV": None})
+    with pytest.raises(oo.OracleRefused, match="Text::CSV"):
+        oo.choose_module_expected(find, versions, str(_write(tmp_path, _recording())), IDS)
+
+
+def test_an_oracle_with_another_cpan_version_fails_rather_than_skips(tmp_path):
+    find, versions = _oracle_with({**oo.CPAN_VERSIONS, "Cpanel::JSON::XS": "4.39"})
+    with pytest.raises(oo.OracleRefused, match="4.39"):
+        oo.choose_module_expected(find, versions, str(_write(tmp_path, _recording())), IDS)
+
+
+@pytest.mark.parametrize(
+    "versions",
+    [
+        {**oo.CPAN_VERSIONS, "Algorithm::Diff": "1.1903"},
+        {k: v for k, v in oo.CPAN_VERSIONS.items() if k != "JSON::MaybeXS"},
+        None,
+    ],
+    ids=["another-version", "one-missing", "none-recorded"],
+)
+def test_a_recording_with_other_cpan_versions_is_stale(tmp_path, versions):
+    data = _recording(cpan_versions=versions)
+    if versions is None:
+        del data["cpan_versions"]
+    with pytest.raises(oo.StaleOracle):
+        oo.choose_expected(lambda: None, str(_write(tmp_path, data)), IDS)
+    with pytest.raises(oo.StaleOracle):
+        oo.choose_module_expected(lambda: None, lambda perl: {}, str(_write(tmp_path, data)), IDS)
+
+
+def test_only_the_module_group_gets_the_cpan_library():
+    plain = oo.Case("p", "grep", ("-e", "1"), {}, None, {})
+    grouped = oo.Case("m", "modules", ("-e", "1"), {}, None, {}, group="cpan")
+    assert oo.group_env(plain) == {}
+    assert oo.group_env(grouped) == {"PERL5LIB": str(oo.NATIVE_CPAN_LIB)}
+
+
+def test_an_unknown_group_is_refused():
+    text = '[[case]]\nid = "x"\ncategory = "grep"\nargv = ["-e", "1"]\ngroup = "cpna"\n'
+    with pytest.raises(ValueError, match="group"):
+        oo.load_corpus(text)
 
 
 # ---------------------------------------------------------------------------
