@@ -389,33 +389,39 @@ __wasi_errno_t __wrap___wasi_path_symlink(const char *old_path, __wasi_fd_t fd,
 
 /* A host wait cannot be stopped: wasmtime's poll_oneoff waits in the host, where the runner's
  * epoch deadline and fuel do not reach, so `sleep 2**31` would hold the caller for good. So no
- * clock wait goes to the host longer than SLICE_NS. While the earliest clock is further away,
- * the host is asked about the descriptors and one slice of the monotonic clock, and the loop
- * runs again in WebAssembly, where the deadline and fuel stop it. Each clock's own time is
- * kept, absolute or relative, on its own clock. The last wait, at most one slice, is the
- * subscriptions as given with each clock made relative to what remains, so the events returned
- * are the host's for exactly those subscriptions; a slice's own event never is.
+ * wait goes to the host for longer than SLICE_NS. While the soonest clock is further away, or
+ * there is no clock (a wait on descriptors alone), the host is asked about the descriptors and
+ * one slice of the monotonic clock, and the loop runs again in WebAssembly, where the deadline
+ * and fuel stop it. The last wait, at most one slice, is the subscriptions as given with each
+ * clock made relative to what remains, so the events returned are the host's for exactly
+ * those subscriptions; a slice's own event never is.
+ *
+ * A relative wait is a duration, whatever clock it names, as it is to the host and to Linux's
+ * nanosleep: its due time is kept on the monotonic clock, so a step of the wall clock neither
+ * ends it early nor makes it longer. An absolute wait is a time on its own clock and is kept
+ * there. An absolute wait on a clock the guest cannot read is refused with EINVAL, never sent
+ * whole to the host.
  *
  * The host writes into a buffer of this function's own, one event per subscription it is
  * sent, and at most `cap` events are copied to `out`, so the host can never write past the
- * caller's buffer whatever is added here. Events of the clock this file adds (userdata
- * OWN_CLOCK) are dropped. */
+ * caller's buffer whatever is added here. With `own_clock`, the caller's only clock is one the
+ * table added (a zero timeout), and its event is dropped too. */
 #define SLICE_NS 10000000ULL
 #define OWN_CLOCK UINT64_MAX
 
 __typeof__(__wasi_poll_oneoff) __real___wasi_poll_oneoff;
 
 static __wasi_errno_t sliced_poll(const __wasi_subscription_t *subs, __wasi_size_t n,
-                                  __wasi_event_t *out, __wasi_size_t cap,
+                                  __wasi_event_t *out, __wasi_size_t cap, int own_clock,
                                   __wasi_size_t *nevents)
 {
     __wasi_timestamp_t *due = malloc(n * sizeof *due);
+    uint8_t *relative = malloc(n);
     __wasi_subscription_t *work = malloc((n + 1) * sizeof *work);
     __wasi_event_t *ev = malloc((n + 1) * sizeof *ev);
     __wasi_errno_t error = __WASI_ERRNO_SUCCESS;
     __wasi_size_t got = 0, kept = 0;
-    int clocks = 0, sliced = 1;
-    if (due == NULL || work == NULL || ev == NULL) {
+    if (due == NULL || relative == NULL || work == NULL || ev == NULL) {
         error = __WASI_ERRNO_NOMEM;
         goto done;
     }
@@ -424,30 +430,28 @@ static __wasi_errno_t sliced_poll(const __wasi_subscription_t *subs, __wasi_size
         __wasi_timestamp_t now;
         if (subs[i].u.tag != __WASI_EVENTTYPE_CLOCK)
             continue;
-        clocks++;
-        if (__wasi_clock_time_get(c->id, 1, &now) != __WASI_ERRNO_SUCCESS) {
-            sliced = 0; /* a clock the host cannot read: the host's own answer for the call */
-            continue;
+        relative[i] = !(c->flags & __WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME);
+        if (__wasi_clock_time_get(relative[i] ? __WASI_CLOCKID_MONOTONIC : c->id, 1, &now) !=
+            __WASI_ERRNO_SUCCESS) {
+            error = __WASI_ERRNO_INVAL;
+            goto done;
         }
-        if (c->flags & __WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME)
+        if (!relative[i])
             due[i] = c->timeout;
         else
             due[i] = c->timeout > UINT64_MAX - now ? UINT64_MAX : now + c->timeout;
     }
-    if (clocks == 0 || !sliced) {
-        memcpy(work, subs, n * sizeof *work);
-        error = __real___wasi_poll_oneoff(work, ev, n, &got);
-        goto done;
-    }
     for (;;) {
-        __wasi_timestamp_t soonest = UINT64_MAX;
+        __wasi_timestamp_t soonest = UINT64_MAX, mono = 0;
         __wasi_size_t m = 0;
+        (void)__wasi_clock_time_get(__WASI_CLOCKID_MONOTONIC, 1, &mono);
         for (__wasi_size_t i = 0; i < n; i++) {
-            __wasi_timestamp_t now = 0, left;
+            __wasi_timestamp_t now = mono, left;
             work[i] = subs[i];
             if (subs[i].u.tag != __WASI_EVENTTYPE_CLOCK)
                 continue;
-            (void)__wasi_clock_time_get(subs[i].u.u.clock.id, 1, &now);
+            if (!relative[i])
+                (void)__wasi_clock_time_get(subs[i].u.u.clock.id, 1, &now);
             left = due[i] > now ? due[i] - now : 0;
             work[i].u.u.clock.timeout = left;
             work[i].u.u.clock.flags &= ~__WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME;
@@ -484,13 +488,14 @@ static __wasi_errno_t sliced_poll(const __wasi_subscription_t *subs, __wasi_size
 done:
     if (error == __WASI_ERRNO_SUCCESS) {
         for (__wasi_size_t k = 0; k < got && k < n + 1 && kept < cap; k++) {
-            if (ev[k].userdata == OWN_CLOCK && ev[k].type == __WASI_EVENTTYPE_CLOCK)
+            if (own_clock && ev[k].type == __WASI_EVENTTYPE_CLOCK)
                 continue;
             out[kept++] = ev[k];
         }
         *nevents = kept;
     }
     free(due);
+    free(relative);
     free(work);
     free(ev);
     return error;
@@ -516,7 +521,7 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
     for (__wasi_size_t i = 0; i < nsubscriptions; i++)
         has_fd |= in[i].u.tag != __WASI_EVENTTYPE_CLOCK;
     if (!has_fd)
-        return sliced_poll(in, nsubscriptions, out, nsubscriptions, nevents);
+        return sliced_poll(in, nsubscriptions, out, nsubscriptions, 0, nevents);
     copy = malloc(nsubscriptions * sizeof *copy);
     if (copy == NULL)
         return __WASI_ERRNO_NOMEM;
@@ -566,7 +571,8 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
         }
     }
     if (nsent > 0)
-        error = sliced_poll(copy, nsent, out + nlocal, nsubscriptions - nlocal, &nhost);
+        error = sliced_poll(copy, nsent, out + nlocal, nsubscriptions - nlocal, nlocal > 0,
+                            &nhost);
     free(copy);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;

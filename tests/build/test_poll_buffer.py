@@ -50,3 +50,13 @@ def test_the_host_cannot_write_past_the_callers_events(probe, wasmtime_cli, tmp_
     # The file's event is the table's own (10); STDOUT's is the host's (11). The zero clock the
     # table added is dropped, and nothing lands after the two events.
     assert (p.returncode, p.stdout) == (0, b"error 0, 2 events: 10 11\ncanary whole\n"), p
+
+
+def test_a_callers_clock_with_the_largest_userdata_is_kept(probe, wasmtime_cli):
+    p = subprocess.run(
+        [str(wasmtime_cli), "run", "-W", "exceptions=y", str(probe), "clock"],
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert (p.returncode, p.stdout) == (0, b"error 0, 1 events: the caller's clock\n"), p

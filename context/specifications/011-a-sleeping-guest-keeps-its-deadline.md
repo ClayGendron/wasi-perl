@@ -89,3 +89,22 @@ It is fixed in 010's review round (7bcaf73), with its canary probe `tests/build/
 ### Not changed here
 
 Specification 004's text says no runner call can block. With this change a guest sleep no longer blocks past the deadline, but the text belongs to 004 and is left for its owner. `docs/sandbox.md` now says that a sleep ends at the deadline or fuel limit.
+
+### The review round (2026-11-24)
+
+These are the findings of `context/reviews/011-a-sleeping-guest-keeps-its-deadline-pr-2026-11-24.md`, fixed in one commit after a merge of dev at 961791f. dev holds 009 and 010 as landed, and every add/add conflict kept both sides.
+
+- **M1, a relative wait measured on the wall clock.** Fixed. A relative subscription's due time is kept on `CLOCK_MONOTONIC`, whatever clock it names. An absolute one stays on its own clock. The last call sends the remaining time as a relative timeout on the subscription's own clock, as before. Stepping the host's clock was not tried: there is no way to step it here without root on the host. The checks of `test_sleep.py`, which sleep on `CLOCK_REALTIME` (`sleep`, `nanosleep`, `usleep`) and `CLOCK_MONOTONIC`, still last their time. EXECUTED.
+- **L1, a caller's clock with userdata `UINT64_MAX` dropped.** Fixed. In a slice call the table's slice is the only clock, so every clock event there is the slice's. In the last call, clock events are dropped only when the wrapper added the zero clock (`own_clock`), and then the caller's clocks were taken out already. `test_poll_buffer.py`'s probe has a second case: a 20 ms clock with that userdata. With the table before this fix it gave `0 events`, and it now gives `1 events: the caller's clock`. EXECUTED.
+- **L2, an unreadable clock sent unsliced.** Fixed. An absolute wait on a clock the guest cannot read answers EINVAL and is never sent to the host. A relative wait reads only the monotonic clock. Its last slice, at most 10 ms, still names its own clock, so the host answers for a clock it does not know.
+- **L3, a wait on descriptors with no clock.** Fixed. It is sliced too, as a wait whose clock never comes due. So the deadline reaches a guest blocked on an inherited stdin or a socket. The cost is one pass through the loop every 10 ms, and only while nothing is ready.
+- **L4, fuel overstated.** Fixed in `docs/sandbox.md`. The deadline bounds a sleep. A sleeping guest spends about 20,000 fuel a second (the review's 212 per slice; these notes' 550 for `select`), so a fuel cap alone bounds a sleep only loosely.
+- **L5, the unmetered engine.** Fixed. `test_a_sleeping_guest_keeps_its_deadline_unmetered` runs `sleep 2**31 - 1` with `deadline_s=1` and no fuel, on the default engine, and it ends "deadline". EXECUTED.
+- **L6, about 250 grants stop perl at start-up.** Answered. It is a clear EMFILE exit from the guest, never a crash. Refusing that many grants in `run()` belongs to 012's runner work.
+- **Imports.** The new test files import from `tests/build/_build_helpers.py`, never from `conftest`, as 008 does. That file is 008's, byte for byte, so 008's merge meets the same file. It is not reformatted here.
+
+    uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q             EXECUTED
+    394 passed in 18.24s
+    WASI_PERL_ARTIFACTS=$PWD/build/artifacts uv run pytest -q tests/escapes                      EXECUTED
+    22 passed in 29.56s
+

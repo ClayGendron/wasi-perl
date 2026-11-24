@@ -44,7 +44,7 @@ About `%SIG`:
 
 - `$$`. It is always 42, wasi-libc's stand-in process ID.
 - `getppid`. It returns 0: the parent is the host, outside the sandbox, as for a Linux process whose parent is in another PID namespace.
-- `times`, `sleep`, `Time::HiRes::sleep` and `select(undef, undef, undef, $seconds)`. They use WASI's clock, and they sleep their full time. A sleep still ends at the runner's deadline or fuel limit, like any other code: the guest waits in slices of at most 10 ms.
+- `times`, `sleep`, `Time::HiRes::sleep` and `select(undef, undef, undef, $seconds)`. They use WASI's clock, and they sleep their full time. A sleep still ends at the runner's deadline, like any other code: the guest waits in slices of at most 10 ms. A sleeping guest spends little fuel (about 20,000 a second), so a fuel cap alone bounds a sleep only loosely; the deadline is what bounds it.
 - `exit`, `END` blocks, `die` and `warn`.
 - Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
 - Four-argument `select` over the bit vectors `vec` builds, `IO::Select` and `IO::Poll`. A regular file is always ready to read and to write, as on POSIX.

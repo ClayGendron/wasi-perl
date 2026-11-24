@@ -16,8 +16,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
-
-from conftest import ARTIFACTS, ROOT
+from _build_helpers import ARTIFACTS, ROOT
 
 LOOKS_LIKE_HOME = re.compile(rb"(?:/root/|/home/|/Users/)[^\s'\"<>()\\]*")
 TOKEN = re.compile(rb"[^\s'\"<>()\\]*")

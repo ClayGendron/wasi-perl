@@ -591,6 +591,8 @@ import sys
 from wasi_perl import Artifacts, run
 artifacts, code, limit = sys.argv[1:4]
 kw = {"deadline_s": 1, "fuel": 10**12} if limit == "deadline" else {"deadline_s": None}
+if limit == "unmetered":
+    kw = {"deadline_s": 1}  # no fuel: the default engine, whose compiled code differs
 if limit == "fuel":
     start = run(["-MTime::HiRes", "-e", "1"], fuel=10**12, artifacts=Artifacts.at(artifacts))
     kw["fuel"] = start.fuel_used + 100_000  # start-up, then about two seconds of slices
@@ -613,6 +615,12 @@ def _sleep_child(perl_set, code: str, limit: str) -> subprocess.CompletedProcess
 @pytest.mark.parametrize("code", SLEEPS.values(), ids=SLEEPS.keys())
 def test_a_sleeping_guest_keeps_its_deadline(perl_set, code):
     out = _sleep_child(perl_set, code, "deadline")
+    assert out.returncode == 0, out.stderr
+    assert out.stdout == "None deadline b'' b''\n", out.stdout
+
+
+def test_a_sleeping_guest_keeps_its_deadline_unmetered(perl_set):
+    out = _sleep_child(perl_set, SLEEPS["sleep-forever"], "unmetered")
     assert out.returncode == 0, out.stderr
     assert out.stdout == "None deadline b'' b''\n", out.stdout
 
