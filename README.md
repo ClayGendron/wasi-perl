@@ -51,13 +51,13 @@ Path("shared/hello.txt").write_text("hello from shared\n")
 Path("private").mkdir(exist_ok=True)
 Path("private/secret.txt").write_text("secret\n")
 
-code = r'''
+code = r"""
 for my $path ("/shared/hello.txt", "/private/secret.txt", "/shared/../private/secret.txt") {
     if (open(my $f, "<", $path)) { print "$path -> ", scalar <$f> }
     else { print "$path -> $!\n" }
 }
 open(my $out, ">", "/shared/new.txt") or print "write to /shared -> $!\n";
-'''
+"""
 
 done = run(["-e", code], grants=[Grant("shared", "/shared")])
 print(done.stdout.decode())
@@ -73,8 +73,11 @@ write to /shared -> Operation not permitted
 A one-liner edits files in place only in a writable grant, and `cwd` sets the working folder:
 
 ```python
-run(["-pi", "-e", "s/colour/color/g", "notes.txt"],
-    grants=[Grant("docs", "/docs", writable=True)], cwd="/docs")
+run(
+    ["-pi", "-e", "s/colour/color/g", "notes.txt"],
+    grants=[Grant("docs", "/docs", writable=True)],
+    cwd="/docs",
+)
 ```
 
 What the guest always sees, read-only: the Perl library at `/usr/local/lib/perl5` and an empty `/dev/null`. There is no `/`, no `/tmp` and no `HOME` unless you grant them. The guest's environment is exactly `env=` (plus `PWD` from `cwd=`); nothing of your own environment reaches it.
@@ -117,7 +120,7 @@ The command exits 0 when the call returned (the JSON says how the program ended)
 
 - A FIFO (named pipe) inside a grant: a guest that opens one waits inside the host's own `open`, beyond the deadline's reach, until something writes to it. Grant folders that hold no FIFO.
 - Symbolic links a guest leaves in a writable grant. The guest cannot follow one out of the grant, but your own program, reading the folder afterwards, can.
-- A host folder swapped by another writer between the runner's check and wasmtime's own open of it (the guest cannot do this; another process of yours could).
+- A host folder swapped by another writer between the runner's check and wasmtime's own open of it. Within one process the runner keeps a registry of the grants of the calls running now, and refuses a grant at, inside or above another live call's writable grant (and a writable grant over another live call's grant), so no guest of this process can do it; another process, or another guest of another process, with write access to a folder on the way still could.
 - Disk use inside a writable grant, and anything a writable grant holds that a later call reads.
 - Timing, the real clock and entropy.
 

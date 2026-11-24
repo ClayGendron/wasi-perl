@@ -244,3 +244,46 @@ def test_defaults_are_checked_by_runs_rules():
 def test_the_defaults_are_wasi_pythons():
     d = wasi_perl.defaults()
     assert (d.memory_bytes, d.deadline_s, d.output_bytes) == (1 << 30, 60.0, 16 << 20)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a backslash is a separator on Windows")
+def test_a_backslash_in_a_posix_host_path_is_a_name(tmp_path, standin):
+    # A guest with a writable grant can make a folder named `..\secret`; a later grant of it
+    # must open that folder, never its sibling `secret`.
+    rw = tmp_path / "rw"
+    rw.mkdir()
+    (rw / "..\\secret").mkdir()
+    (tmp_path / "secret").mkdir()
+    (tmp_path / "secret" / "s.txt").write_text("SECRET")
+    done = run(["cat", "/in/s.txt"], grants=[Grant(rw / "..\\secret", "/in")], artifacts=standin)
+    assert done.exit_code == 1 and b"SECRET" not in done.stdout
+    done = run(
+        ["write", "/in/planted"],
+        grants=[Grant(rw / "..\\secret", "/in", writable=True)],
+        artifacts=standin,
+    )
+    assert done.exit_code == 0
+    assert (rw / "..\\secret" / "planted").is_file()
+    assert sorted(p.name for p in (tmp_path / "secret").iterdir()) == ["s.txt"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a backslash is a separator on Windows")
+def test_a_backslash_is_a_name_in_every_part_of_a_walk():
+    from wasi_perl import _grants
+
+    assert _grants._parts("a\\..\\b/c") == ["a\\..\\b", "c"]
+    assert _grants._parts("/x//y/") == ["x", "y"]
+
+
+def test_no_writable_grant_reaches_the_host_pythons_own_code(no_work, standin):
+    import site
+    import sysconfig
+
+    paths = sysconfig.get_paths()
+    folders = [Path(paths[k]) for k in ("stdlib", "platstdlib", "purelib", "platlib", "scripts")]
+    if site.ENABLE_USER_SITE and Path(site.getusersitepackages()).is_dir():
+        folders.append(Path(site.getusersitepackages()))
+    for folder in folders:
+        if folder.is_dir():
+            with pytest.raises(ValueError, match="runtime"):
+                run(["hello"], grants=[Grant(folder, "/w", writable=True)], artifacts=standin)
