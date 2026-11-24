@@ -17,3 +17,27 @@ The owner's plan. Each row is one specification; rows on the same line of the "a
 The wheel is one `py3-none-any` wheel: `perl.wasm` and the library are the same bytes everywhere (the owner, 2026-11-24). The process in `AGENTS.md` is the lighter one (the owner, 2026-11-24).
 
 PyPI publishing (spec 008) is by trusted publishing from `.github/workflows/release.yml`, job environment `pypi`, as wasi-python does; the owner registers that publisher on PyPI (asked 2026-11-24).
+
+# After 0.1.0: speed under vfs
+
+The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) proposes ten specifications. The owner's answers on 2026-11-24:
+
+- **Order: "1–4 first."** These are 013–016 below, agreed by the owner the same day ("Agree all four (Recommended)"). Then: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That makes 017–022, to be written on a later branch.
+- **The preload snapshot: "Install-time images only."** It may be built only as an image the embedder makes itself, so that its fixed hash seed is never published. It is specified after the leaner `@INC`.
+- **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** That root-cause study is running; its memo is to be written.
+- **`NO_TAINT_SUPPORT`: "Keep -T."** It is not built.
+
+| Spec | What it delivers | After |
+|---|---|---|
+| 013 | Seeds from the host's randomness: a guest-side `/dev/urandom` and `/dev/random` from WASI `random_get`, so the hash seed and `rand` are no longer guessable from the clock | 009, 010 |
+| 014 | The runner's fixed cost: version once, `SHA256SUMS` per stamp, rule inputs only when needed, one `InstancePre`, the `.cwasm` mapped, the version from `dist-info`, and four engine pins | 004, 012 |
+| 015 | The runner's checks kept across calls: runtime-file identities per folder stamp, and a tree record in the module cache | 014 |
+| 016 | The guest's reads and writes: a 64 KiB PerlIO buffer, a SIMD `memchr`, and `isatty` answered for files the table looked at | 009, 010, 013 |
+
+Proposed next, not yet written:
+- mounts, wasi-python's protocol adapted (synthesis spec 5);
+- JSON and CSV in XS (6);
+- a leaner `@INC` (7);
+- docs for agents (8);
+- `wasm-opt -O3` (9);
+- the install-time preload image (10).

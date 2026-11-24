@@ -1,0 +1,42 @@
+{
+ "hello": {
+  "median_ms": 1.45,
+  "n": 30
+ },
+ "sum_csv": {
+  "median_ms": 54.33,
+  "n": 7
+ },
+ "grep_log": {
+  "median_ms": 24.19,
+  "n": 7
+ },
+ "inplace": {
+  "median_ms": 39.37,
+  "n": 7
+ },
+ "json": {
+  "median_ms": 564.93,
+  "n": 3
+ },
+ "loop": {
+  "median_ms": 23.41,
+  "n": 5
+ },
+ "subcall": {
+  "median_ms": 16.57,
+  "n": 5
+ },
+ "eval_die": {
+  "median_ms": 6.88,
+  "n": 5
+ },
+ "destroy": {
+  "median_ms": 13.96,
+  "n": 5
+ },
+ "sort": {
+  "median_ms": 39.03,
+  "n": 5
+ }
+}

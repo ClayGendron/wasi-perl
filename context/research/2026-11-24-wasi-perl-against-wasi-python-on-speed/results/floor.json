@@ -1,0 +1,26 @@
+{
+ "instantiate_only": {
+  "n": 50,
+  "median_ms": 0.07,
+  "min_ms": 0.06,
+  "p90_ms": 0.1
+ },
+ "run_e_1": {
+  "n": 50,
+  "median_ms": 4.01,
+  "min_ms": 3.52,
+  "p90_ms": 4.25
+ },
+ "run_MPOSIX_e_1": {
+  "n": 50,
+  "median_ms": 21.94,
+  "min_ms": 19.87,
+  "p90_ms": 28.17
+ },
+ "run_MJSON_PP_e_1": {
+  "n": 50,
+  "median_ms": 28.8,
+  "min_ms": 26.48,
+  "p90_ms": 36.42
+ }
+}

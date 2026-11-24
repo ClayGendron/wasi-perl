@@ -1,0 +1,32 @@
+{
+ "fd_read_1B": {
+  "calls": 20000,
+  "us_per_call": 27.21,
+  "guest_instructions_per_call": 458
+ },
+ "fd_read_64K": {
+  "calls": 2000,
+  "us_per_call": 49.73,
+  "guest_instructions_per_call": 919
+ },
+ "path_filestat_get": {
+  "calls": 20000,
+  "us_per_call": 55.72,
+  "guest_instructions_per_call": 1712
+ },
+ "fd_fdstat_get": {
+  "calls": 20000,
+  "us_per_call": 53.28,
+  "guest_instructions_per_call": 192
+ },
+ "fd_seek": {
+  "calls": 20000,
+  "us_per_call": 0.28,
+  "guest_instructions_per_call": 796
+ },
+ "open_close": {
+  "calls": 2000,
+  "us_per_call": 193.09,
+  "guest_instructions_per_call": 10804
+ }
+}

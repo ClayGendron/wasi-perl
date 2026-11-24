@@ -1,0 +1,14 @@
+{
+ "python pandas, plain": 1432.1,
+ "python pandas, shipped snapshot": 1272.9,
+ "python pandas, image of `import pandas`": 50.2,
+ "python image made in s": 25.85,
+ "perl -e 1": 4.4,
+ "perl -MPOSIX -MList::Util -MData::Dumper -MJSON::PP -MStorable -MEncode -e 1": 48.7,
+ "fuel": {
+  "pandas plain": 5074999376,
+  "pandas snapshot": 4803169044,
+  "pandas image": 4658314,
+  "perl six modules": 173532361
+ }
+}

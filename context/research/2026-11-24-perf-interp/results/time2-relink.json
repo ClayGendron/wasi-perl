@@ -1,0 +1,12 @@
+{
+ "perl": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/interp/perl-relink.wasm",
+ "time": {
+  "hello": 3.01,
+  "sum_csv": 140.05,
+  "grep_log": 121.17,
+  "inplace": 204.0,
+  "count_lines": 72.82,
+  "many_files": 60.14,
+  "json": 1286.88
+ }
+}

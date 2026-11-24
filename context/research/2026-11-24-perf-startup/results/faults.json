@@ -1,0 +1,75 @@
+{
+ "n": 60,
+ "ondemand perl.wasm e_1": {
+  "ms_median": 1.045,
+  "minor_faults_median": 78.0
+ },
+ "ondemand snap-construct e_1": {
+  "ms_median": 1.039,
+  "minor_faults_median": 64.0
+ },
+ "ondemand snap-preload e_1": {
+  "ms_median": 1.411,
+  "minor_faults_median": 294.0
+ },
+ "ondemand perl.wasm five": {
+  "ms_median": 26.212,
+  "minor_faults_median": 555.0
+ },
+ "ondemand snap-construct five": {
+  "ms_median": 26.146,
+  "minor_faults_median": 551.0
+ },
+ "ondemand snap-preload five": {
+  "ms_median": 4.691,
+  "minor_faults_median": 469.0
+ },
+ "pooling perl.wasm e_1": {
+  "ms_median": 1.377,
+  "minor_faults_median": 86.0
+ },
+ "pooling snap-construct e_1": {
+  "ms_median": 1.351,
+  "minor_faults_median": 72.0
+ },
+ "pooling snap-preload e_1": {
+  "ms_median": 1.869,
+  "minor_faults_median": 300.0
+ },
+ "pooling perl.wasm five": {
+  "ms_median": 28.871,
+  "minor_faults_median": 563.0
+ },
+ "pooling snap-construct five": {
+  "ms_median": 28.985,
+  "minor_faults_median": 559.0
+ },
+ "pooling snap-preload five": {
+  "ms_median": 5.431,
+  "minor_faults_median": 475.0
+ },
+ "pooling_resident perl.wasm e_1": {
+  "ms_median": 2.58,
+  "minor_faults_median": 8.0
+ },
+ "pooling_resident snap-construct e_1": {
+  "ms_median": 2.529,
+  "minor_faults_median": 8.0
+ },
+ "pooling_resident snap-preload e_1": {
+  "ms_median": 2.791,
+  "minor_faults_median": 6.0
+ },
+ "pooling_resident perl.wasm five": {
+  "ms_median": 31.647,
+  "minor_faults_median": 8.0
+ },
+ "pooling_resident snap-construct five": {
+  "ms_median": 31.65,
+  "minor_faults_median": 8.0
+ },
+ "pooling_resident snap-preload five": {
+  "ms_median": 7.11,
+  "minor_faults_median": 6.0
+ }
+}

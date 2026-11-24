@@ -1,0 +1,220 @@
+total 465
+    196  fd_read (1550978 bytes)
+    124  path_filestat_get
+     43  fd_fdstat_get
+     32  fd_tell
+     16  path_open
+     16  fd_close
+     13  fd_seek
+      8  fd_prestat_get
+      4  clock_time_get
+      4  fd_prestat_dir_name
+      4  fd_filestat_get
+      1  environ_sizes_get
+      1  args_sizes_get
+      1  args_get
+      1  fd_write (6 bytes)
+      1  proc_exit
+   clock_time_get
+   environ_sizes_get
+   args_sizes_get
+   args_get
+   fd_fdstat_get(0)
+   fd_fdstat_get(1)
+   fd_fdstat_get(2)
+   fd_fdstat_get(3)
+   fd_prestat_get(3)
+   fd_fdstat_get(4)
+   fd_prestat_get(4)
+   fd_fdstat_get(5)
+   fd_prestat_get(5)
+   fd_fdstat_get(6)
+   fd_prestat_get(6)
+   fd_fdstat_get(7) -> Err(Error { inner: Badf
+   fd_prestat_get(3)
+   fd_prestat_dir_name(3)
+   fd_prestat_get(4)
+   fd_prestat_dir_name(4)
+   fd_prestat_get(5)
+   fd_prestat_dir_name(5)
+   fd_prestat_get(6)
+   fd_prestat_dir_name(6)
+   clock_time_get x3
+   fd_fdstat_get(0)
+   fd_tell(0) -> Err(Error { inner: Spipe
+   fd_fdstat_get(1)
+   fd_tell(1) -> Err(Error { inner: Spipe
+   fd_fdstat_get(2)
+   fd_tell(2) -> Err(Error { inner: Spipe
+   fd_fdstat_get(4)
+   path_filestat_get(4) *guest
+   path_open(4) *guest
+   fd_fdstat_get(7)
+   fd_tell(7)
+   fd_filestat_get(7)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(8)
+   fd_tell(8)
+   fd_read(8)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(9)
+   fd_tell(9)
+   fd_read(9)
+   fd_seek(9)
+   fd_tell(9)
+   fd_close(9)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(9)
+   fd_tell(9)
+   fd_read(9)
+   fd_seek(9)
+   fd_tell(9)
+   fd_close(9)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(9)
+   fd_tell(9)
+   fd_read(9)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(10)
+   fd_tell(10)
+   fd_read(10)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11) x4
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   fd_seek(10)
+   fd_tell(10)
+   fd_close(10)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   fd_seek(9)
+   fd_tell(9)
+   fd_close(9)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11) x4
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x5
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x5
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11) x5
+   fd_close(11)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   fd_read(8) x2
+   path_filestat_get(3) *guest -> Err(Error { inner: Noent x7
+   path_filestat_get(3) *guest
+   fd_fdstat_get(3)
+   path_filestat_get(3) *guest
+   path_open(3) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_read(11)
+   fd_seek(11)
+   fd_tell(11)
+   fd_close(11)
+   fd_read(8) x3
+   fd_seek(8)
+   fd_tell(8)
+   fd_close(8)
+   fd_close(7)
+   fd_fdstat_get(5)
+   path_filestat_get(5) *guest
+   path_open(5) *guest
+   fd_fdstat_get(11)
+   fd_tell(11)
+   fd_filestat_get(11) x2
+   fd_read(11) x167
+   fd_filestat_get(11)
+   fd_close(11)
+   fd_write(1)
+   proc_exit -> Exited with i32 exit status 0

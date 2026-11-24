@@ -1,0 +1,14 @@
+{
+ "ms_per_call_of_N": {
+  "empty": 1.260384000488557,
+  "stat_missing": 575.5835230002049,
+  "stat_found": 1172.0822500001304,
+  "open_close": 4298.216680000223
+ },
+ "N": 20000,
+ "us_per_op_less_empty": {
+  "stat_missing": 28.716,
+  "stat_found": 58.541,
+  "open_close": 214.848
+ }
+}

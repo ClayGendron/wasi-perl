@@ -1,0 +1,104 @@
+{
+ "json_decode": {
+  "median_ms": 60.6,
+  "n": 3,
+  "fuel": 492002655,
+  "answer": "20000 99995000.0"
+ },
+ "json_encode": {
+  "median_ms": 80.8,
+  "n": 9,
+  "fuel": 662504791,
+  "answer": "1155561"
+ },
+ "jq_select": {
+  "median_ms": 60.0,
+  "n": 9,
+  "fuel": 492893903,
+  "answer": "14000 bytes sha256 db61c8ff9bf85d72"
+ },
+ "csv_regex": {
+  "median_ms": 109.9,
+  "n": 9,
+  "fuel": 1034013642,
+  "answer": "50000 25015654.65 651847"
+ },
+ "sort_uniq": {
+  "median_ms": 275.3,
+  "n": 5,
+  "fuel": 2625155448,
+  "answer": "10715 worker11 INFO\n10715 worker2 INFO\n10715 worker4 INFO\n10715 worker9 INFO\n10714 worker0 INFO\n10714 worker1 INFO\n10714 worker10 INFO\n10714 worker12 INFO\n10714 worker13 INFO\n10714 worker14 INFO\n10714 worker15 INFO\n10714 worker3 INFO\n10714 worker5 INFO\n10714 worker6 INFO\n10714 worker7 INFO\n10714 worker8 INFO\n1786 worker0 ERROR\n1786 worker1 ERROR\n1786 worker10 ERROR\n1786 worker12 ERROR"
+ },
+ "sort_lines": {
+  "median_ms": 207.5,
+  "n": 5,
+  "fuel": 2132444030,
+  "answer": "200000 5dc5ae108b9cbc2da7cda9ea34bb88b5"
+ },
+ "sort_numeric": {
+  "median_ms": 437.3,
+  "n": 5,
+  "fuel": 3105363079,
+  "answer": "e39a59c2a5aeb45447e3085c16f442c5"
+ },
+ "word_freq": {
+  "median_ms": 195.0,
+  "n": 9,
+  "fuel": 2465410600,
+  "answer": "4491 his\n4461 this\n4447 where\n4400 are\n4393 also\n4390 three\n4384 between\n4382 they\n4379 than\n4377 by\n4376 from\n4376 record\n4375 were\n4361 world\n4360 all\n4359 or\n4349 during\n4348 other\n4347 which\n4338 city"
+ },
+ "grep_context": {
+  "median_ms": 876.3,
+  "n": 5,
+  "fuel": 900048305,
+  "answer": "315621 bytes sha256 565b3e5dee31b0f4"
+ },
+ "diff_lcs+algdiff": {
+  "median_ms": 48.3,
+  "n": 9,
+  "fuel": 318215230,
+  "answer": "99 72 66"
+ },
+ "file_find": {
+  "median_ms": 238.6,
+  "n": 5,
+  "fuel": 98019846,
+  "answer": "2000 3455653"
+ },
+ "sha256": {
+  "median_ms": 62.2,
+  "n": 9,
+  "fuel": 824242192,
+  "answer": "d49ad5ca4a4d91f09470877f50a7a70571d42f9b11ede1c218d9334f121b6544"
+ },
+ "sprintf_report": {
+  "median_ms": 387.7,
+  "n": 5,
+  "fuel": 4291885994,
+  "answer": "49878 bytes sha256 09329854f45f4bfd"
+ },
+ "template": {
+  "median_ms": 161.6,
+  "n": 9,
+  "fuel": 1522971623,
+  "answer": "1493788"
+ },
+ "dumper": {
+  "median_ms": 615.0,
+  "n": 5,
+  "fuel": 6942206836,
+  "answer": "1375559"
+ },
+ "storable": {
+  "median_ms": 207.0,
+  "n": 5,
+  "fuel": 1688626879,
+  "answer": "848815 20000"
+ },
+ "unicode_fold": {
+  "median_ms": 87.4,
+  "n": 9,
+  "fuel": 944626370,
+  "answer": "107"
+ }
+}

@@ -1,0 +1,94 @@
+--- /home/user/wasi-perl-wt/perf-interp/recipes/wasi-fd-table.c	2026-11-24 11:16:17.951284359 +0000
++++ fdt-isatty.c	2026-11-24 11:44:10.654590825 +0000
+@@ -54,6 +54,8 @@
+     __wasi_fdflags_t fdflags;
+     __wasi_rights_t base, inheriting;
+     uint8_t reopenable;
++    /* The look before the open found a regular file, so it is no terminal (isatty). */
++    uint8_t regular;
+ };
+ 
+ /* Each open file has at least one virtual number, so there are never more files than numbers.
+@@ -76,7 +78,7 @@
+ __typeof__(__wasi_path_open) __real___wasi_path_open;
+ __typeof__(__wasi_path_rename) __real___wasi_path_rename;
+ static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
+-                           __wasi_oflags_t oflags);
++                           __wasi_oflags_t oflags, uint8_t *regular);
+ 
+ static void bind(int v, int file, int close_on_exec)
+ {
+@@ -91,6 +93,7 @@
+         if (files[i].refs == 0) {
+             files[i].real = real;
+             files[i].reopenable = 0;
++            files[i].regular = 0;
+             return i;
+         }
+     }
+@@ -363,7 +366,7 @@
+         __wasi_fd_t real;
+         __wasi_oflags_t oflags =
+             f->oflags & ~(__WASI_OFLAGS_CREAT | __WASI_OFLAGS_EXCL | __WASI_OFLAGS_TRUNC);
+-        if (look(new_fd, 0, new_path, oflags) != __WASI_ERRNO_SUCCESS ||
++        if (look(new_fd, 0, new_path, oflags, NULL) != __WASI_ERRNO_SUCCESS ||
+             __real___wasi_path_open(new_fd, 0, new_path, oflags, f->base, f->inheriting,
+                                     f->fdflags, &real) != __WASI_ERRNO_SUCCESS)
+             continue;
+@@ -593,13 +596,17 @@
+  * a WASI import directly, so no program can skip the look. What it cannot close is another
+  * process on the host swapping the name between the look and the open. */
+ static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
+-                           __wasi_oflags_t oflags)
++                           __wasi_oflags_t oflags, uint8_t *regular)
+ {
+     __wasi_filestat_t st;
++    if (regular)
++        *regular = 0;
+     if ((oflags & __WASI_OFLAGS_CREAT) && (oflags & __WASI_OFLAGS_EXCL))
+         return __WASI_ERRNO_SUCCESS;
+     if (__real___wasi_path_filestat_get(realdir, dirflags, path, &st) != __WASI_ERRNO_SUCCESS)
+         return __WASI_ERRNO_SUCCESS;
++    if (regular)
++        *regular = st.filetype == __WASI_FILETYPE_REGULAR_FILE;
+     switch (st.filetype) {
+     case __WASI_FILETYPE_DIRECTORY:
+     case __WASI_FILETYPE_REGULAR_FILE:
+@@ -621,11 +628,12 @@
+     __wasi_fd_t real;
+     __wasi_errno_t error;
+     int v, f;
++    uint8_t regular;
+     TO_REAL(fd);
+     v = lowest_free(0);
+     if (v < 0)
+         return __WASI_ERRNO_MFILE;
+-    error = look(fd, dirflags, path, oflags);
++    error = look(fd, dirflags, path, oflags, &regular);
+     if (error != __WASI_ERRNO_SUCCESS)
+         return error;
+     error = __real___wasi_path_open(fd, dirflags, path, oflags, base, inheriting, fdflags, &real);
+@@ -637,6 +645,7 @@
+     files[f].base = base;
+     files[f].inheriting = inheriting;
+     files[f].reopenable = 1;
++    files[f].regular = regular;
+     bind(v, f, 0);
+     *opened = (__wasi_fd_t)v;
+     return __WASI_ERRNO_SUCCESS;
+@@ -836,3 +845,15 @@
+     }
+     return found;
+ }
++
++/* isatty asks the host for the descriptor's type (fd_fdstat_get), one of the dearer calls. A
++ * file whose look before the open found a regular file is no terminal: answered here. */
++int __real_isatty(int fd);
++int __wrap_isatty(int fd)
++{
++    if (is_open(fd) && files[slot[fd] - 1].regular) {
++        errno = ENOTTY;
++        return 0;
++    }
++    return __real_isatty(fd);
++}

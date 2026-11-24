@@ -1,0 +1,31 @@
+diff --git a/src/wasi_perl/_engines.py b/src/wasi_perl/_engines.py
+index 0558767..b3aabde 100644
+--- a/src/wasi_perl/_engines.py
++++ b/src/wasi_perl/_engines.py
+@@ -58,13 +58,24 @@ def wasmtime() -> Any:
+     return wt
+ 
+ 
++_version: list[str | None] = []  # wasmtime-py's installed version, once read
++
++
+ def wasmtime_version() -> str | None:
++    """wasmtime-py's installed version, read from its metadata once per process: the search of
++    every distribution on the path costs about 0.25 ms, and the wasmtime-py a process imports
++    does not change after the import, so the version that gated it stays the one that keys its
++    compiled modules."""
++    if _version:
++        return _version[0]
+     from importlib.metadata import PackageNotFoundError, version
+ 
+     try:
+-        return version("wasmtime")
++        found: str | None = version("wasmtime")
+     except PackageNotFoundError:
+-        return None  # no version to key a .cwasm by: modules stay in this process
++        found = None  # no version to key a .cwasm by: modules stay in this process
++    _version[:] = [found]
++    return found
+ 
+ 
+ def counts() -> dict[str, int]:

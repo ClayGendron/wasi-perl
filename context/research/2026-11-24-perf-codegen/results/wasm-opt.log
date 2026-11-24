@@ -1,0 +1,7 @@
+woO2.wasm: wasm-opt -O2 in 181 s, 8527894 bytes
+woO3.wasm: wasm-opt -O3 in 195 s, 8506304 bytes
+unexpected expr type
+UNREACHABLE executed at /src/src/passes/Flatten.cpp:231!
+woOs.wasm: wasm-opt -Os in 201 s, 8500895 bytes
+woO3c.wasm: wasm-opt -O3 --converge in 197 s, 8503391 bytes
+done

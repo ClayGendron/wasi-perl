@@ -1,0 +1,15 @@
+r1 relink hello 3.92 sum_csv 146.04 grep_log 128.58 inplace 229.91 count_lines 75.76 many_files 66.8 loop 74.45 
+r1 buf65536 hello 3.95 sum_csv 111.42 grep_log 70.32 inplace 119.29 count_lines 48.11 many_files 105.33 loop 76.72 
+r1 memchr-simd hello 3.43 sum_csv 134.02 grep_log 104.35 inplace 200.12 count_lines 77.64 many_files 68.54 loop 74.99 
+r1 buf65536-memchr hello 3.93 sum_csv 117.3 grep_log 68.55 inplace 114.25 count_lines 36.29 many_files 73.45 loop 71.12 
+r1 buf65536-memchr-isatty hello 3.49 sum_csv 117.89 grep_log 71.79 inplace 117.27 count_lines 36.42 many_files 52.71 loop 74.32 
+r2 relink hello 3.45 sum_csv 138.6 grep_log 110.82 inplace 202.74 count_lines 79.77 many_files 71.71 loop 75.77 
+r2 buf65536 hello 3.88 sum_csv 118.16 grep_log 73.2 inplace 128.36 count_lines 43.35 many_files 71.28 loop 74.82 
+r2 memchr-simd hello 3.82 sum_csv 142.21 grep_log 109.58 inplace 202.45 count_lines 78.56 many_files 67.92 loop 71.01 
+r2 buf65536-memchr hello 3.76 sum_csv 116.03 grep_log 68.06 inplace 117.38 count_lines 38.69 many_files 63.05 loop 75.01 
+r2 buf65536-memchr-isatty hello 2.97 sum_csv 110.16 grep_log 65.98 inplace 112.15 count_lines 37.41 many_files 50.42 loop 76.69 
+r3 relink hello 3.38 sum_csv 148.96 grep_log 108.67 inplace 197.88 count_lines 77.61 many_files 63.95 loop 70.39 
+r3 buf65536 hello 2.93 sum_csv 111.99 grep_log 71.62 inplace 118.1 count_lines 38.29 many_files 58.95 loop 70.67 
+r3 memchr-simd hello 2.99 sum_csv 132.49 grep_log 95.93 inplace 176.3 count_lines 64.34 many_files 57.95 loop 70.56 
+r3 buf65536-memchr hello 3.98 sum_csv 115.51 grep_log 62.16 inplace 105.55 count_lines 33.72 many_files 62.73 loop 74.6 
+r3 buf65536-memchr-isatty hello 2.94 sum_csv 116.75 grep_log 62.0 inplace 106.61 count_lines 35.09 many_files 46.04 loop 70.55 

@@ -1,0 +1,3 @@
+cand rc=0 168s 20_target: ok ($S/v/cand/build/artifacts/perl.wasm)
+nosbox rc=0 76s 20_target: ok ($S/v/nosbox/build/artifacts/perl.wasm)
+mymalloc2 rc=0 92s 20_target: ok ($S/v/mymalloc2/build/artifacts/perl.wasm)

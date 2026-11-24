@@ -1,0 +1,6 @@
+{"label": "base", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/base-src/wasi_perl/__init__.py", "bare": 4.235, "ro": 4.408, "rw": 23.566, "stdin+env": 4.484, "fuel": 4.384, "cat ro file": 4.966}
+{"label": "L1-L4", "module": "/home/user/wasi-perl-wt/perf-runner/src/wasi_perl/__init__.py", "bare": 1.571, "ro": 1.438, "rw": 19.007, "stdin+env": 1.844, "fuel": 1.28, "cat ro file": 2.063}
+{"label": "all-levers", "module": "/home/user/wasi-perl-wt/perf-runner/src/wasi_perl/__init__.py", "bare": 1.264, "ro": 1.436, "rw": 2.792, "stdin+env": 1.602, "fuel": 1.504, "cat ro file": 1.967}
+{"label": "base-rerun", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/base-src/wasi_perl/__init__.py", "bare": 3.772, "ro": 3.904, "rw": 21.937, "stdin+env": 3.515, "fuel": 4.355, "cat ro file": 3.882}
+{"label": "final", "module": "/home/user/wasi-perl-wt/perf-runner/src/wasi_perl/__init__.py", "bare": 1.487, "ro": 1.674, "rw": 3.301, "stdin+env": 1.8, "fuel": 1.67, "cat ro file": 1.799}
+{"label": "base-rerun2", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/base-src/wasi_perl/__init__.py", "bare": 3.482, "ro": 3.622, "rw": 21.345, "stdin+env": 3.655, "fuel": 4.171, "cat ro file": 4.624}

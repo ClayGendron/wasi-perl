@@ -1,0 +1,79 @@
+$ echo | clang --target=wasm32-wasip1 -E -dM - | grep __wasm_
+#define __wasm__ 1
+#define __wasm_bulk_memory__ 1
+#define __wasm_bulk_memory_opt__ 1
+#define __wasm_multivalue__ 1
+#define __wasm_mutable_globals__ 1
+#define __wasm_nontrapping_fptoint__ 1
+#define __wasm_reference_types__ 1
+#define __wasm_sign_ext__ 1
+
+$ wasm-opt --print-features build/variants/base.wasm
+--enable-mutable-globals
+--enable-nontrapping-float-to-int
+--enable-bulk-memory
+--enable-sign-ext
+--enable-exception-handling
+--enable-reference-types
+--enable-multivalue
+--enable-extended-const
+--enable-bulk-memory-opt
+--enable-call-indirect-overlong
+
+$ llvm-objdump -d memcpy.c.obj etc. (from sysroot lib/wasm32-wasip1/libc.a): memory.copy/fill count
+memcpy.c.obj: 1
+memset.c.obj: 1
+memmove.c.obj: 2
+
+$ ls share/wasi-sysroot/lib/wasm32-wasip1/  (variant folders)
+eh
+llvm-lto
+noeh
+
+$ wasm-dis base.wasm | grep -c ...
+memory.copy: 639
+memory.fill: 276
+try_table: 21
+v128: 0
+functions: 3981
+defined memcpy/memset/memmove functions: 0
+ (memory $0 213)  (pages of 64 KiB)
+ (global $__stack_pointer (mut i32) (i32.const 8388608))
+
+functions that call __wasm_setjmp (the setjmp lowering):
+$Perl_call_list
+$Perl_call_sv
+$Perl_eval_sv
+$S_docatch
+$S_fold_constants_eval
+$S_gen_constant_list
+$S_try_run_unitcheck
+$S_try_yyparse
+$_invoke_defer_block
+$exception
+$perl_destruct
+$perl_parse
+$perl_run
+
+$ wasm-dis simd.wasm | grep -c "v128|i8x16|i32x4|i64x2"
+3326
+
+$ ls -l build/variants/*.wasm
+O3.wasm 9345810
+Os.wasm 9026161
+Oz.wasm 8699572
+base.wasm 9260141
+base2.wasm 9260141
+lto.wasm 9756124
+nobulkopt.wasm 9266666
+simd.wasm 9281234
+stack1m.wasm 9260140
+tailcall.wasm 9260130
+thinlto.wasm 9868008
+woO2.wasm 8527894
+woO3.wasm 8506304
+woO3c.wasm 8503391
+woOs.wasm 8500895
+
+binaryen: https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+sha256 2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489  (matches the release's .sha256 file)

@@ -1,0 +1,758 @@
+diff --git a/src/wasi_perl/_artifacts.py b/src/wasi_perl/_artifacts.py
+index dd43d80..dbfd08b 100644
+--- a/src/wasi_perl/_artifacts.py
++++ b/src/wasi_perl/_artifacts.py
+@@ -100,6 +100,7 @@ _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY
+ _lock = threading.Lock()
+ _digests: dict[tuple[str, int, int, int, int, int], str] = {}
+ _trees: set[tuple[str, int, int, int, int, int]] = set()  # SHA256SUMS stamps whose tree passed
++_sums: dict[tuple[str, int, int, int, int, int], dict[str, str]] = {}  # SHA256SUMS read, by stamp
+ 
+ 
+ def forget() -> None:
+@@ -107,6 +108,7 @@ def forget() -> None:
+     with _lock:
+         _digests.clear()
+         _trees.clear()
++        _sums.clear()
+ 
+ 
+ def _stamp(path: Path) -> tuple[str, int, int, int, int, int]:
+@@ -141,6 +143,31 @@ def digest(path: Path) -> str:
+ 
+ 
+ def _read_sums(found: Artifacts) -> dict[str, str]:
++    """SHA256SUMS parsed, kept per stamp of the file as `digest` keeps a hash: it is read again
++    only when its inode, size, mtime or ctime changes, and kept only when its stamp is the same
++    after the read as before it."""
++    try:
++        before = _stamp(found.sums)
++    except OSError:
++        before = None
++    if before is not None:
++        with _lock:
++            kept = _sums.get(before)
++        if kept is not None:
++            return kept
++    sums = _parse_sums(found)
++    try:
++        after = _stamp(found.sums)
++    except OSError:
++        after = None
++    if before is not None and after == before:
++        with _lock:
++            _sums.clear()  # one set's list at a time
++            _sums[before] = sums
++    return sums
++
++
++def _parse_sums(found: Artifacts) -> dict[str, str]:
+     try:
+         text = found.sums.read_text(encoding="ascii")
+     except (OSError, UnicodeDecodeError) as e:
+@@ -165,50 +192,147 @@ def _refuse(path: Path, sums: Path, got: str, want: str) -> ArtifactsMissing:
+     )
+ 
+ 
+-def checked() -> tuple[Artifacts, str]:
++def checked(cache: Path | None = None) -> tuple[Artifacts, str]:
+     """The found set, and perl.wasm's digest as checked: perl.wasm and MANIFEST against
+     SHA256SUMS on every call (each hashed again only when its stamp changes), and the library and
+     dev/ trees once per stamp of SHA256SUMS: every file listed, every file listed as hashed, and
+     dev/ exactly one empty `null`. The digest is handed on, so the module is compiled only from
+-    bytes that hash to it."""
++    bytes that hash to it. With a module cache, the tree's check is kept there as each file's
++    stamp when it was last hashed, so a later process hashes only the files whose stamp moved."""
+     found = artifacts()
+     root = found.perl.parent
+     if found.lib != root / "lib" / "perl5" or found.manifest.parent != root:
+         raise ArtifactsMissing(f"{root} is not laid out as an artifact set")
+     sums = _read_sums(found)
++    key = _stamp(found.sums)
++    with _lock:
++        done = key in _trees
++    record = None if done else _record_path(cache, found)
++    known = _read_record(record, root) if record is not None else {}
+     got_perl = ""
++    verified: dict[str, FileStamp] = {}
+     for path in (found.manifest, found.perl):
+         want = sums.get(path.name)
+         if want is None:
+             raise ArtifactsMissing(f"{path} is not listed in {found.sums}")
+         try:
++            _seed(path, known.get(path.name), want)
+             got = digest(path)
+         except OSError as e:
+             raise ArtifactsMissing(f"{path} cannot be read ({e})") from None
+         if got != want:
+             raise _refuse(path, found.sums, got, want)
+         got_perl = got
+-    key = _stamp(found.sums)
+-    with _lock:
+-        done = key in _trees
++        stamp = _hashed_under(path)
++        if stamp is not None:
++            verified[path.name] = stamp
+     if not done:
+-        _check_tree(root, sums, found.sums)
++        verified.update(_check_tree(root, sums, found.sums, known))
++        if record is not None and verified != known:
++            _write_record(record, root, verified)
+         with _lock:
+             _trees.add(key)
+     return found, got_perl
+ 
+ 
+-def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
++def _seed(path: Path, recorded: FileStamp | None, want: str) -> None:
++    """A file a record says was hashed under the stamp it has now is taken as hashed."""
++    if recorded is None:
++        return
++    key = _stamp(path)
++    if key[1:] == recorded:
++        with _lock:
++            _digests.setdefault(key, want)
++
++
++def _hashed_under(path: Path) -> FileStamp | None:
++    """The stamp under which this process holds `path`'s digest, if it holds one for its stamp
++    now."""
++    try:
++        key = _stamp(path)
++    except OSError:
++        return None
++    with _lock:
++        return key[1:] if key in _digests else None
++
++
++FileStamp = tuple[int, int, int, int, int]  # st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns
++
++
++def _file_stamp(st: os.stat_result) -> FileStamp:
++    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
++
++
++def _record_path(cache: Path | None, found: Artifacts) -> Path | None:
++    """Where the tree's check is kept: in the module cache folder, as the runner makes it, by
++    the digest of SHA256SUMS, so another list is never judged by this one's record. A record is
++    trusted as a `.cwasm` there is, and whoever could write one could write native code."""
++    if cache is None:
++        return None
++    from wasi_perl import _cache
++
++    folder = _cache.folder(cache)
++    if folder is None:
++        return None
++    try:
++        return folder / f"tree-{digest(found.sums)[:32]}.json"
++    except OSError:
++        return None
++
++
++def _read_record(record: Path, root: Path) -> dict[str, FileStamp]:
++    import json
++
++    from wasi_perl import _cache
++
++    blob, _ = _cache.read(record)
++    if blob is None:
++        return {}
++    try:
++        data = json.loads(blob)
++        if data.get("root") != str(root):
++            return {}
++        files = data["files"]
++        return {
++            str(rel): tuple(int(n) for n in stamp)  # type: ignore[misc]
++            for rel, stamp in files.items()
++            if isinstance(stamp, list) and len(stamp) == 5
++        }
++    except (ValueError, TypeError, KeyError, AttributeError):
++        return {}
++
++
++def _write_record(record: Path, root: Path, verified: dict[str, FileStamp]) -> None:
++    import json
++
++    from wasi_perl import _cache
++
++    data = {"root": str(root), "files": {rel: list(st) for rel, st in sorted(verified.items())}}
++    _cache.write(json.dumps(data, separators=(",", ":")).encode(), record)
++
++
++def _check_tree(
++    root: Path, sums: dict[str, str], sums_path: Path, known: dict[str, FileStamp] | None = None
++) -> dict[str, FileStamp]:
++    """The tree held to SHA256SUMS; returns each file's stamp under which its hash matched. A
++    file whose stamp is the one `known` gives was hashed under that stamp and is not hashed
++    again: a write to it moves its mtime and ctime, and a new file at its name moves its inode,
++    and no process but the kernel's clock sets a ctime."""
++    known = known or {}
++    verified: dict[str, FileStamp] = {}
+     listed = {name for name in sums if name.startswith(("lib/", "dev/"))}
+     present = set()
+     for top in ("lib", "lib/perl5", "dev"):
+         if stat.S_ISLNK(os.lstat(root / top).st_mode):
+             raise ArtifactsMissing(f"{root / top} is a link; a set holds no links")
++    base = str(root) + os.sep
+     for top in ("lib", "dev"):
+         for dirpath, dirnames, filenames in os.walk(root / top, followlinks=False):
+-            for name in filenames + [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:
+-                path = Path(dirpath) / name
+-                rel = path.relative_to(root).as_posix()
++            # Names joined as strings: a Path per file costs more than its lstat.
++            linked = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
++            for name in filenames + linked:
++                path = os.path.join(dirpath, name)
++                rel = path[len(base) :].replace(os.sep, "/")
+                 st = os.lstat(path)
+                 if not stat.S_ISREG(st.st_mode):
+                     raise ArtifactsMissing(f"{path} is not a regular file; a set holds no links")
+@@ -218,9 +342,15 @@ def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
+                         "be code Perl would load, so the set is not used"
+                     )
+                 present.add(rel)
+-                got = digest(path)
++                stamp = _file_stamp(st)
++                if known.get(rel) == stamp:
++                    verified[rel] = stamp
++                    continue
++                got = digest(Path(path))
+                 if got != sums[rel]:
+-                    raise _refuse(path, sums_path, got, sums[rel])
++                    raise _refuse(Path(path), sums_path, got, sums[rel])
++                if _file_stamp(os.lstat(path)) == stamp:
++                    verified[rel] = stamp
+     missing = sorted(listed - present)
+     if missing:
+         raise ArtifactsMissing(f"{root / missing[0]} is listed in {sums_path} but missing")
+@@ -228,3 +358,4 @@ def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
+         raise ArtifactsMissing(f"{root / 'dev'} must hold exactly one empty file, null")
+     if os.stat(root / "dev" / "null").st_size != 0:
+         raise ArtifactsMissing(f"{root / 'dev' / 'null'} must be empty")
++    return verified
+diff --git a/src/wasi_perl/_cache.py b/src/wasi_perl/_cache.py
+index db67a24..ceb5074 100644
+--- a/src/wasi_perl/_cache.py
++++ b/src/wasi_perl/_cache.py
+@@ -24,6 +24,7 @@ import stat
+ import sys
+ import tempfile
+ import warnings
++from collections.abc import Callable
+ from pathlib import Path
+ from typing import Any, NamedTuple
+ 
+@@ -219,11 +220,11 @@ def _read_all(fd: int, size: int) -> bytes:
+         parts.append(block)
+ 
+ 
+-def read(cwasm: Path) -> tuple[bytes | None, bool]:
+-    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
+-    was checked, so a file put at the name after the check is not the file read; and whether the
+-    runner may put its own file at that name (when there is none, or the one there is refused,
+-    but never over a folder)."""
++def _open_checked(cwasm: Path) -> tuple[int | None, bool]:
++    """A descriptor of a `.cwasm` that is as the runner makes it, checked through itself, so a
++    file put at the name after the check is not the file used; and whether the runner may put
++    its own file at that name (when there is none, or the one there is refused, but never over a
++    folder)."""
+     try:
+         before = os.lstat(cwasm)
+     except FileNotFoundError:
+@@ -252,8 +253,57 @@ def read(cwasm: Path) -> tuple[bytes | None, bool]:
+     try:
+         st = os.fstat(fd)
+         if _stamp(st) != _stamp(before) or _as_made(st, is_dir=False) is not None:
++            os.close(fd)
+             return None, True  # another file since its name was read
+-        return _read_all(fd, st.st_size), False
++    except OSError:
++        os.close(fd)
++        return None, True
++    return fd, False
++
++
++def _fd_name(fd: int) -> str | None:
++    """A name that opens the very file `fd` holds, whatever is at its path now: Linux's
++    /proc/self/fd/N, checked to name that file; None where there is no such name."""
++    if sys.platform != "linux":
++        return None
++    name = f"/proc/self/fd/{fd}"
++    try:
++        named, held = os.stat(name), os.fstat(fd)
++    except OSError:
++        return None
++    return name if (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino) else None
++
++
++def read(cwasm: Path) -> tuple[bytes | None, bool]:
++    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
++    was checked, and whether the runner may put its own file at that name."""
++    fd, may_write = _open_checked(cwasm)
++    if fd is None:
++        return None, may_write
++    try:
++        return _read_all(fd, os.fstat(fd).st_size), False
++    except OSError:
++        return None, True
++    finally:
++        os.close(fd)
++
++
++def load(
++    cwasm: Path, by_name: Callable[[str], Any], by_bytes: Callable[[bytes], Any]
++) -> tuple[Any, bool]:
++    """The module a `.cwasm` that is as the runner makes it holds, and whether the runner may put
++    its own file at that name. wasmtime maps the file itself, by the descriptor's own name, so
++    what was checked is what is mapped and no copy of it is made; where the descriptor has no
++    name, its bytes are read through it and handed over. The runner never rewrites a `.cwasm` in
++    place: `write` puts a new file at the name, which leaves a mapped one as it was."""
++    fd, may_write = _open_checked(cwasm)
++    if fd is None:
++        return None, may_write
++    try:
++        name = _fd_name(fd)
++        if name is not None:
++            return by_name(name), False
++        return by_bytes(_read_all(fd, os.fstat(fd).st_size)), False
+     except OSError:
+         return None, True
+     finally:
+diff --git a/src/wasi_perl/_engines.py b/src/wasi_perl/_engines.py
+index 0558767..c3aa836 100644
+--- a/src/wasi_perl/_engines.py
++++ b/src/wasi_perl/_engines.py
+@@ -58,13 +58,59 @@ def wasmtime() -> Any:
+     return wt
+ 
+ 
++_version: list[str | None] = []  # wasmtime-py's installed version, once read
++
++
+ def wasmtime_version() -> str | None:
+-    from importlib.metadata import PackageNotFoundError, version
++    """wasmtime-py's installed version, read from its metadata once per process: the search of
++    every distribution on the path costs about 0.25 ms, and the wasmtime-py a process imports
++    does not change after the import, so the version that gated it stays the one that keys its
++    compiled modules."""
++    if _version:
++        return _version[0]
++    found = _version_beside_module()
++    if found is None:
++        from importlib.metadata import PackageNotFoundError, version
++
++        try:
++            found = version("wasmtime")
++        except PackageNotFoundError:
++            found = None  # no version to key a .cwasm by: modules stay in this process
++    _version[:] = [found]
++    return found
++
+ 
++def _version_beside_module() -> str | None:
++    """The version in the one `wasmtime-*.dist-info` beside the wasmtime-py that an import would
++    load, found without importing it or importlib.metadata (about 11 ms at a process's start);
++    None when there is not exactly one such folder, or it names no version, and then
++    importlib.metadata decides."""
++    import importlib.util
++
++    try:
++        spec = importlib.util.find_spec("wasmtime")
++    except (ImportError, ValueError):
++        return None
++    if spec is None or not spec.origin:
++        return None
++    site = Path(spec.origin).parent.parent
+     try:
+-        return version("wasmtime")
+-    except PackageNotFoundError:
+-        return None  # no version to key a .cwasm by: modules stay in this process
++        infos = [p for p in site.iterdir() if p.name.lower().startswith("wasmtime-")]
++    except OSError:
++        return None
++    infos = [p for p in infos if p.name.endswith(".dist-info")]
++    if len(infos) != 1:
++        return None
++    try:
++        with open(infos[0] / "METADATA", encoding="utf-8") as f:
++            for line in f:
++                if line.startswith("Version:"):
++                    return line.split(":", 1)[1].strip() or None
++                if not line.strip():
++                    break  # the headers end at the first blank line
++    except (OSError, UnicodeDecodeError):
++        return None
++    return None
+ 
+ 
+ def counts() -> dict[str, int]:
+@@ -76,6 +122,27 @@ def forget() -> None:
+     """Drop this process's compiled modules, so the next call goes to the disk cache."""
+     with _lock:
+         _modules.clear()
++        _pres.clear()
++
++
++_pres: dict[int, tuple[Any, Any]] = {}  # id(module) -> (module, its InstancePre)
++
++
++def instance_pre(metered: bool, mod: Any) -> Any:
++    """`mod` linked once against WASI preview1, for every store of its engine: the linker's WASI
++    functions read each store's own WASI context, so one linking serves every call, and each
++    instance is made from it with no import resolved again."""
++    wt = wasmtime()
++    with _lock:
++        found = _pres.get(id(mod))
++    if found is not None and found[0] is mod:
++        return found[1]
++    linker = wt.Linker(engine(metered))
++    linker.define_wasi()
++    pre = linker.instantiate_pre(mod)
++    with _lock:
++        _pres[id(mod)] = (mod, pre)
++    return pre
+ 
+ 
+ def engine(metered: bool) -> Any:
+@@ -134,16 +201,18 @@ def _miss(
+             cwasm = folder / f"{digest[:32]}-wasmtime{version}-{flavor}.cwasm"
+     may_write = False
+     if cwasm is not None:
+-        blob, may_write = _cache.read(cwasm)
+-        if blob is not None:
+-            try:
+-                mod = wt.Module.deserialize(eng, blob)
+-            except wt.WasmtimeError:
+-                may_write = True  # stale or foreign: compiled again and replaced
+-            else:
+-                with _lock:
+-                    _counts["loaded"] += 1
+-                return mod
++        try:
++            mod, may_write = _cache.load(
++                cwasm,
++                lambda name: wt.Module.deserialize_file(eng, name),
++                lambda blob: wt.Module.deserialize(eng, blob),
++            )
++        except wt.WasmtimeError:
++            mod, may_write = None, True  # stale or foreign: compiled again and replaced
++        if mod is not None:
++            with _lock:
++                _counts["loaded"] += 1
++            return mod
+     # Compiled from one read, held to the digest: a file changed between its hash and its
+     # compile is never compiled, so it is never cached under a digest it does not have.
+     data = binary.read_bytes()
+@@ -163,6 +232,7 @@ def _release_at_exit() -> None:
+     interpreter's own teardown, their finalizers run after the bindings are gone and print an
+     ignored TypeError."""
+     with _lock:
++        _pres.clear()
+         _modules.clear()
+         _engines.clear()
+ 
+diff --git a/src/wasi_perl/_grants.py b/src/wasi_perl/_grants.py
+index c500ac3..b78ee3c 100644
+--- a/src/wasi_perl/_grants.py
++++ b/src/wasi_perl/_grants.py
+@@ -260,7 +260,7 @@ def judge(
+     *,
+     caches: Iterable[Path],
+     runtime: Iterable[Path],
+-    runtime_files: Iterable[Path] = (),
++    runtime_files: RuntimeFiles | Iterable[Path] = (),
+ ) -> tuple[tuple[Placed, ...], str | None]:
+     """Each grant resolved and held to the rules: no grant at or inside a module cache, no
+     writable grant above one; no writable grant at, inside or above a runtime folder; no
+@@ -307,33 +307,116 @@ def judge(
+ 
+ MAX_WALK = 100_000  # the most entries the writable grants of one call are walked through
+ 
++Stamp = tuple[int, int, int, int]  # a folder's st_dev, st_ino, st_mtime_ns, st_ctime_ns
+ 
+-def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]) -> None:
++
++def _folder_stamp(path: str) -> Stamp | None:
++    try:
++        st = os.lstat(path)
++    except OSError:
++        return None
++    return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
++
++
++class RuntimeFiles:
++    """The runtime's files as one scan found them: every regular file's identity and path, and
++    the stamp of every folder walked. A file is replaced, added or removed only through an entry
++    of its folder, which changes that folder's mtime and ctime, so while every stamp holds, the
++    identities are still the files' own; a second name made elsewhere changes no stamp here, and
++    is found by walking the writable grants, which is done on every call."""
++
++    def __init__(self, tops: Iterable[Path], singles: Iterable[Path]) -> None:
++        stamps: dict[str, Stamp | None] = {}
++        files: dict[Identity, Path] = {}
++
++        def note(path: str) -> None:
++            try:
++                st = os.lstat(path)
++            except OSError:
++                return
++            if stat.S_ISREG(st.st_mode):
++                files.setdefault((st.st_dev, st.st_ino), Path(path))
++
++        # Each folder is stamped before it is listed, so a change after the stamp is seen.
++        pending = [str(top) for top in tops]
++        while pending:
++            folder = pending.pop()
++            if folder in stamps:
++                continue
++            stamps[folder] = _folder_stamp(folder)  # None for one missing: none there
++            try:
++                entries = list(os.scandir(folder))
++            except OSError:
++                continue
++            for entry in entries:
++                if entry.is_dir(follow_symlinks=False):
++                    pending.append(entry.path)
++                else:
++                    note(entry.path)
++        for single in singles:
++            stamps.setdefault(str(single.parent), _folder_stamp(str(single.parent)))
++            note(str(single))
++        self.stamps = tuple(stamps.items())
++        self.files = files
++
++    @classmethod
++    def of(cls, paths: Iterable[Path]) -> RuntimeFiles:
++        """The files named, each as a single file."""
++        return cls((), paths)
++
++    def fresh(self) -> bool:
++        """Whether every folder walked is still as the scan found it."""
++        return all(_folder_stamp(path) == stamp for path, stamp in self.stamps)
++
++    def linked_now(self) -> dict[Identity, Path]:
++        """The runtime files that have more than one name now, read afresh."""
++        linked: dict[Identity, Path] = {}
++        for f in self.files.values():
++            try:
++                st = os.lstat(f)
++            except OSError:
++                continue
++            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
++                linked[(st.st_dev, st.st_ino)] = f
++        return linked
++
++
++def _refuse_second_names(
++    placed: Sequence[Placed], runtime_files: RuntimeFiles | Iterable[Path]
++) -> None:
+     """No writable grant holds a second name (a hard link) of a runtime file. A folder rule
+     cannot see one: uv installs packages by hard link from its cache, so wasmtime-py's native
+     library has other names there, and a writable grant of that cache would let a guest rewrite
+-    the library the next host process loads. Only a file with more than one name needs looking
+-    for; then the writable grants are walked, at most MAX_WALK entries in all, and one too large
+-    to walk is refused, since its second names cannot be ruled out."""
++    the library the next host process loads. The writable grants are walked, at most MAX_WALK
++    entries in all, and every file there with more than one name is looked up among the runtime
++    files' identities. A grant larger than the runtime itself first has the runtime's files read
++    for a second name, and is walked on only when one has: a file with one name has none to
++    find. One too large to walk is refused, since its second names cannot be ruled out."""
+     writable = [p for p in placed if p.writable]
+     if not writable:
+         return
+-    linked: dict[Identity, Path] = {}
+-    for f in runtime_files:
+-        try:
+-            st = os.lstat(f)
+-        except OSError:
+-            continue
+-        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+-            linked[(st.st_dev, st.st_ino)] = f
+-    if not linked:
++    runtime = (
++        runtime_files if isinstance(runtime_files, RuntimeFiles) else RuntimeFiles.of(runtime_files)
++    )
++    ids = runtime.files
++    if not ids:
+         return
++    linked: dict[Identity, Path] | None = None  # read only when a walk needs it
++
++    def linked_now() -> dict[Identity, Path]:
++        nonlocal linked
++        if linked is None:
++            linked = runtime.linked_now()
++        return linked
++
+     seen = 0
+     for i, p in enumerate(placed):
+         if not p.writable:
+             continue
+ 
+         def unsearchable(error: OSError, i: int = i, p: Placed = p) -> None:
++            if not linked_now():
++                return  # no runtime file has a second name, here or anywhere
+             raise ValueError(
+                 f"grants[{i}] at {p.guest}: the runner cannot search {error.filename} for "
+                 f"second names of the runtime's files ({error.strerror}), and one of them has "
+@@ -346,8 +429,10 @@ def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]
+             # where the guest cannot follow either.
+             dirnames[:] = [d for d in dirnames if not _redirects(os.path.join(dirpath, d))]
+             seen += len(dirnames) + len(filenames)
++            if seen > len(ids) and not linked_now():
++                return  # no runtime file has a second name: none is in any grant
+             if seen > MAX_WALK:
+-                some = next(iter(linked.values()))
++                some = next(iter(linked_now().values()))
+                 raise ValueError(
+                     f"grants[{i}] at {p.guest}: {p.host} is too large to walk ({MAX_WALK} "
+                     f"entries) for second names of the runtime's files, and {some} has more "
+@@ -359,7 +444,9 @@ def _refuse_second_names(placed: Sequence[Placed], runtime_files: Iterable[Path]
+                     st = os.lstat(os.path.join(dirpath, name))
+                 except OSError:
+                     continue
+-                target = linked.get((st.st_dev, st.st_ino))
++                if st.st_nlink < 2:
++                    continue
++                target = ids.get((st.st_dev, st.st_ino))
+                 if target is not None:
+                     raise ValueError(
+                         f"grants[{i}] at {p.guest}: {os.path.join(dirpath, name)} is a hard link "
+diff --git a/src/wasi_perl/runner.py b/src/wasi_perl/runner.py
+index 07c902d..abb8405 100644
+--- a/src/wasi_perl/runner.py
++++ b/src/wasi_perl/runner.py
+@@ -213,17 +213,28 @@ def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
+     return tuple(dict.fromkeys(Path(os.path.abspath(f)) for f in folders))
+ 
+ 
+-def _runtime_files(found: Artifacts) -> list[Path]:
++_scans_lock = threading.Lock()
++_scans: dict[tuple[Path, ...], _grants.RuntimeFiles] = {}  # the last scan, by the trees it walked
++
++
++def _runtime_files(found: Artifacts) -> _grants.RuntimeFiles:
+     """The files a writable grant may not hold a second name of: wasmtime-py's (its native
+-    library above all), this package's, and the artifact set's, the library tree included."""
++    library above all), this package's, and the artifact set's, the library tree included. The
++    trees are scanned once per process and again only when a folder in them changes."""
+     import wasmtime
+ 
+-    files: list[Path] = []
+-    for top in (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent):
+-        files += [p for p in top.rglob("*") if p.is_file()]
+-    files += [found.perl, found.manifest, found.sums, found.dev / "null"]
+-    files += [p for p in found.lib.rglob("*") if p.is_file()]
+-    return files
++    tops = (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent, found.lib)
++    singles = (found.perl, found.manifest, found.sums, found.dev / "null")
++    key = tops + singles
++    with _scans_lock:
++        kept = _scans.get(key)
++    if kept is not None and kept.fresh():
++        return kept
++    made = _grants.RuntimeFiles(tops, singles)
++    with _scans_lock:
++        _scans.clear()
++        _scans[key] = made
++    return made
+ 
+ 
+ def run(
+@@ -288,15 +299,17 @@ def run(
+     cwd_guest = _grants.check_cwd(cwd)
+     cache = _cache.given(cache_dir)
+     if artifacts is None:
+-        found, want = _artifacts.checked()
++        found, want = _artifacts.checked(cache.folder)
+     else:
+         found, want = artifacts, None
+     writing = any(g.writable for g in asked)
++    # Each rule's folders are found only when a grant can break it: the cache rule binds every
++    # grant, the runtime rules only a writable one; with no grant there is nothing to judge.
+     placed, cwd_guest = _grants.judge(
+         asked,
+         cwd_guest,
+-        caches=_cache.every(cache),
+-        runtime=_runtime_folders(found),
++        caches=_cache.every(cache) if asked else (),
++        runtime=_runtime_folders(found) if writing else (),
+         runtime_files=_runtime_files(found) if writing else (),
+     )
+     guest_env = dict(inputs.env)
+@@ -310,7 +323,8 @@ def run(
+             metered = limits.fuel is not None
+             module = _engines.module(metered, found.perl, want, cache.folder)
+             engine = _engines.engine(metered)
+-            return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
++            pre = _engines.instance_pre(metered, module)
++            return _call(wt, engine, pre, found, placed, inputs, guest_env, limits)
+         finally:
+             _grants.let_go(slot)
+     finally:
+@@ -327,9 +341,9 @@ def _set_up(
+     guest_env: dict[str, str],
+     out: _Stream,
+     err: _Stream,
+-) -> Any:
+-    """The store's WASI context and the linker. wasmtime opens each grant here, and raises
+-    WasmtimeError for a folder it cannot open; the caller reports that as the call's trap."""
++) -> None:
++    """The store's WASI context. wasmtime opens each grant here, and raises WasmtimeError for a
++    folder it cannot open; the caller reports that as the call's trap."""
+     wasi = wt.WasiConfig()
+     wasi.argv = [ARGV0, *inputs.argv]
+     wasi.env = sorted(guest_env.items())
+@@ -341,15 +355,12 @@ def _set_up(
+     for p in placed:
+         wasi.preopen_dir(str(p.host), p.guest, p.writable)
+     store.set_wasi(wasi)
+-    linker = wt.Linker(engine)
+-    linker.define_wasi()
+-    return linker
+ 
+ 
+ def _call(
+     wt: Any,
+     engine: Any,
+-    module: Any,
++    pre: Any,
+     found: Artifacts,
+     placed: tuple[_grants.Placed, ...],
+     inputs: _limits.Inputs,
+@@ -367,7 +378,7 @@ def _call(
+         if limits.memory_bytes is not None:
+             store.set_limits(memory_size=limits.memory_bytes)
+         try:
+-            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
++            _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
+         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
+             return Completed(None, b"", b"", _error_words(str(e)), None, ())
+         _stop.arm(store, stop)
+@@ -375,7 +386,7 @@ def _call(
+         _engines.TICKER.enter()
+         try:
+             with _stop.watching_ctrl_c(stop):
+-                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits)
++                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits)
+         finally:
+             _engines.TICKER.leave()
+     finally:
+@@ -387,7 +398,7 @@ def _call(
+ 
+ 
+ def _drive(
+-    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits
++    wt: Any, store: Any, pre: Any, limits: _limits.Limits
+ ) -> tuple[int | None, str | None, int | None]:
+     """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
+     metered = limits.fuel is not None
+@@ -398,7 +409,7 @@ def _drive(
+     instance = None
+     read_status = False  # whether the guest's own record of its exit status is asked for
+     try:
+-        instance = linker.instantiate(store, module)
++        instance = pre.instantiate(store)
+         if metered:
+             store.set_fuel(limits.fuel)
+             is_metered = True

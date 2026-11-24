@@ -1,0 +1,5 @@
+{"import_ms": 17.21468700020523, "artifact_check_ms": 65.88273399984246, "module_load_ms": 48.33378900002572, "first_call_after_ms": 7.656253000050128}
+{"import_ms": 21.789628000078665, "artifact_check_ms": 69.7100379998119, "module_load_ms": 54.605533000085416, "first_call_after_ms": 8.773965000045791}
+{"import_ms": 18.861985999819808, "artifact_check_ms": 65.8839469999748, "module_load_ms": 50.852661999897464, "first_call_after_ms": 8.01708500011955}
+{"import_ms": 17.83588100011002, "artifact_check_ms": 65.30047000001105, "module_load_ms": 52.51255100006347, "first_call_after_ms": 8.585798000012801}
+{"import_ms": 18.867573000079574, "artifact_check_ms": 66.42465599998104, "module_load_ms": 53.09727299982114, "first_call_after_ms": 8.801099000038448}

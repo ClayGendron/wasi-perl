@@ -1,0 +1,59 @@
+--- a/src/wasi_perl/_engines.py
++++ b/src/wasi_perl/_engines.py
+@@ -68,16 +68,51 @@
+     compiled modules."""
+     if _version:
+         return _version[0]
+-    from importlib.metadata import PackageNotFoundError, version
++    found = _version_beside_module()
++    if found is None:
++        from importlib.metadata import PackageNotFoundError, version
+ 
+-    try:
+-        found: str | None = version("wasmtime")
+-    except PackageNotFoundError:
+-        found = None  # no version to key a .cwasm by: modules stay in this process
++        try:
++            found = version("wasmtime")
++        except PackageNotFoundError:
++            found = None  # no version to key a .cwasm by: modules stay in this process
+     _version[:] = [found]
+     return found
+ 
+ 
++def _version_beside_module() -> str | None:
++    """The version in the one `wasmtime-*.dist-info` beside the wasmtime-py that an import would
++    load, found without importing it or importlib.metadata (about 11 ms at a process's start);
++    None when there is not exactly one such folder, or it names no version, and then
++    importlib.metadata decides."""
++    import importlib.util
++
++    try:
++        spec = importlib.util.find_spec("wasmtime")
++    except (ImportError, ValueError):
++        return None
++    if spec is None or not spec.origin:
++        return None
++    site = Path(spec.origin).parent.parent
++    try:
++        infos = [p for p in site.iterdir() if p.name.lower().startswith("wasmtime-")]
++    except OSError:
++        return None
++    infos = [p for p in infos if p.name.endswith(".dist-info")]
++    if len(infos) != 1:
++        return None
++    try:
++        with open(infos[0] / "METADATA", encoding="utf-8") as f:
++            for line in f:
++                if line.startswith("Version:"):
++                    return line.split(":", 1)[1].strip() or None
++                if not line.strip():
++                    break  # the headers end at the first blank line
++    except (OSError, UnicodeDecodeError):
++        return None
++    return None
++
++
+ def counts() -> dict[str, int]:
+     with _lock:
+         return dict(_counts)

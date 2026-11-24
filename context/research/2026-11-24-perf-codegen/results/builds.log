@@ -1,0 +1,11 @@
+O3: built in 42 s, 9345810 bytes
+FAILED: make -j4 perl utils/Makefile (see /home/user/wasi-perl-wt/perf-codegen/build/logs/20_target.log)
+lto: build failed (1), see build/variants/lto.log
+Os: built in 91 s, 9026161 bytes
+simd: built in 195 s, 9281234 bytes
+thinlto: built in 194 s, 9868008 bytes
+tailcall: built in 341 s, 9260130 bytes
+Oz: built in 194 s, 8699572 bytes
+lto: built in 275 s, 9756124 bytes
+nobulkopt: built in 322 s, 9266666 bytes
+stack1m: built in 157 s, 9260140 bytes

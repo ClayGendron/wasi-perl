@@ -1,0 +1,13 @@
+fd_read_1B {'calls': 20000, 'us_per_call': 27.21, 'guest_instructions_per_call': 458}
+fd_read_64K {'calls': 2000, 'us_per_call': 49.73, 'guest_instructions_per_call': 919}
+path_filestat_get {'calls': 20000, 'us_per_call': 55.72, 'guest_instructions_per_call': 1712}
+fd_fdstat_get {'calls': 20000, 'us_per_call': 53.28, 'guest_instructions_per_call': 192}
+fd_seek {'calls': 20000, 'us_per_call': 0.28, 'guest_instructions_per_call': 796}
+open_close {'calls': 2000, 'us_per_call': 193.09, 'guest_instructions_per_call': 10804}
+relink hello 3.82 sum_csv 133.76 grep_log 101.9 inplace 198.44 count_lines 78.95 many_files 64.78 json 1338.61 
+buf65536 hello 3.65 sum_csv 116.96 grep_log 75.38 inplace 125.3 count_lines 40.9 many_files 60.28 json 1313.79 
+buf262144 hello 3.75 sum_csv 114.84 grep_log 67.42 inplace 102.49 count_lines 33.51 many_files 65.55 json 1341.82 
+buf65536-memchr hello 3.68 sum_csv 116.49 grep_log 61.28 inplace 117.35 count_lines 34.71 many_files 54.53 json 1263.35 
+buf262144-memchr hello 2.99 sum_csv 106.64 grep_log 55.99 inplace 104.73 count_lines 31.72 many_files 66.82 json 1291.36 
+buf65536-swar hello 3.27 sum_csv 116.1 grep_log 67.68 inplace 116.73 count_lines 36.01 many_files 57.54 json 1290.64 
+relink hello 3.01 sum_csv 140.05 grep_log 121.17 inplace 204.0 count_lines 72.82 many_files 60.14 json 1286.88 
