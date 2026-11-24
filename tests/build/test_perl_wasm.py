@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST
+from conftest import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
 
 HELLO = 'print "hello, WebAssembly\\n"'
 DIE_IN_EVAL = 'eval { die "boom\\n" }; print "caught: $@"; print "after\\n"'
@@ -27,7 +27,14 @@ def test_hello(guest):
     assert (r.code, r.stdout, r.stderr) == (0, b"hello, WebAssembly\n", b"")
 
 
-def test_hello_on_the_wasmtime_command_line(perl_wasm: Path, wasmtime_cli: Path):
+def test_hello_on_the_wasmtime_command_line(
+    perl_wasm: Path, wasmtime_cli: Path, tmp_path: Path
+):
+    # The wasmtime command line grants every folder writable, so it is given only a throwaway
+    # /dev holding an empty null, and no artifact folder: print needs no library.
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    (dev / "null").write_bytes(b"")
     p = subprocess.run(
         [
             str(wasmtime_cli),
@@ -35,9 +42,7 @@ def test_hello_on_the_wasmtime_command_line(perl_wasm: Path, wasmtime_cli: Path)
             "-W",
             "exceptions=y",
             "--dir",
-            f"{LIBRARY}::{LIBRARY_GUEST}",
-            "--dir",
-            f"{DEV}::{DEV_GUEST}",
+            f"{dev}::{DEV_GUEST}",
             str(perl_wasm),
             "-e",
             HELLO,
@@ -65,9 +70,7 @@ def test_die_uncaught(guest, native):
     # from its wasi_perl_exit_status export. Nothing traps inside the program.
     r = guest("-e", 'die "bye\\n"')
     assert (r.stdout, r.stderr) == (b"", b"bye\n")
-    assert r.code is None and "invalid exit status outside of [0..126)" in r.error
-    assert "unreachable" not in r.error
-    assert r.status == 255
+    assert_exit_refused(r, 255)
     assert native("-e", 'die "bye\\n"').code == 255
     # END sees the same $? as natively.
     status = 'END { my $s = $?; $? = 0; print "status=$s\\n" } die "bye\\n"'
@@ -83,7 +86,22 @@ def test_exit_status_export(guest, native, status):
     if status < 126:
         assert (r.code, r.error) == (status, "")
     else:
-        assert r.code is None and "invalid exit status" in r.error
+        assert_exit_refused(r, status)
+
+
+@pytest.mark.parametrize(
+    ("value", "status"), [(256, 0), (-1, 255), (300, 44), (511, 255)]
+)
+def test_exit_status_is_the_low_byte(guest, native, value, status):
+    # exit takes the low eight bits, as natively; -1 stays the export's "never exited".
+    n = native("-e", f"exit {value}")
+    assert n.code == status
+    r = guest("-e", f"exit {value}")
+    assert r.status == status
+    if status < 126:
+        assert (r.code, r.error) == (status, "")
+    else:
+        assert_exit_refused(r, status)
 
 
 def test_exit_status_export_before_exit(guest_engine):
@@ -163,6 +181,11 @@ def _imports(wasm: bytes) -> list[tuple[str, str]]:
                 found.append((mod, field))
         i += size
     return found
+
+
+def test_no_wasm_opt(perl_wasm: Path):
+    # The module is what wasm-ld wrote: binaryen's wasm-opt never ran on it.
+    assert b"binaryen" not in perl_wasm.read_bytes()
 
 
 def test_imports(perl_wasm: Path):
