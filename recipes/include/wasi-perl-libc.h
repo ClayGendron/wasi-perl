@@ -38,4 +38,7 @@ int PerlProc_pipe_cloexec(int *pipefd);
 }
 #endif
 
+/* What the POSIX extension needs: signal sets, refused signal calls, no terminals, UTC. */
+#include "wasi-perl-posix.h"
+
 #endif

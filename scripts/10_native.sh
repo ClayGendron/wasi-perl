@@ -28,7 +28,7 @@ mv "$BUILD/unpack-native/perl-$PERL_VERSION" "$SRC"
 rmdir "$BUILD/unpack-native"
 cd "$SRC"
 run "$LOG" sh ./Configure -des -Dprefix="$PREFIX" -Dman1dir=none -Dman3dir=none
-run "$LOG" make -j"$(nproc)"
+run "$LOG" make -j"$JOBS"
 run "$LOG" make install
 [ -x "$PREFIX/bin/perl" ] || fail "native perl did not install to $PREFIX (see $LOG)"
 echo "$stamp" >"$STAMP"
