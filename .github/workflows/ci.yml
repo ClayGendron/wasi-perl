@@ -245,7 +245,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read  # DIAGNOSTIC ONLY: the pre-019 wheel from another run
     steps:
       # The corpus and the tests compare bytes, so Windows must check out the same bytes as Linux.
       - name: Check out bytes as committed
@@ -282,7 +285,18 @@ jobs:
           uv export --only-dev --no-emit-project --no-hashes -o "$RUNNER_TEMP/dev.txt"
           uv pip install --python "$py" -r "$RUNNER_TEMP/dev.txt"
           echo "WHEEL_PY=$py" >> "$GITHUB_ENV"
+      # DIAGNOSTIC ONLY (a draft pull request that is closed, not merged): on ARM, the smoke run
+      # many times, each a fresh process, in variants, counting aborts at exit.
+      - name: Diagnostic, the pre-019 wheel (dev at 8897c22)
+        if: matrix.os == 'ubuntu-24.04-arm'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: wheelhouse-pre019
+          run-id: 45472856248
+          github-token: ${{ github.token }}
       - name: The installed package is the one imported, and it runs perl
+        if: matrix.os != 'ubuntu-24.04-arm'
         run: |
           "$WHEEL_PY" -I - <<'PY'
           import pathlib, wasi_perl
@@ -292,6 +306,133 @@ jobs:
           done = wasi_perl.run(["-e", 'print "hello\\n"'])
           print(done)
           assert (done.exit_code, done.stdout) == (0, b"hello\n"), done
+          PY
+      - name: Diagnostic, aborts at exit per variant (ARM)
+        if: matrix.os == 'ubuntu-24.04-arm'
+        timeout-minutes: 45
+        run: |
+          set -eu
+          uname -a; nproc
+          wheel=$(ls wheelhouse/wasi_perl-*-py3-none-any.whl)
+          old=$(ls wheelhouse-pre019/wasi_perl-*-py3-none-any.whl)
+          uv venv -q --python 3.13 "$RUNNER_TEMP/py313"
+          uv pip install -q --python "$RUNNER_TEMP/py313/bin/python" "$wheel"
+          uv venv -q --python 3.11 "$RUNNER_TEMP/pre019"
+          uv pip install -q --python "$RUNNER_TEMP/pre019/bin/python" "$old"
+          "$WHEEL_PY" -VV; "$RUNNER_TEMP/py313/bin/python" -VV
+          export PY311="$WHEEL_PY" PY313="$RUNNER_TEMP/py313/bin/python" PRE019="$RUNNER_TEMP/pre019/bin/python"
+          "$WHEEL_PY" -I - <<'PY'
+          import collections, os, subprocess, tempfile, time
+
+          SMOKE = '''
+          import pathlib, wasi_perl
+          where = pathlib.Path(wasi_perl.__file__).resolve()
+          print(where)
+          assert "site-packages" in where.parts, where
+          done = wasi_perl.run(["-e", 'print "hello\\\\n"'])
+          print(done)
+          assert (done.exit_code, done.stdout) == (0, b"hello\\n"), done
+          '''
+          TAIL = {
+              "plain": "",
+              # the runner's own atexit hook taken away
+              "no-atexit": "import atexit\nfrom wasi_perl import _engines\natexit.unregister(_engines._release_at_exit)\n",
+              # wait, GIL released, until wasmtime-py's stream finalizers have all run
+              "drain": (
+                  "import time\nfrom wasmtime import _wasi\nend = time.monotonic() + 2\n"
+                  "while _wasi.CUSTOM_OUTPUTS.handles and time.monotonic() < end:\n    time.sleep(0.001)\n"
+              ),
+              # no interpreter finalization at all
+              "os-exit": "import os, sys\nsys.stdout.flush()\nos._exit(0)\n",
+              # the explicit release first, then a normal exit
+              "release-first": "from wasi_perl import _engines\n_engines._release_at_exit()\n",
+          }
+          PENDING = '''
+          import atexit, os
+          box = {}
+          def last():  # registered first: runs after every other atexit hook
+              os.write(2, f"PENDING returned={box['r']} atexit_end={len(box['s'].handles)}\\n".encode())
+          atexit.register(last)
+          ''' 
+          PENDING_AFTER = "from wasmtime import _wasi\nbox['s'] = _wasi.CUSTOM_OUTPUTS\nbox['r'] = len(_wasi.CUSTOM_OUTPUTS.handles)\n"
+          FORCED = r'''
+          import builtins, sys, time, wasmtime
+          from wasmtime import _wasi
+          WAT = """(module
+            (import "wasi_snapshot_preview1" "fd_write" (func $w (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1) (data (i32.const 16) "hi\\n")
+            (func (export "_start")
+              (i32.store (i32.const 0) (i32.const 16)) (i32.store (i32.const 4) (i32.const 3))
+              (drop (call $w (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8)))))"""
+          class ReleaseLate:
+              import os, time
+              def __init__(self, slab): self.slab = slab
+              def __del__(self):
+                  self.os.write(2, f"late release, pending={len(self.slab.handles)}\n".encode())
+                  self.time.sleep(0.05)
+          eng = wasmtime.Engine(); mod = wasmtime.Module(eng, WAT)
+          linker = wasmtime.Linker(eng); linker.define_wasi()
+          store = wasmtime.Store(eng)
+          cfg = wasmtime.WasiConfig(); cfg.stdout_custom = lambda b: len(b); cfg.stderr_custom = lambda b: len(b)
+          store.set_wasi(cfg)
+          linker.instantiate(store, mod).exports(store)["_start"](store)
+          sys.setswitchinterval(1000.0)
+          store.close()
+          end = time.perf_counter() + 0.05
+          while time.perf_counter() < end:
+              pass
+          builtins._release_late = ReleaseLate(_wasi.CUSTOM_OUTPUTS)
+          '''
+
+          import textwrap
+          def dedent(s):
+              return textwrap.dedent(s).lstrip("\n")
+
+          PY311, PY313, PRE019 = os.environ["PY311"], os.environ["PY313"], os.environ["PRE019"]
+          VARIANTS = [
+              # name, python, script, iterations, fresh cache per run
+              ("dev-plain-cold", PY311, dedent(SMOKE), 100, True),
+              ("pre019-plain-cold", PRE019, dedent(SMOKE), 100, True),
+              ("dev-plain-warm", PY311, dedent(SMOKE), 300, False),
+              ("pre019-plain-warm", PRE019, dedent(SMOKE), 300, False),
+              ("dev-no-atexit-warm", PY311, dedent(SMOKE) + TAIL["no-atexit"], 200, False),
+              ("dev-release-first-warm", PY311, dedent(SMOKE) + TAIL["release-first"], 200, False),
+              ("dev-drain-warm", PY311, dedent(SMOKE) + TAIL["drain"], 200, False),
+              ("dev-os-exit-warm", PY311, dedent(SMOKE) + TAIL["os-exit"], 200, False),
+              ("dev-py313-warm", PY313, dedent(SMOKE), 200, False),
+              ("dev-pending-warm", PY311, dedent(PENDING) + dedent(SMOKE) + PENDING_AFTER, 200, False),
+              ("forced-py311", PY311, dedent(FORCED), 40, False),
+              ("forced-py313", PY313, dedent(FORCED), 40, False),
+          ]
+          env = dict(os.environ, RUST_BACKTRACE="full")
+          summary = []
+          for name, py, script, n, cold in VARIANTS:
+              path = os.path.join(os.environ["RUNNER_TEMP"], f"diag-{name}.py")
+              with open(path, "w") as f:
+                  f.write(script)
+              warm = tempfile.mkdtemp(prefix=f"cache-{name}-")
+              codes, first, pend = collections.Counter(), None, collections.Counter()
+              start = time.monotonic()
+              for i in range(n):
+                  cache = tempfile.mkdtemp(prefix="cache-") if cold else warm
+                  p = subprocess.run([py, "-I", path], env=dict(env, WASI_PERL_CACHE=cache),
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                  codes[p.returncode] += 1
+                  err = p.stderr.decode(errors="replace")
+                  for line in err.splitlines():
+                      if line.startswith("PENDING "):
+                          pend[line] += 1
+                  if p.returncode != 0 and first is None:
+                      first = (i, p.returncode, p.stdout.decode(errors="replace"), err)
+              took = time.monotonic() - start
+              line = f"{name}: n={n} exit codes={dict(codes)} aborts(SIGABRT)={codes[-6] + codes[134]} ({took:.0f} s)"
+              print(line, flush=True)
+              for k, v in sorted(pend.items()):
+                  print(f"    {v:4d}  {k}")
+              if first is not None:
+                  print(f"  first failure, iteration {first[0]}, exit {first[1]}\n  --- stdout ---\n{first[2]}\n  --- stderr ---\n{first[3]}", flush=True)
+              summary.append(line)
+          print("\n==== SUMMARY ====\n" + "\n".join(summary))
           PY
       # The shared fixtures find a set through WASI_PERL_ARTIFACTS: here it names the one inside
       # the installed wheel, so every guest run uses the wheel's own bytes.
