@@ -1,0 +1,70 @@
+[
+ {
+  "prelude": "default",
+  "status": 0,
+  "same": true,
+  "image": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "plain": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  }
+ },
+ {
+  "prelude": "dirty",
+  "status": 0,
+  "same": false,
+  "image": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=[-]|ors=[!]|under=[u]|sel=main::STDOUT|cwd=/|sig=1|args=0-\n!",
+   "stderr": "",
+   "trapped": null
+  },
+  "plain": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  }
+ },
+ {
+  "prelude": "select",
+  "status": 0,
+  "same": true,
+  "image": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "plain": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  }
+ },
+ {
+  "prelude": "default, made with PWD=/data; call without cwd",
+  "status": 0,
+  "same": true,
+  "image": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "plain": {
+   "exit_code": 0,
+   "stdout": "at=[]|errno=44|status=0|rs=1|ofs=undef|ors=undef|under=undef|sel=main::STDOUT|cwd=/|sig=1|args=0\n",
+   "stderr": "",
+   "trapped": null
+  }
+ }
+]

@@ -1,0 +1,202 @@
+{
+ "pid": 13812,
+ "making": {
+  "runs": [
+   {
+    "prelude_s": 0.03211129600094864,
+    "capture_s": 0.003825034997134935,
+    "write_s": 0.046865439999237424,
+    "compile_plain_s": 0.9225590419991931,
+    "compile_fuel_s": 1.243121434999921,
+    "serialize_s": 0.016097016999992775,
+    "cwasm_bytes": 17579152,
+    "segments": 14,
+    "data_bytes": 8110080,
+    "pages": 253,
+    "module_bytes": 10933311
+   },
+   {
+    "prelude_s": 0.029039697998086922,
+    "capture_s": 0.005408259999967413,
+    "write_s": 0.03781754600277054,
+    "compile_plain_s": 0.8516077989988844,
+    "compile_fuel_s": 1.1782936480012722,
+    "serialize_s": 0.005260943999019219,
+    "cwasm_bytes": 17579152,
+    "segments": 13,
+    "data_bytes": 8114176,
+    "pages": 253,
+    "module_bytes": 10937398
+   },
+   {
+    "prelude_s": 0.030322586997499457,
+    "capture_s": 0.0030797709987382405,
+    "write_s": 0.039076431003195466,
+    "compile_plain_s": 0.8258743100013817,
+    "compile_fuel_s": 1.145962229998986,
+    "serialize_s": 0.003909502000169596,
+    "cwasm_bytes": 17579152,
+    "segments": 11,
+    "data_bytes": 8122368,
+    "pages": 253,
+    "module_bytes": 10945570
+   },
+   {
+    "prelude_s": 0.02865333199952147,
+    "capture_s": 0.0025964000014937483,
+    "write_s": 0.03295626799808815,
+    "compile_plain_s": 0.9154091750024236,
+    "compile_fuel_s": 1.2239442670033895,
+    "serialize_s": 0.00572599799852469,
+    "cwasm_bytes": 17579152,
+    "segments": 10,
+    "data_bytes": 8126464,
+    "pages": 253,
+    "module_bytes": 10949656
+   },
+   {
+    "prelude_s": 0.03743765800027177,
+    "capture_s": 0.00797240500105545,
+    "write_s": 0.035278702998766676,
+    "compile_plain_s": 0.8454270500005805,
+    "compile_fuel_s": 1.173614205999911,
+    "serialize_s": 0.004715487000794383,
+    "cwasm_bytes": 17579152,
+    "segments": 13,
+    "data_bytes": 8114176,
+    "pages": 253,
+    "module_bytes": 10937396
+   }
+  ],
+  "median": {
+   "prelude_s": 0.030322586997499457,
+   "capture_s": 0.003825034997134935,
+   "write_s": 0.03781754600277054,
+   "compile_plain_s": 0.8516077989988844,
+   "compile_fuel_s": 1.1782936480012722,
+   "serialize_s": 0.005260943999019219,
+   "cwasm_bytes": 17579152,
+   "segments": 13,
+   "data_bytes": 8114176,
+   "pages": 253,
+   "module_bytes": 10937398,
+   "prelude_fuel": 150675081,
+   "image_bytes": 16580608,
+   "perl_wasm_cwasm_bytes": 14879336
+  }
+ },
+ "calls_inproc": {
+  "five": {
+   "plain_ms": 21.35507800085179,
+   "image_ms": 4.209167000226444,
+   "speedup": 5.073468930955444,
+   "plain_minflt": 569.0,
+   "image_minflt": 470.0
+  },
+  "posix": {
+   "plain_ms": 13.057242498689448,
+   "image_ms": 4.121104000660125,
+   "speedup": 3.168384611647247,
+   "plain_minflt": 368.0,
+   "image_minflt": 459.0
+  },
+  "e1": {
+   "plain_ms": 1.0912514990195632,
+   "image_ms": 1.5259265001077438,
+   "speedup": 0.715140276377998,
+   "plain_minflt": 81.0,
+   "image_minflt": 292.0
+  }
+ },
+ "calls_cwasm": {
+  "five": {
+   "plain_ms": 22.88605049761827,
+   "image_ms": 4.602148997946642,
+   "speedup": 4.972905159704613,
+   "plain_minflt": 569.0,
+   "image_minflt": 470.0
+  },
+  "posix": {
+   "plain_ms": 13.211850502557354,
+   "image_ms": 4.1055729998333845,
+   "speedup": 3.2180283977640944,
+   "plain_minflt": 368.0,
+   "image_minflt": 459.0
+  },
+  "e1": {
+   "plain_ms": 1.1325939995003864,
+   "image_ms": 1.5129235016502207,
+   "speedup": 0.7486128665890972,
+   "plain_minflt": 81.0,
+   "image_minflt": 292.0
+  }
+ },
+ "fuel": {
+  "five": {
+   "plain": 120457791,
+   "image": 18301058
+  },
+  "posix": {
+   "plain": 70875700,
+   "image": 17372896
+  },
+  "e1": {
+   "plain": 1562476,
+   "image": 1270851
+  }
+ },
+ "instantiate": [
+  {
+   "label": "perl.wasm, compiled in process",
+   "ms": 0.007600501703564078,
+   "minflt": 0.0,
+   "maps_added_by_instance": {
+    "/memfd:wasm-memory-image (deleted)": 5533696,
+    "memory_bytes": 14024704
+   }
+  },
+  {
+   "label": "perl.wasm, from .cwasm (sealed memfd)",
+   "ms": 0.006969999958528206,
+   "minflt": 0.0,
+   "maps_added_by_instance": {
+    "/memfd:wasi-perl-module (deleted)": 5533696,
+    "memory_bytes": 14024704
+   }
+  },
+  {
+   "label": "image, compiled in process",
+   "ms": 0.006366000889101997,
+   "minflt": 0.0,
+   "maps_added_by_instance": {
+    "/memfd:wasm-memory-image (deleted)": 8224768,
+    "memory_bytes": 16580608
+   }
+  },
+  {
+   "label": "image, from .cwasm (sealed memfd)",
+   "ms": 0.006317000952549279,
+   "minflt": 0.0,
+   "maps_added_by_instance": {
+    "/memfd:wasi-perl-module (deleted)": 8224768,
+    "memory_bytes": 16580608
+   }
+  },
+  {
+   "label": "perl.wasm, copy-on-write off",
+   "ms": 1.5346314994530985,
+   "minflt": 1351.0,
+   "maps_added_by_instance": {
+    "memory_bytes": 14024704
+   }
+  },
+  {
+   "label": "image, copy-on-write off",
+   "ms": 2.1990759996697307,
+   "minflt": 1981.0,
+   "maps_added_by_instance": {
+    "memory_bytes": 16580608
+   }
+  }
+ ]
+}
