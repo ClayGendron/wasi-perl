@@ -1,0 +1,15 @@
+{"how": "bytes", "load_ms": 19.68, "first_start_ms": 3.11, "maxrss_mib": 70}
+{"how": "file", "load_ms": 0.43, "first_start_ms": 1.46, "maxrss_mib": 37}
+{"how": "procfd", "load_ms": 0.38, "first_start_ms": 1.33, "maxrss_mib": 37}
+{"how": "bytes", "load_ms": 23.77, "first_start_ms": 3.63, "maxrss_mib": 70}
+{"how": "file", "load_ms": 0.36, "first_start_ms": 1.22, "maxrss_mib": 37}
+{"how": "procfd", "load_ms": 0.39, "first_start_ms": 1.32, "maxrss_mib": 37}
+{"how": "bytes", "load_ms": 21.22, "first_start_ms": 3.79, "maxrss_mib": 70}
+{"how": "file", "load_ms": 0.41, "first_start_ms": 1.33, "maxrss_mib": 37}
+{"how": "procfd", "load_ms": 0.44, "first_start_ms": 1.52, "maxrss_mib": 37}
+{"how": "bytes", "load_ms": 19.94, "first_start_ms": 2.98, "maxrss_mib": 70}
+{"how": "file", "load_ms": 0.42, "first_start_ms": 1.49, "maxrss_mib": 37}
+{"how": "procfd", "load_ms": 0.43, "first_start_ms": 1.44, "maxrss_mib": 37}
+{"how": "bytes", "load_ms": 19.55, "first_start_ms": 2.89, "maxrss_mib": 70}
+{"how": "file", "load_ms": 0.37, "first_start_ms": 1.36, "maxrss_mib": 37}
+{"how": "procfd", "load_ms": 0.48, "first_start_ms": 1.51, "maxrss_mib": 37}

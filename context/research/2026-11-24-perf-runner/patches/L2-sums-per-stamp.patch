@@ -1,0 +1,52 @@
+diff --git a/src/wasi_perl/_artifacts.py b/src/wasi_perl/_artifacts.py
+index dd43d80..4cfb005 100644
+--- a/src/wasi_perl/_artifacts.py
++++ b/src/wasi_perl/_artifacts.py
+@@ -100,6 +100,7 @@ _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY
+ _lock = threading.Lock()
+ _digests: dict[tuple[str, int, int, int, int, int], str] = {}
+ _trees: set[tuple[str, int, int, int, int, int]] = set()  # SHA256SUMS stamps whose tree passed
++_sums: dict[tuple[str, int, int, int, int, int], dict[str, str]] = {}  # SHA256SUMS read, by stamp
+ 
+ 
+ def forget() -> None:
+@@ -107,6 +108,7 @@ def forget() -> None:
+     with _lock:
+         _digests.clear()
+         _trees.clear()
++        _sums.clear()
+ 
+ 
+ def _stamp(path: Path) -> tuple[str, int, int, int, int, int]:
+@@ -141,6 +143,31 @@ def digest(path: Path) -> str:
+ 
+ 
+ def _read_sums(found: Artifacts) -> dict[str, str]:
++    """SHA256SUMS parsed, kept per stamp of the file as `digest` keeps a hash: it is read again
++    only when its inode, size, mtime or ctime changes, and kept only when its stamp is the same
++    after the read as before it."""
++    try:
++        before = _stamp(found.sums)
++    except OSError:
++        before = None
++    if before is not None:
++        with _lock:
++            kept = _sums.get(before)
++        if kept is not None:
++            return kept
++    sums = _parse_sums(found)
++    try:
++        after = _stamp(found.sums)
++    except OSError:
++        after = None
++    if before is not None and after == before:
++        with _lock:
++            _sums.clear()  # one set's list at a time
++            _sums[before] = sums
++    return sums
++
++
++def _parse_sums(found: Artifacts) -> dict[str, str]:
+     try:
+         text = found.sums.read_text(encoding="ascii")
+     except (OSError, UnicodeDecodeError) as e:

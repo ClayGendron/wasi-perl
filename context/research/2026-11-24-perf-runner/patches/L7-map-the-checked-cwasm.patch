@@ -1,0 +1,119 @@
+diff --git a/src/wasi_perl/_cache.py b/src/wasi_perl/_cache.py
+index db67a24..ceb5074 100644
+--- a/src/wasi_perl/_cache.py
++++ b/src/wasi_perl/_cache.py
+@@ -24,6 +24,7 @@ import stat
+ import sys
+ import tempfile
+ import warnings
++from collections.abc import Callable
+ from pathlib import Path
+ from typing import Any, NamedTuple
+ 
+@@ -219,11 +220,11 @@ def _read_all(fd: int, size: int) -> bytes:
+         parts.append(block)
+ 
+ 
+-def read(cwasm: Path) -> tuple[bytes | None, bool]:
+-    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
+-    was checked, so a file put at the name after the check is not the file read; and whether the
+-    runner may put its own file at that name (when there is none, or the one there is refused,
+-    but never over a folder)."""
++def _open_checked(cwasm: Path) -> tuple[int | None, bool]:
++    """A descriptor of a `.cwasm` that is as the runner makes it, checked through itself, so a
++    file put at the name after the check is not the file used; and whether the runner may put
++    its own file at that name (when there is none, or the one there is refused, but never over a
++    folder)."""
+     try:
+         before = os.lstat(cwasm)
+     except FileNotFoundError:
+@@ -252,8 +253,57 @@ def read(cwasm: Path) -> tuple[bytes | None, bool]:
+     try:
+         st = os.fstat(fd)
+         if _stamp(st) != _stamp(before) or _as_made(st, is_dir=False) is not None:
++            os.close(fd)
+             return None, True  # another file since its name was read
+-        return _read_all(fd, st.st_size), False
++    except OSError:
++        os.close(fd)
++        return None, True
++    return fd, False
++
++
++def _fd_name(fd: int) -> str | None:
++    """A name that opens the very file `fd` holds, whatever is at its path now: Linux's
++    /proc/self/fd/N, checked to name that file; None where there is no such name."""
++    if sys.platform != "linux":
++        return None
++    name = f"/proc/self/fd/{fd}"
++    try:
++        named, held = os.stat(name), os.fstat(fd)
++    except OSError:
++        return None
++    return name if (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino) else None
++
++
++def read(cwasm: Path) -> tuple[bytes | None, bool]:
++    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
++    was checked, and whether the runner may put its own file at that name."""
++    fd, may_write = _open_checked(cwasm)
++    if fd is None:
++        return None, may_write
++    try:
++        return _read_all(fd, os.fstat(fd).st_size), False
++    except OSError:
++        return None, True
++    finally:
++        os.close(fd)
++
++
++def load(
++    cwasm: Path, by_name: Callable[[str], Any], by_bytes: Callable[[bytes], Any]
++) -> tuple[Any, bool]:
++    """The module a `.cwasm` that is as the runner makes it holds, and whether the runner may put
++    its own file at that name. wasmtime maps the file itself, by the descriptor's own name, so
++    what was checked is what is mapped and no copy of it is made; where the descriptor has no
++    name, its bytes are read through it and handed over. The runner never rewrites a `.cwasm` in
++    place: `write` puts a new file at the name, which leaves a mapped one as it was."""
++    fd, may_write = _open_checked(cwasm)
++    if fd is None:
++        return None, may_write
++    try:
++        name = _fd_name(fd)
++        if name is not None:
++            return by_name(name), False
++        return by_bytes(_read_all(fd, os.fstat(fd).st_size)), False
+     except OSError:
+         return None, True
+     finally:
+--- a/src/wasi_perl/_engines.py
++++ b/src/wasi_perl/_engines.py
+@@ -166,16 +166,18 @@
+             cwasm = folder / f"{digest[:32]}-wasmtime{version}-{flavor}.cwasm"
+     may_write = False
+     if cwasm is not None:
+-        blob, may_write = _cache.read(cwasm)
+-        if blob is not None:
+-            try:
+-                mod = wt.Module.deserialize(eng, blob)
+-            except wt.WasmtimeError:
+-                may_write = True  # stale or foreign: compiled again and replaced
+-            else:
+-                with _lock:
+-                    _counts["loaded"] += 1
+-                return mod
++        try:
++            mod, may_write = _cache.load(
++                cwasm,
++                lambda name: wt.Module.deserialize_file(eng, name),
++                lambda blob: wt.Module.deserialize(eng, blob),
++            )
++        except wt.WasmtimeError:
++            mod, may_write = None, True  # stale or foreign: compiled again and replaced
++        if mod is not None:
++            with _lock:
++                _counts["loaded"] += 1
++            return mod
+     # Compiled from one read, held to the digest: a file changed between its hash and its
+     # compile is never compiled, so it is never cached under a digest it does not have.
+     data = binary.read_bytes()

@@ -1,0 +1,194 @@
+--- a/src/wasi_perl/_artifacts.py
++++ b/src/wasi_perl/_artifacts.py
+@@ -192,50 +192,147 @@
+     )
+ 
+ 
+-def checked() -> tuple[Artifacts, str]:
++def checked(cache: Path | None = None) -> tuple[Artifacts, str]:
+     """The found set, and perl.wasm's digest as checked: perl.wasm and MANIFEST against
+     SHA256SUMS on every call (each hashed again only when its stamp changes), and the library and
+     dev/ trees once per stamp of SHA256SUMS: every file listed, every file listed as hashed, and
+     dev/ exactly one empty `null`. The digest is handed on, so the module is compiled only from
+-    bytes that hash to it."""
++    bytes that hash to it. With a module cache, the tree's check is kept there as each file's
++    stamp when it was last hashed, so a later process hashes only the files whose stamp moved."""
+     found = artifacts()
+     root = found.perl.parent
+     if found.lib != root / "lib" / "perl5" or found.manifest.parent != root:
+         raise ArtifactsMissing(f"{root} is not laid out as an artifact set")
+     sums = _read_sums(found)
++    key = _stamp(found.sums)
++    with _lock:
++        done = key in _trees
++    record = None if done else _record_path(cache, found)
++    known = _read_record(record, root) if record is not None else {}
+     got_perl = ""
++    verified: dict[str, FileStamp] = {}
+     for path in (found.manifest, found.perl):
+         want = sums.get(path.name)
+         if want is None:
+             raise ArtifactsMissing(f"{path} is not listed in {found.sums}")
+         try:
++            _seed(path, known.get(path.name), want)
+             got = digest(path)
+         except OSError as e:
+             raise ArtifactsMissing(f"{path} cannot be read ({e})") from None
+         if got != want:
+             raise _refuse(path, found.sums, got, want)
+         got_perl = got
+-    key = _stamp(found.sums)
+-    with _lock:
+-        done = key in _trees
++        stamp = _hashed_under(path)
++        if stamp is not None:
++            verified[path.name] = stamp
+     if not done:
+-        _check_tree(root, sums, found.sums)
++        verified.update(_check_tree(root, sums, found.sums, known))
++        if record is not None and verified != known:
++            _write_record(record, root, verified)
+         with _lock:
+             _trees.add(key)
+     return found, got_perl
+ 
+ 
+-def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
++def _seed(path: Path, recorded: FileStamp | None, want: str) -> None:
++    """A file a record says was hashed under the stamp it has now is taken as hashed."""
++    if recorded is None:
++        return
++    key = _stamp(path)
++    if key[1:] == recorded:
++        with _lock:
++            _digests.setdefault(key, want)
++
++
++def _hashed_under(path: Path) -> FileStamp | None:
++    """The stamp under which this process holds `path`'s digest, if it holds one for its stamp
++    now."""
++    try:
++        key = _stamp(path)
++    except OSError:
++        return None
++    with _lock:
++        return key[1:] if key in _digests else None
++
++
++FileStamp = tuple[int, int, int, int, int]  # st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns
++
++
++def _file_stamp(st: os.stat_result) -> FileStamp:
++    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
++
++
++def _record_path(cache: Path | None, found: Artifacts) -> Path | None:
++    """Where the tree's check is kept: in the module cache folder, as the runner makes it, by
++    the digest of SHA256SUMS, so another list is never judged by this one's record. A record is
++    trusted as a `.cwasm` there is, and whoever could write one could write native code."""
++    if cache is None:
++        return None
++    from wasi_perl import _cache
++
++    folder = _cache.folder(cache)
++    if folder is None:
++        return None
++    try:
++        return folder / f"tree-{digest(found.sums)[:32]}.json"
++    except OSError:
++        return None
++
++
++def _read_record(record: Path, root: Path) -> dict[str, FileStamp]:
++    import json
++
++    from wasi_perl import _cache
++
++    blob, _ = _cache.read(record)
++    if blob is None:
++        return {}
++    try:
++        data = json.loads(blob)
++        if data.get("root") != str(root):
++            return {}
++        files = data["files"]
++        return {
++            str(rel): tuple(int(n) for n in stamp)  # type: ignore[misc]
++            for rel, stamp in files.items()
++            if isinstance(stamp, list) and len(stamp) == 5
++        }
++    except (ValueError, TypeError, KeyError, AttributeError):
++        return {}
++
++
++def _write_record(record: Path, root: Path, verified: dict[str, FileStamp]) -> None:
++    import json
++
++    from wasi_perl import _cache
++
++    data = {"root": str(root), "files": {rel: list(st) for rel, st in sorted(verified.items())}}
++    _cache.write(json.dumps(data, separators=(",", ":")).encode(), record)
++
++
++def _check_tree(
++    root: Path, sums: dict[str, str], sums_path: Path, known: dict[str, FileStamp] | None = None
++) -> dict[str, FileStamp]:
++    """The tree held to SHA256SUMS; returns each file's stamp under which its hash matched. A
++    file whose stamp is the one `known` gives was hashed under that stamp and is not hashed
++    again: a write to it moves its mtime and ctime, and a new file at its name moves its inode,
++    and no process but the kernel's clock sets a ctime."""
++    known = known or {}
++    verified: dict[str, FileStamp] = {}
+     listed = {name for name in sums if name.startswith(("lib/", "dev/"))}
+     present = set()
+     for top in ("lib", "lib/perl5", "dev"):
+         if stat.S_ISLNK(os.lstat(root / top).st_mode):
+             raise ArtifactsMissing(f"{root / top} is a link; a set holds no links")
++    base = str(root) + os.sep
+     for top in ("lib", "dev"):
+         for dirpath, dirnames, filenames in os.walk(root / top, followlinks=False):
+-            for name in filenames + [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:
+-                path = Path(dirpath) / name
+-                rel = path.relative_to(root).as_posix()
++            # Names joined as strings: a Path per file costs more than its lstat.
++            linked = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
++            for name in filenames + linked:
++                path = os.path.join(dirpath, name)
++                rel = path[len(base) :].replace(os.sep, "/")
+                 st = os.lstat(path)
+                 if not stat.S_ISREG(st.st_mode):
+                     raise ArtifactsMissing(f"{path} is not a regular file; a set holds no links")
+@@ -245,9 +342,15 @@
+                         "be code Perl would load, so the set is not used"
+                     )
+                 present.add(rel)
+-                got = digest(path)
++                stamp = _file_stamp(st)
++                if known.get(rel) == stamp:
++                    verified[rel] = stamp
++                    continue
++                got = digest(Path(path))
+                 if got != sums[rel]:
+-                    raise _refuse(path, sums_path, got, sums[rel])
++                    raise _refuse(Path(path), sums_path, got, sums[rel])
++                if _file_stamp(os.lstat(path)) == stamp:
++                    verified[rel] = stamp
+     missing = sorted(listed - present)
+     if missing:
+         raise ArtifactsMissing(f"{root / missing[0]} is listed in {sums_path} but missing")
+@@ -255,3 +358,4 @@
+         raise ArtifactsMissing(f"{root / 'dev'} must hold exactly one empty file, null")
+     if os.stat(root / "dev" / "null").st_size != 0:
+         raise ArtifactsMissing(f"{root / 'dev' / 'null'} must be empty")
++    return verified
+--- a/src/wasi_perl/runner.py
++++ b/src/wasi_perl/runner.py
+@@ -299,7 +299,7 @@
+     cwd_guest = _grants.check_cwd(cwd)
+     cache = _cache.given(cache_dir)
+     if artifacts is None:
+-        found, want = _artifacts.checked()
++        found, want = _artifacts.checked(cache.folder)
+     else:
+         found, want = artifacts, None
+     writing = any(g.writable for g in asked)

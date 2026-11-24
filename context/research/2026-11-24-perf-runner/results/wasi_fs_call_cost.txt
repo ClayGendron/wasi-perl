@@ -1,0 +1,1 @@
+path_filestat_get: 56.0 us per WASI call
