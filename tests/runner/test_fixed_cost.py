@@ -311,15 +311,32 @@ def _count_loads(monkeypatch: pytest.MonkeyPatch) -> tuple[list, list]:
     return by_name, by_bytes
 
 
-@POSIX
-@pytest.mark.skipif(FD_PREFIX is None, reason="a system with no name for a descriptor")
-def test_a_cwasm_is_mapped_by_its_descriptors_own_name(standin, cache, monkeypatch):
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux's /proc/self/fd")
+def test_on_linux_a_cwasm_is_mapped_by_its_proc_self_fd_name(standin, cache, monkeypatch):
     assert _fresh_call(standin, cache)["written"] == 1
     by_name, by_bytes = _count_loads(monkeypatch)
     assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
     assert by_bytes == []
     ((_, (_, name)),) = by_name
-    assert name.startswith(FD_PREFIX)
+    assert name.startswith("/proc/self/fd/")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS's /dev/fd, run in CI")
+def test_on_macos_a_cwasm_is_mapped_by_its_dev_fd_name(perl, cache, monkeypatch):
+    # The real set, which CI's macOS job has inside the installed wheel; it builds no stand-in.
+    def call() -> dict[str, int]:
+        _engines.forget()
+        before = dict(_engines.counts())
+        done = run(["-e", "print 1"], cache_dir=cache, artifacts=perl)
+        assert (done.exit_code, done.stdout) == (0, b"1")
+        return {k: _engines.counts()[k] - before[k] for k in before}
+
+    assert call()["written"] == 1
+    by_name, by_bytes = _count_loads(monkeypatch)
+    assert call() == {"compiled": 0, "loaded": 1, "written": 0}
+    assert by_bytes == []
+    ((_, (_, name)),) = by_name
+    assert name.startswith("/dev/fd/")
 
 
 @POSIX
