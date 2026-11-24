@@ -145,3 +145,64 @@ Does not land. The research, the evidence folders and the corrected synthesis ar
 - 015's tree record argument fails on Windows (H2), and its stamps and shortcut have the gaps in M3 and M4.
 
 All of these are text changes to the specifications. One commit that fixes H1, H2 and M1 to M7, with the Lows fixed or answered, should be enough for a second round to land.
+
+## Round 2
+
+Reviewer: the same fresh agent (Claude Opus 5.5, `claude-opus-5-5`); not the author of the fixes.
+
+- **Scope:** `git show dea44fa`, six files, +76 −39, all under `context/`. I checked each round-1 finding against it, then read the amended specifications 013–016 whole. I checked 013's new answers against `recipes/wasi-fd-table.c` again (READ).
+- **`results/time3-summary.md`**, which 016 now cites, exists (READ).
+- **wasi-python's `_platform_posix.py` `_FD_NAMES`**, which 014 now cites, is not cloned in this container, so I could not check it. It is taken as READ by the author.
+
+### Round-1 findings
+
+| Finding | State | Where |
+|---|---|---|
+| H1 | **Fixed.** The `VIRTUAL_RANDOM` sentinel never reaches the host, and `release()` skips the host for it. Every `fd_*` call has an answer. A `path_*` call through it answers `ENOTDIR`. Waits are answered in the guest. The rights include `FD_SEEK` and `FD_TELL`, so `-t` is false. There are checks for `-t`, `select` and a close with no host call. | 013:33-53, 70-78 |
+| H2 | **Fixed.** On Windows no record is written or read, and decision 1's reuse of a scan is Linux and macOS only. Check 6 patches the platform test, and CI runs it on Windows. | 015:43-44, 51, 72 |
+| M1 | **Fixed.** Seek and tell answer 0, and writes are accepted and discarded, as on Linux. `O_TRUNC`, `O_APPEND`, `O_DIRECTORY` and `O_EXCL` are decided. `docs/sandbox.md` lists the `EINVAL` differences. | 013:37-43; acceptance 3 |
+| M2 | **Fixed.** The `random_get` import is stated, the header comment is to be corrected, and the import list is checked. | 013:56-58, 83 |
+| M3 | **Fixed.** Link counts are read afresh at the three points of study A's prototype, and there is a check in a copy-mode install. | 015:33-38, 68 |
+| M4 | **Fixed.** A file is recorded only if its stats before and after the hash agree. A stamp within 2 s of its scan is not trusted. Both get checks. | 015:46-49, 69-71 |
+| M5 | **Fixed.** 014 alone gives a first call of about 100 ms (INFERRED); the library check stays until 015. | 014:11 |
+| M6 | **Fixed.** The row reads about 97 ms, with L5's saving of about 12 ms in study C's layout. | synthesis:63 |
+| M7 | **Fixed.** Each status line and the roadmap quote the owner's agreement. | 013–016:3; roadmap:25 |
+| L1 | **Fixed:** "seven". | 014:61 |
+| L2 | **Fixed.** The wasi-python source is cited, and there is a macOS check in CI. | 014:33, 60 |
+| L3 | **Partly fixed.** 014's and 016's intent numbers are now labelled. Still unlabelled: 014's decision figures (1.0 ms, 0.5 ms, 0.85 ms, 50–60 µs, 22–28 ms, 8 ms, and study B's multipliers) and 015's intent figures (19 ms, 21–24 ms, 70 ms, 3 ms, 34 ms). Open, Low. | 014:17-47; 015:13-18 |
+| L4 | **Fixed:** "at least 200 fewer". | 016:47 |
+| L5 | **Fixed.** The test moves to `tests/build/` and runs under wasmtime-py. | 016:44 |
+| L6 | **Fixed.** The virtual paths are exact. | 013:35, 81-82 |
+| L7 | **Fixed.** The synthesis's status says the specifications supersede its rows. See R2-L3 for a new point. | synthesis:3 |
+| L8 | **Fixed.** The memo is "to be written". | roadmap:27 |
+| L9 | **Answered** in the commit message: the paths record where each study ran, they are not secrets, and each memo's reproduce section names the inputs. Accepted. | — |
+| L10 | **Fixed in substance.** The name now includes the root's identity. See R2-L2. | 015:45 |
+
+### New findings (all Low)
+
+**R2-L1. 013 refuses an `fd_renumber` that the table could do.** `013:51`.
+- 013 answers `EINVAL` for "`fd_renumber` onto a host descriptor".
+- In the table, `fd_renumber` is a table operation that never reaches the host (`recipes/wasi-fd-table.c:678-692`). The same decision says `dup2` "works as for any table descriptor", so the two are inconsistent.
+- **Fix:** let `fd_renumber` work as for any table descriptor, or give a reason for refusing it.
+
+**R2-L2. 015 still gives the record's old name.** `015:40`.
+- The "Writing the record" bullet still names the file `tree-<SHA-256 of SHA256SUMS>.json`. The new bullet at `:45` adds the artifact root's identity to the key.
+- **Fix:** give one file-name pattern, for example `tree-<root dev>-<root ino>-<SHA-256>.json`, in `:40`.
+
+**R2-L3. The synthesis and the roadmap point to specifications that are not on this branch.**
+- `synthesis:3` says "Specifications 013–022 supersede section 3's rows", and `roadmap:25` says "That makes 017–022". But 017–022 are not on this branch. The roadmap's own "Proposed next, not yet written" list still holds them.
+- **Fix:** say "013–016, and 017–022 once written", or leave this until they land.
+
+**R2-L4. 013 does not say how the table recognises the runner's `/dev` preopen.** `013:35`.
+- The guest knows a preopen only by the name that `fd_prestat_dir_name` gives it.
+- **Fix:** say that the table marks, at `start()`, the folder preopen whose name is exactly `/dev`.
+
+The amended specifications read as a whole without contradiction, apart from R2-L1 and R2-L2. Their checks are still counts and outputs, never wall time. 015's check 5 sets file times with `os.utime`, so it is deterministic.
+
+### Verdict
+
+Lands. Every High and Medium finding from round 1 is fixed. The remaining Lows (L3 in part, and R2-L1 to R2-L4) are one-line text fixes. They can be made on this branch before the merge or carried into the specifications' own build branches, and none stops a specification from being built as written.
+
+### The author's note after round 2
+
+The remaining Lows (L3 in part, R2-L1 to R2-L4) were fixed in `d7159d6`, before this file was committed.

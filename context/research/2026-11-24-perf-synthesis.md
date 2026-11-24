@@ -1,6 +1,6 @@
 # Every lever on wasi-perl's speed under vfs, ranked, and the specifications they become
 
-- **Status:** research synthesis, 2026-11-24. The owner agreed the speed work the same day. Specifications 013–022 supersede section 3's rows: for example, 013 serves `/dev/urandom` in the guest rather than wrapping `Perl_seed`, and 014 reads the `.cwasm` on Windows rather than stamping it. Section 5 lists what the owner was asked.
+- **Status:** research synthesis, 2026-11-24. The owner agreed the speed work the same day. Specifications 013–016, and 017–022 as they are written, supersede section 3's rows: for example, 013 serves `/dev/urandom` in the guest rather than wrapping `Perl_seed`, and 014 reads the `.cwasm` on Windows rather than stamping it. Section 5 lists what the owner was asked.
 - **Owner:** Clay Gendron
 - **Researcher:** an agent (Claude Opus 5.5), the orchestrator of the six studies.
 - **Stands on:**
