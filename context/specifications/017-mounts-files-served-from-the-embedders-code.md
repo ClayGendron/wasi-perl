@@ -428,3 +428,45 @@ They are written as `test_escapes.py`'s are: each guest prints `NAME ok` or `NAM
 - Async providers. They are refused, as in wasi-python ("a later specification").
 - Moving the guest onto a thread of its own, as wasi-python's spec 078 did.
 - Ranged reads and writes (vfs spec 178), and links in the protocol.
+
+## Landing notes
+
+Built on `spec/017-mounts` from dev at `f44e0fd`, with wasi-python at `f9bf678` (`/home/user/claygendron/wasi-python`). The artifact set is a fresh build of dev with `scripts/build.sh` in the worktree, under the machine lock: `perl.wasm` SHA-256 `71b362c0a61491e67e76ac161459daf3a3ad254b3b242e3cca7e1c42adc54307` (EXECUTED: `sha256sum build/artifacts/perl.wasm`). `perl.wasm`, `recipes/` and `downloads/SHA256SUMS` are unchanged.
+
+### How the checks were seen failing
+
+- The adapted modules were copied and wired into the runner before the checks were written, against AGENTS.md's order. To see each check fail all the same, every new check file was run against dev's own code: `git archive f44e0fd src` unpacked in a scratch folder and put first on `PYTHONPATH` (EXECUTED). `test_mount_api.py`, `test_mount_table.py`, `test_mount_perl.py` and `test_mount_escapes.py` each fail at collection there (`ImportError: cannot import name 'Errno' from 'wasi_perl'`). `test_mount_parity.py` fails 4 of 7 there; the 3 that pass are `test_the_write_parity_asserts_each_systems_grant`, which checks wasi-python's per-system table and no runner code.
+- `tests/runner/test_arguments.py::test_the_public_api` failed on the new code until the eight names were added to its list (EXECUTED). The list grew; nothing was removed from it.
+- `tests/runner/test_kept_checks.py::test_in_a_copy_mode_install_a_link_made_after_the_scan_is_still_refused` failed on the new code: 2 scans of the library where it holds 1 (EXECUTED). The engine seam is now imported only when `run` first needs wasmtime-py (so that `import wasi_perl` still loads no wasmtime), and its first import wrote a `.pyc` into the package's folder after the kept scan, which then no longer matched. Fixed in the code, not the check: `_runtime_folders` and `_runtime_files` import wasmtime-py through `_engines.wasmtime()`, which imports the seam too, before the scan.
+
+### Choices left to the builder
+
+- **The glue's home** (READ: Decision 3). `_Call`, `_shared`, `_Context` and the thread's stack of calls are in `runner.py`; the plain linker, the mount linker and the trampoline module are in `_engines.py`, cached per engine; `check_mounts` and `_siphash13` are in `_grants.py`.
+- **Spec 014 landed first** (Decision 14). `_engines.linked(metered, module, mounts=True)` makes the mount linker's own `InstancePre` per compiled module, in a cache of its own, on the first call with mounts. The plain linker is now one per engine, shared by `linked` and the trampoline, and `_engines.forget()` drops it with the modules, so "ten calls on one module make one linker" still holds (EXECUTED: `tests/runner/test_fixed_cost.py`).
+- **The stop's state** (INFERRED, then EXECUTED by B and D). A call's recorded stop and its named end live on its `_stop.Stop`, since the epoch callback is `_stop`'s. The callback stops the guest when either is set, and names the end itself when it passes the deadline, as wasi-python's callback sets `call.ended = "deadline"`. So `_shared`'s rule for a wasmtime error met after an end is named is wasi-python's unchanged.
+- **The seam's import** (EXECUTED: `test_importing_wasi_perl_loads_no_wasmtime`, `test_the_runner_lets_the_adapters_import_error_through`). `_wasmtime_ffi` imports wasmtime-py at its top, as wasi-python's does, so `runner.py` and `_stop.py` import it only inside functions, and `_engines.wasmtime()` imports it after wasmtime-py. `version()` imports `importlib.metadata` inside itself: it runs only for a refusal, and that import is one of the slowest of a first call (spec 014). The unification record lists it as one wasi-python could adopt.
+- **The placeholder** (READ: Decision 5). It is made 0700 by `os.mkdir`, then set 0500. On Windows the runner clears its read-only bit before the `rmdir`, since Windows will not remove a read-only folder (INFERRED; not run here). The clean-up of a folder a guest replaced is EXECUTED (`test_the_clean_up_removes_only_an_empty_folder`).
+- **D6's bound.** `-e 1` with a mount at `/` makes 0 provider calls (EXECUTED), so the check's bound, twice the measured count, is 0.
+- **D7's count.** The guest holds 250 mount files open before its table refuses the next (EXECUTED). wasi-libc's text for `EMFILE` is "No file descriptors available", not "Too many open files", so the check reads `$! + 0 == 33` and `$!{EMFILE}`. Likewise wasi-libc's texts are "I/O error" for `EIO`, "Cross-device link" for `EXDEV` and "Resource busy" for `EBUSY` (EXECUTED).
+- **D11's `EISDIR`.** A `read` answered `EISDIR` is a folder, which Perl's `open "<"` takes as a folder handle, so that one member is answered to a `stat` and read by Perl's `stat` (EXECUTED).
+- **D16's writable rows** run with `cwd` at the mount and the grant: File::Path's `remove_tree` stats its working folder. Its `chmod` is not in WASI, so both sides print the same warning; the check compares the two sides' stdout, stderr and tree (EXECUTED).
+- **Ports with Perl guests.** A Python guest that left raw descriptors open at its end leaves Perl handles that Perl closes at its own exit, so the walk's checks end with `POSIX::_exit`, which closes nothing. Each open there costs the guest's look, a `stat`, so the walk's limit is 10 (4 looks, 4 creates, 2 write-backs) where wasi-python's is 6 (EXECUTED).
+- **Cancel cases.** `test_a_cancel_or_a_passed_deadline_stops_the_provider_call`, `test_a_close_stopped_by_a_cancel_is_owed` and `test_the_write_half_is_gated` keep their names; their cancel halves are driven by the deadline, a provider moving `_engines.TICKER.count` past the call's stop.
+- **CI.** The wheel job now runs `tests/mounts` beside `tests/runner`, `tests/escapes` and `tests/oneliners`, against the set `WASI_PERL_ARTIFACTS` names, and its gate counts every check of `tests/mounts` and `tests/escapes/test_mount_escapes.py`: a skip of any fails it. The raw-preview1 checks (B, C) need no Perl, so the lint job runs them too.
+- **No speed memo.** The specification asks for the unification record, `../research/2026-11-24-mounts-beside-wasi-python.md`, and no timing; the provider-call counts are D1's and D2's, in `docs/mounts.md` and the checks.
+
+### Counts that differ from the specification's table
+
+Each is a correction of an inference or of a prototype's count, with the guest's own calls as the reason; the review should see them (EXECUTED: `uv run pytest -m slow tests/mounts/test_mount_perl.py`).
+
+- **A glob or an `opendir` of the mount's own folder costs one `stat` fewer.** The mount's own folder is listed with no `stat` (wasi-python's `_open_folder`, READ), so `glob("/work/*")` over N files is `stat` 1 + N and `list` 1. The table's 2 + N is a folder below the mount, as study E's `grep_glob_500` globbed `notes/`. D1 has both rows.
+- **A `cwd` in a mount adds the start-up `chdir`'s `stat`.** `-pi` with `cwd` at the mount's own path is the bare row plus `stat` 2 and `list` 1, and with `cwd` below it plus `stat` 3 and `list` 1: the table left out the one start-up `stat` that Decision 7 names. D17 confirms that `stat` comes first, and once.
+- **`write_new` makes 3 provider calls, not study E's 4.** E's prototype stats before a create that truncates (READ: `2026-11-24-perf-vfs-io/mount-prototype.patch`, `_open_writing`); wasi-python's open, adapted here line for line, makes one `write(path, b"")` (READ: `_fs_paths.py`, `elif creat and trunc`). So E's column (a) was one call above wasi-python's own design for this workload. The other seven workloads make E's counts exactly.
+- **A refused rename** is tried twice only over a file the guest holds open: a second `rename` and a second `RefusedWrite`, as Decision 12 says (EXECUTED in `test_refused_writes_are_recorded_on_exit_0`).
+
+### Results
+
+- `flock …/machine.lock uv run pytest -m "not slow"`: 593 passed, 3 skipped (EXECUTED; the 3 skips are the suite's own, from before this change).
+- `flock …/machine.lock uv run pytest -m slow tests/runner tests/escapes tests/mounts`: 131 passed (EXECUTED).
+- `uv run ruff check` and `uv run ruff format --check`: clean (EXECUTED).
+- The API check, `tests/mounts/test_mount_api.py::test_the_mount_api_is_wasi_pythons`, passes (EXECUTED).
