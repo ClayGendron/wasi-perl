@@ -1,0 +1,23 @@
+# Perl's own t/ files that are not expected to pass under perl.wasm, each with one reason.
+#
+# A file not listed here must pass. A listed file that passes is reported as a stale
+# exclusion, so it is seen and removed. A file is in or out: there are no partial exclusions.
+# An entry is added with its reason in its own commit, and never to turn a run green.
+#
+# The reasons:
+#   subprocess       the file starts a child perl or a command (runperl, fresh_perl, system,
+#                    backticks, pipe opens, exec, fork), which the sandbox refuses by design.
+#   signals          it needs a signal handler, kill, or alarm, which the sandbox refuses.
+#   threads          it needs threads, which the build leaves out.
+#   porting          it checks Perl's source tree or git (t/porting/), not the interpreter.
+#   dynamic-loading  it needs DynaLoader to load a shared object; the build has no dynamic
+#                    loading.
+#   platform         a WASI difference, named in the entry's own note (no users or groups,
+#                    no chmod bits, and the like).
+#   bug              a defect of this build, with the entry's note saying what fails. A bug is
+#                    a gap to close, not a design choice.
+#
+# Each entry: "dir/file.t" = { reason = "...", note = "..." }; note is required for platform
+# and bug, and says what was seen for the others.
+
+[files]
