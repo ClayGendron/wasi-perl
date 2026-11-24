@@ -403,6 +403,41 @@ def test_the_library_and_dev_null_are_not_writable(perl_set, host):
     assert sorted(p.name for p in (host / "rw").iterdir()) == ["w.txt"]
 
 
+def test_every_call_has_its_own_seeds(perl_set):
+    # Seeds taken from the time of day can be guessed from when a call started, which undoes
+    # Perl's defence against hash flooding. From the host's randomness, no two calls share one.
+    code = 'print unpack("H*", Hash::Util::hash_seed()), " ", rand(), "\\n"'
+    seeds, rands = set(), set()
+    for _ in range(20):
+        done = run(["-MHash::Util", "-e", code], artifacts=perl_set)
+        assert (done.exit_code, done.trapped, done.stderr) == (0, None, b""), done
+        seed, value = done.stdout.split()
+        seeds.add(seed)
+        rands.add(value)
+    assert (len(seeds), len(rands)) == (20, 20), (seeds, rands)
+
+
+def test_the_random_device_is_not_writable(perl_set):
+    before = _digest_tree(perl_set.dev)
+    done = perl(
+        """
+        t("urandom>", sub { open(my $f, ">", "/dev/urandom") });
+        t("random>>", sub { open(my $f, ">>", "/dev/random") });
+        t("urandom+<", sub { open(my $f, "+<", "/dev/urandom") });
+        t("unlink", sub { unlink("/dev/urandom") });
+        t("read", sub { open(my $f, "<", "/dev/urandom") or die "$!\\n"; read($f, my $b, 4) == 4 });
+        """,
+        artifacts=perl_set,
+    )
+    denied = "Permission denied"
+    expect(
+        done,
+        {"urandom>": denied, "random>>": denied, "urandom+<": denied, "unlink": "", "read": "ok"},
+    )
+    assert _digest_tree(perl_set.dev) == before
+    assert sorted(p.name for p in perl_set.dev.iterdir()) == ["null"]
+
+
 def test_there_is_no_network(perl_set):
     done = perl(
         """
