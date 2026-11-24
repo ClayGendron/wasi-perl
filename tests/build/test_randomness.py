@@ -179,7 +179,7 @@ for my $p (@ARGV) {
     my $w = $r;
     my $found = select(my $ro = $r, my $wo = $w, undef, 0);
     print "$p select $found ", vec($ro, fileno($f), 1), vec($wo, fileno($f), 1), "\n";
-    print "$p flags ", fcntl($f, F_GETFL, 0) & O_ACCMODE, " ",
+    print "$p flags ", ((fcntl($f, F_GETFL, 0) & O_ACCMODE) == O_RDONLY ? "rdonly" : "other"), " ",
         (fcntl($f, F_SETFL, O_NONBLOCK) ? "set" : "$!"), " ", read($f, $x, 4), "\n";
     print "$p truncate ", (truncate($f, 0) ? "done" : "$!"), "\n";
     open(my $d, "<&", $f) or die "dup: $!\n";
@@ -215,7 +215,7 @@ def _device_lines(p: str) -> list[str]:
         f"{p} sysseek 0 but true 0 but true",
         f"{p} tell 64",  # PerlIO's count of what it read, from the offset 0 seek answers
         f"{p} select 2 11",
-        f"{p} flags 0 set 4",
+        f"{p} flags rdonly set 4",
         f"{p} truncate Invalid argument",
         f"{p} dup 8",
         f"{p} after 8 closed",
