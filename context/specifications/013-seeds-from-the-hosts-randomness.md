@@ -116,7 +116,7 @@ Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/013-seeds-from-th
 
 ### The checks
 
-`tests/build/test_randomness.py` (14 checks) and two in `tests/escapes/test_escapes.py`:
+`tests/build/test_randomness.py` (12 checks) and two in `tests/escapes/test_escapes.py`:
 - `test_every_call_has_its_own_seeds` (20 calls, 20 seeds and 20 `rand` values);
 - `test_a_write_to_the_random_device_reaches_no_host_file`.
 
