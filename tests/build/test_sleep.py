@@ -12,7 +12,7 @@ import subprocess
 
 import pytest
 
-from conftest import NATIVE_PERL
+from _build_helpers import NATIVE_PERL
 
 LONG_ENOUGH = {
     "select": ("select(undef, undef, undef, 0.25)", 0.25),
