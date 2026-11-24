@@ -1,0 +1,1143 @@
+diff --git a/src/wasi_perl/_mounts.py b/src/wasi_perl/_mounts.py
+new file mode 100644
+index 0000000..2c47c8c
+--- /dev/null
++++ b/src/wasi_perl/_mounts.py
+@@ -0,0 +1,949 @@
++"""Mounts: a provider's files at a guest path, served from embedder code. A research prototype.
++
++    from wasi_perl import run
++    from wasi_perl._mounts import Mount
++
++    done = run(["-ne", "print if /x/", "/work/a.txt"], mounts=[Mount(files, "/work")])
++
++Adapted from wasi-python's `mounts.py`, `_fs_table.py`, `_fs_descriptors.py`, `_fs_paths.py`,
++`_fs_memory.py` and `_wasmtime_ffi.py` (same owner, Apache-2.0): the same provider protocol
++(`stat`, `list` and `read`, and `write`, `mkdir`, `remove`, `rmdir` and `rename` for a writable
++mount, on normalized paths), whole-file staging, provider numbers from 2**30 and a trampoline
++that forwards every other descriptor to wasmtime's own WASI. Trimmed hard: no ABI checks of
++flags, no budgets, no faults record, no thread hand-off. It exists to count and time the calls a
++Perl program makes through a mount; it is not the shape a specification would ship.
++
++What the guest sees: each mount is preopened on an empty, read-only folder the runner owns, so
++wasi-libc's scan of preopens and the guest's descriptor table find it at its guest path. A
++shadow over each descriptor call answers the mount's numbers here and forwards the rest.
++
++Three choices go beyond wasi-python's, each named by a `Mount` field so that a measurement can
++turn it off:
++
++- `defer_create`: a file the guest creates exists in this call's own view until its close, and
++  reaches the provider as one `write` then, not a `write(path, b"")` at open and a second at
++  close. A rename or removal of such a file before its close makes no provider call.
++- `memo`: within one call, a `stat` answer and a staged body are kept by path and reused, and
++  the call's own writes update them. A `list` answer fills the memo with each entry's kind.
++- `stat_reads`: a `stat` of a file is answered by one `read`, whose bytes are kept for the next
++  open of that path. The guest's descriptor table looks at every path before it opens it (to
++  refuse special files), so without this an open costs a `stat` and a `read`.
++- `defer_close`: a file created in this call and closed is written back at the call's end, not
++  at its close, under the name it has then. `-pi` writes a temporary file, closes it and renames
++  it over the original; with this the provider sees one `write` of the original and no rename.
++  The price: a refused write-back reaches the guest at no close, only the call's record.
++"""
++
++from __future__ import annotations
++
++import ctypes
++import enum
++import stat as _stat
++import struct
++import tempfile
++import threading
++from collections.abc import Callable, Iterable
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any
++
++# The numbers are preview1's (wasi-libc's wasip1.h).
++EBADF, EEXIST, EINVAL, EIO, EISDIR = 8, 20, 28, 29, 31
++ENOENT, ENOTDIR, ENOTEMPTY, ENOTSUP, EPERM, EROFS, EXDEV = 44, 54, 55, 58, 63, 69, 75
++ENOTCAPABLE, ESPIPE = 76, 70
++DIRECTORY, REGULAR_FILE = 3, 4
++O_CREAT, O_DIRECTORY, O_EXCL, O_TRUNC = 1, 2, 4, 8
++APPEND = 1
++FD_WRITE = 1 << 6
++RIGHTS = (1 << 30) - 1
++PROVIDER_BASE = 2**30
++FILESTAT = "<QQB7xQQQQQ"  # dev, ino, filetype, nlink, size, atim, mtim, ctim: 64 bytes
++FDSTAT = "<BxH4xQQ"  # filetype, flags, rights base and inheriting: 24 bytes
++DIRENT = "<QQIB3x"  # d_next, d_ino, d_namlen, d_type: 24 bytes
++METHODS = ("stat", "list", "read", "write", "mkdir", "remove", "rmdir", "rename")
++
++# The calls a descriptor of a mount can reach, each with its raw parameters (the result is one
++# i32). perl.wasm imports 22 of them; the other four are shadowed so that no later binary
++# reaches a mount's number unseen.
++SIGNATURES: dict[str, tuple[str, ...]] = {
++    "fd_advise": ("i32", "i64", "i64", "i32"),
++    "fd_close": ("i32",),
++    "fd_datasync": ("i32",),
++    "fd_fdstat_get": ("i32", "i32"),
++    "fd_fdstat_set_flags": ("i32", "i32"),
++    "fd_filestat_get": ("i32", "i32"),
++    "fd_filestat_set_size": ("i32", "i64"),
++    "fd_filestat_set_times": ("i32", "i64", "i64", "i32"),
++    "fd_pread": ("i32", "i32", "i32", "i64", "i32"),
++    "fd_pwrite": ("i32", "i32", "i32", "i64", "i32"),
++    "fd_read": ("i32", "i32", "i32", "i32"),
++    "fd_readdir": ("i32", "i32", "i32", "i64", "i32"),
++    "fd_seek": ("i32", "i64", "i32", "i32"),
++    "fd_sync": ("i32",),
++    "fd_tell": ("i32", "i32"),
++    "fd_write": ("i32", "i32", "i32", "i32"),
++    "path_create_directory": ("i32", "i32", "i32"),
++    "path_filestat_get": ("i32", "i32", "i32", "i32", "i32"),
++    "path_filestat_set_times": ("i32", "i32", "i32", "i32", "i64", "i64", "i32"),
++    "path_link": ("i32", "i32", "i32", "i32", "i32", "i32", "i32"),
++    "path_open": ("i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i32"),
++    "path_readlink": ("i32", "i32", "i32", "i32", "i32", "i32"),
++    "path_remove_directory": ("i32", "i32", "i32"),
++    "path_rename": ("i32", "i32", "i32", "i32", "i32", "i32"),
++    "path_symlink": ("i32", "i32", "i32", "i32", "i32"),
++    "path_unlink_file": ("i32", "i32", "i32"),
++}
++
++
++class Errno(enum.IntEnum):
++    """An answer a provider gives instead of a value, in preview1's numbering."""
++
++    EACCES = 2
++    EEXIST = 20
++    EINVAL = 28
++    EIO = 29
++    EISDIR = 31
++    ENOENT = 44
++    ENOTDIR = 54
++    ENOTEMPTY = 55
++    EPERM = 63
++
++
++@dataclass(frozen=True)
++class Stat:
++    """What a provider's `stat` answers: kind "file" or "dir", size and mtime in nanoseconds."""
++
++    kind: str
++    size: int = 0
++    mtime_ns: int = 0
++
++
++@dataclass(frozen=True)
++class Mount:
++    """A provider's files at `guest`, read-only unless `writable`. The three switches are
++    described in the module's docstring."""
++
++    provider: Any
++    guest: str
++    writable: bool = False
++    defer_create: bool = True
++    memo: bool = True
++    stat_reads: bool = False
++    defer_close: bool = False
++
++
++@dataclass
++class _Open:
++    mount: _Mounted
++    path: str
++    kind: str  # "file" or "dir"
++    data: bytes | bytearray = b""
++    position: int = 0
++    append: bool = False
++    writable: bool = False
++    dirty: bool = False
++    listing: bytes | None = None
++    offsets: list[int] = field(default_factory=list)
++
++
++@dataclass
++class _Mounted:
++    mount: Mount
++    number: int  # the preopen's descriptor
++    dev: int
++    pending: dict[str, _Open] = field(default_factory=dict)  # created here, not yet written
++    stats: dict[str, Stat | int] = field(default_factory=dict)
++    bodies: dict[str, bytes] = field(default_factory=dict)
++
++
++def _normal(base: str, text: str) -> str | int:
++    """`text` resolved under the folder `base`, both within the mount, or ENOTCAPABLE when it
++    is absolute or climbs above the mount."""
++    if text.startswith("/"):
++        return ENOTCAPABLE
++    parts = [p for p in base.split("/") if p]
++    for part in text.split("/"):
++        if part in ("", "."):
++            continue
++        if part == "..":
++            if not parts:
++                return ENOTCAPABLE
++            parts.pop()
++        else:
++            parts.append(part)
++    return "/" + "/".join(parts)
++
++
++def _ino(path: str) -> int:
++    return hash(path) & 0xFFFFFFFFFFFF
++
++
++class _Memory:
++    """The guest's memory for one host call, addressed through one base pointer."""
++
++    __slots__ = ("base", "size")
++
++    def __init__(self, caller: Any) -> None:
++        memory = caller.get("memory")
++        self.base = ctypes.cast(memory.data_ptr(caller), ctypes.c_void_p).value or 0
++        self.size = memory.data_len(caller)
++
++    def read(self, ptr: int, length: int) -> bytes:
++        if ptr + length > self.size:
++            raise IndexError("out of bounds")
++        return ctypes.string_at(self.base + ptr, length)
++
++    def write(self, ptr: int, data: bytes) -> None:
++        if ptr + len(data) > self.size:
++            raise IndexError("out of bounds")
++        ctypes.memmove(self.base + ptr, data, len(data))
++
++    def u32(self, ptr: int, value: int) -> None:
++        self.write(ptr, struct.pack("<I", value))
++
++    def iovecs(self, ptr: int, count: int) -> list[tuple[int, int]]:
++        raw = self.read(ptr, 8 * count)
++        return list(struct.iter_unpack("<II", raw))
++
++
++class Table:
++    """One call's mount table: its mounts, open provider files and provider calls."""
++
++    def __init__(self, mounts: list[tuple[Mount, int]]) -> None:
++        self.mounts = {n: _Mounted(m, n, _ino(m.guest)) for m, n in mounts}
++        self.table: dict[int, _Open] = {}
++        for number, mounted in self.mounts.items():
++            self.table[number] = _Open(mounted, "/", "dir")
++        self.next = PROVIDER_BASE
++        self.calls = dict.fromkeys(METHODS, 0)
++        self.forwards: dict[str, Any] = {}
++        self.observer: Callable[..., Any] | None = None
++
++    # Provider calls, counted, with the call's memo in front when the mount keeps one.
++
++    def _invoke(self, mounted: _Mounted, method: str, *args: Any) -> Any:
++        self.calls[method] += 1
++        try:
++            answer = getattr(mounted.mount.provider, method)(*args)
++        except OSError as e:
++            return Errno.EIO if e.errno is None else _errno_of(e)
++        return answer
++
++    def stat(self, mounted: _Mounted, path: str) -> Stat | int:
++        if path in mounted.pending:
++            return Stat("file", len(mounted.pending[path].data))
++        memo = mounted.mount.memo
++        if memo and path in mounted.stats:
++            return mounted.stats[path]
++        if mounted.mount.stat_reads and path != "/":
++            body = self._read(mounted, path)
++            if isinstance(body, (bytes, bytearray)):
++                return mounted.stats.setdefault(path, Stat("file", len(body)))
++            if body != EISDIR:
++                return body
++            answer: Stat | int = Stat("dir")
++        else:
++            got = self._invoke(mounted, "stat", path)
++            answer = int(got) if isinstance(got, Errno) else got
++        if memo:
++            mounted.stats[path] = answer
++        return answer
++
++    def _read(self, mounted: _Mounted, path: str) -> bytes | int:
++        """A file's whole bytes, or an errno (EISDIR for a folder)."""
++        if path in mounted.pending:
++            return bytes(mounted.pending[path].data)
++        if path in mounted.bodies:
++            return mounted.bodies.pop(path) if not mounted.mount.memo else mounted.bodies[path]
++        got = self._invoke(mounted, "read", path)
++        if isinstance(got, Errno):
++            if mounted.mount.memo:
++                mounted.stats[path] = int(got) if got != Errno.EISDIR else Stat("dir")
++            return int(got)
++        body = bytes(got)
++        if mounted.mount.memo or mounted.mount.stat_reads:
++            mounted.bodies[path] = body
++        if mounted.mount.memo:
++            mounted.stats[path] = Stat("file", len(body))
++        return body
++
++    def _list(self, mounted: _Mounted, path: str) -> list[tuple[str, str]] | int:
++        got = self._invoke(mounted, "list", path)
++        if isinstance(got, Errno):
++            return int(got)
++        entries = list(got)
++        prefix = path.rstrip("/") + "/"
++        names = {name for name, _ in entries}
++        for p in mounted.pending:
++            head, _, name = p.rpartition("/")
++            if (head or "/") == path and name not in names:
++                entries.append((name, "file"))
++        if mounted.mount.memo:
++            for name, kind in entries:
++                if kind == "dir":
++                    mounted.stats.setdefault(prefix + name, Stat("dir"))
++        return entries
++
++    def _change(self, mounted: _Mounted, method: str, *args: Any) -> int:
++        got = self._invoke(mounted, method, *args)
++        return int(got) if isinstance(got, Errno) else 0
++
++    def _forget(self, mounted: _Mounted, *paths: str) -> None:
++        for p in paths:
++            mounted.stats.pop(p, None)
++            mounted.bodies.pop(p, None)
++
++    def _write_back(self, entry: _Open) -> int:
++        mounted = entry.mount
++        if not entry.dirty:
++            return 0
++        data = bytes(entry.data)
++        errno = self._change(mounted, "write", entry.path, data)
++        if errno == 0:
++            entry.dirty = False
++            if mounted.pending.get(entry.path) is entry:
++                del mounted.pending[entry.path]
++            if mounted.mount.memo:
++                mounted.stats[entry.path] = Stat("file", len(data))
++                mounted.bodies[entry.path] = data
++            else:
++                self._forget(mounted, entry.path)
++        return errno
++
++    def finish(self) -> None:
++        """The ending's write-backs: every dirty buffer still open or still pending."""
++        seen: set[int] = set()
++        for entry in list(self.table.values()):
++            if entry.kind == "file" and entry.dirty:
++                seen.add(id(entry))
++                self._write_back(entry)
++        for mounted in self.mounts.values():
++            for entry in list(mounted.pending.values()):
++                if id(entry) not in seen:
++                    self._write_back(entry)
++
++    def record(self) -> dict[str, int]:
++        return dict(self.calls)
++
++    # Dispatch.
++
++    def serve(self, name: str, caller: Any, args: tuple[int, ...]) -> int:
++        fd = args[0] & 0xFFFFFFFF
++        if name == "path_rename":
++            if fd in self.table or (args[3] & 0xFFFFFFFF) in self.table:
++                return _path_rename(self, caller, *args)
++            return self.forward(caller, name, args)
++        entry = self.table.get(fd)
++        handler = _HANDLERS.get(name)
++        if entry is None or handler is None or (fd in self.mounts and name in _PREOPEN_OWN):
++            return self.forward(caller, name, args)
++        return handler(self, caller, entry, *args)
++
++    def forward(self, caller: Any, name: str, args: tuple[int, ...]) -> int:
++        return int(self.forwards[name](caller, *args))
++
++    def take(self, entry: _Open) -> int:
++        number = self.next
++        self.next += 1
++        self.table[number] = entry
++        return number
++
++
++# The calls a mount's own preopen forwards to its placeholder folder: what wasi-libc and the
++# guest's table ask of every preopen at the start.
++_PREOPEN_OWN = frozenset({"fd_fdstat_get", "fd_fdstat_set_flags", "fd_filestat_get"})
++
++
++def _errno_of(e: OSError) -> Errno:
++    import errno as host
++
++    name = host.errorcode.get(e.errno or 0, "EIO")
++    return Errno.__members__.get(name, Errno.EIO)
++
++
++def _filestat(mounted: _Mounted, path: str, st: Stat) -> bytes:
++    filetype = DIRECTORY if st.kind == "dir" else REGULAR_FILE
++    size = st.size if st.kind == "file" else 0
++    t = st.mtime_ns
++    return struct.pack(FILESTAT, mounted.dev, _ino(path), filetype, 1, size, t, t, t)
++
++
++# The descriptor calls on a mount's number.
++
++
++def _fd_read(t: Table, caller: Any, e: _Open, fd: int, iovs: int, n: int, out: int) -> int:
++    if e.kind != "file":
++        return EISDIR
++    mem = _Memory(caller)
++    data, pos = e.data, e.position
++    end = len(data)
++    if type(data) is bytes:
++        # Read-only bytes: one copy, from the staged buffer straight into the guest's memory.
++        source = ctypes.cast(ctypes.c_char_p(data), ctypes.c_void_p).value or 0
++    total = 0
++    for buf, size in mem.iovecs(iovs, n):
++        count = min(size, end - pos - total)
++        if count <= 0:
++            break
++        if buf + count > mem.size:
++            raise IndexError("out of bounds")
++        if type(data) is bytes:
++            ctypes.memmove(mem.base + buf, source + pos + total, count)
++        else:
++            mem.write(buf, bytes(data[pos + total : pos + total + count]))
++        total += count
++        if count < size:
++            break
++    e.position = pos + total
++    mem.u32(out, total)
++    return 0
++
++
++def _fd_pread(
++    t: Table, caller: Any, e: _Open, fd: int, iovs: int, n: int, at: int, out: int
++) -> int:
++    saved = e.position
++    e.position = at
++    try:
++        return _fd_read(t, caller, e, fd, iovs, n, out)
++    finally:
++        e.position = saved
++
++
++def _fd_write(t: Table, caller: Any, e: _Open, fd: int, iovs: int, n: int, out: int) -> int:
++    if e.kind != "file" or not e.writable:
++        return EBADF
++    mem = _Memory(caller)
++    if not isinstance(e.data, bytearray):
++        e.data = bytearray(e.data)
++    data = e.data
++    pos = len(data) if e.append else e.position
++    total = 0
++    for buf, size in mem.iovecs(iovs, n):
++        chunk = mem.read(buf, size)
++        if pos > len(data):
++            data.extend(bytes(pos - len(data)))
++        data[pos : pos + size] = chunk
++        pos += size
++        total += size
++    e.position = pos
++    e.dirty = e.dirty or total > 0
++    mem.u32(out, total)
++    return 0
++
++
++def _fd_pwrite(
++    t: Table, caller: Any, e: _Open, fd: int, iovs: int, n: int, at: int, out: int
++) -> int:
++    saved, append = e.position, e.append
++    e.position, e.append = at, False
++    try:
++        return _fd_write(t, caller, e, fd, iovs, n, out)
++    finally:
++        e.position, e.append = saved, append
++
++
++def _fd_seek(t: Table, caller: Any, e: _Open, fd: int, offset: int, whence: int, out: int) -> int:
++    if e.kind != "file":
++        return ESPIPE if e.kind != "dir" else EBADF
++    if offset >= 2**63:
++        offset -= 2**64
++    base = (0, e.position, len(e.data))[whence] if whence in (0, 1, 2) else None
++    if base is None or base + offset < 0:
++        return EINVAL
++    e.position = base + offset
++    struct_out = struct.pack("<Q", e.position)
++    _Memory(caller).write(out, struct_out)
++    return 0
++
++
++def _fd_tell(t: Table, caller: Any, e: _Open, fd: int, out: int) -> int:
++    _Memory(caller).write(out, struct.pack("<Q", e.position))
++    return 0
++
++
++def _fd_close(t: Table, caller: Any, e: _Open, fd: int) -> int:
++    if fd in t.mounts:
++        return 0  # a mount's own preopen stays open, as a grant's does
++    del t.table[fd]
++    if e.kind == "file" and e.dirty:
++        if e.mount.mount.defer_close and e.mount.pending.get(e.path) is e:
++            return 0  # owed: written at the call's end under the name it has then
++        return t._write_back(e)
++    return 0
++
++
++def _fd_sync(t: Table, caller: Any, e: _Open, fd: int) -> int:
++    return t._write_back(e) if e.kind == "file" else 0
++
++
++def _fd_fdstat_get(t: Table, caller: Any, e: _Open, fd: int, out: int) -> int:
++    filetype = DIRECTORY if e.kind == "dir" else REGULAR_FILE
++    rights = RIGHTS if e.writable or e.kind == "dir" else RIGHTS & ~FD_WRITE
++    flags = APPEND if e.append else 0
++    _Memory(caller).write(out, struct.pack(FDSTAT, filetype, flags, rights, RIGHTS))
++    return 0
++
++
++def _fd_fdstat_set_flags(t: Table, caller: Any, e: _Open, fd: int, flags: int) -> int:
++    e.append = bool(flags & APPEND)
++    return 0
++
++
++def _fd_filestat_get(t: Table, caller: Any, e: _Open, fd: int, out: int) -> int:
++    st = Stat(e.kind, len(e.data) if e.kind == "file" else 0)
++    _Memory(caller).write(out, _filestat(e.mount, e.path, st))
++    return 0
++
++
++def _fd_filestat_set_size(t: Table, caller: Any, e: _Open, fd: int, size: int) -> int:
++    if e.kind != "file" or not e.writable:
++        return EBADF
++    if not isinstance(e.data, bytearray):
++        e.data = bytearray(e.data)
++    if size < len(e.data):
++        del e.data[size:]
++    else:
++        e.data.extend(bytes(size - len(e.data)))
++    e.dirty = True
++    return 0
++
++
++def _fd_ok(t: Table, caller: Any, e: _Open, fd: int, *rest: int) -> int:
++    return 0
++
++
++def _fd_readdir(
++    t: Table, caller: Any, e: _Open, fd: int, buf: int, length: int, cookie: int, used: int
++) -> int:
++    if e.kind != "dir":
++        return ENOTDIR
++    if e.listing is None or cookie == 0:
++        entries = t._list(e.mount, e.path)
++        if isinstance(entries, int):
++            return entries
++        data = bytearray()
++        offsets: list[int] = []
++        prefix = e.path.rstrip("/") + "/"
++        named = [(".", "dir"), ("..", "dir"), *entries]
++        for index, (name, kind) in enumerate(named):
++            encoded = name.encode()
++            offsets.append(len(data))
++            d_type = DIRECTORY if kind == "dir" else REGULAR_FILE
++            data += struct.pack(DIRENT, index + 1, _ino(prefix + name), len(encoded), d_type)
++            data += encoded
++        e.listing, e.offsets = bytes(data), offsets
++    mem = _Memory(caller)
++    start = e.offsets[cookie] if cookie < len(e.offsets) else len(e.listing)
++    out = e.listing[start : start + length]
++    mem.write(buf, out)
++    mem.u32(used, len(out))
++    return 0
++
++
++# The path calls under a mount's folder.
++
++
++def _path_text(caller: Any, ptr: int, length: int) -> str:
++    return _Memory(caller).read(ptr, length).decode("utf-8", "surrogateescape")
++
++
++def _resolve(e: _Open, caller: Any, ptr: int, length: int) -> tuple[str, bool] | int:
++    if e.kind != "dir":
++        return ENOTDIR
++    text = _path_text(caller, ptr, length)
++    path = _normal(e.path, text)
++    return (path, text.endswith("/")) if isinstance(path, str) else path
++
++
++def _path_open(
++    t: Table,
++    caller: Any,
++    e: _Open,
++    fd: int,
++    dirflags: int,
++    ptr: int,
++    length: int,
++    oflags: int,
++    base: int,
++    inheriting: int,
++    fdflags: int,
++    out: int,
++) -> int:
++    resolved = _resolve(e, caller, ptr, length)
++    if isinstance(resolved, int):
++        return resolved
++    path, folder_only = resolved
++    mounted = e.mount
++    mount = mounted.mount
++    writes = bool(oflags & (O_CREAT | O_TRUNC) or base & FD_WRITE)
++    if writes and not mount.writable:
++        return EROFS if oflags & O_CREAT else EPERM
++    opened: _Open
++    if oflags & O_DIRECTORY:
++        if path != "/":
++            st = t.stat(mounted, path)
++            if isinstance(st, int):
++                return st
++            if st.kind != "dir":
++                return ENOTDIR
++        opened = _Open(mounted, path, "dir")
++    elif writes:
++        opened_or = _open_writing(t, mounted, path, oflags)
++        if isinstance(opened_or, int):
++            return opened_or
++        opened = opened_or
++        opened.append = bool(fdflags & APPEND)
++    else:
++        body = t._read(mounted, path)
++        if body == EISDIR:
++            opened = _Open(mounted, path, "dir")
++        elif isinstance(body, int):
++            return body
++        elif folder_only:
++            return ENOTDIR
++        else:
++            opened = _Open(mounted, path, "file", data=body)
++    number = t.take(opened)
++    _Memory(caller).u32(out, number)
++    return 0
++
++
++def _open_writing(t: Table, mounted: _Mounted, path: str, oflags: int) -> _Open | int:
++    creat, excl, trunc = oflags & O_CREAT, oflags & O_EXCL, oflags & O_TRUNC
++    mount = mounted.mount
++    data: bytes | bytearray = bytearray()
++    if creat and (excl or trunc):
++        st = t.stat(mounted, path)
++        if not isinstance(st, int):
++            if excl:
++                return EEXIST
++            if st.kind == "dir":
++                return EISDIR
++        elif st != ENOENT:
++            return st
++        missing = isinstance(st, int)
++        entry = _Open(mounted, path, "file", data=bytearray(), writable=True)
++        if mount.defer_create:
++            entry.dirty = True
++            mounted.pending[path] = entry
++            if mount.memo:
++                mounted.stats.pop(path, None)
++            return entry
++        if errno := t._change(mounted, "write", path, b""):
++            return errno
++        t._forget(mounted, path)
++        if missing and mount.memo:
++            mounted.stats[path] = Stat("file", 0)
++        return entry
++    body = t._read(mounted, path)
++    if body == ENOENT and creat:
++        entry = _Open(mounted, path, "file", data=bytearray(), writable=True, dirty=True)
++        if mount.defer_create:
++            mounted.pending[path] = entry
++            return entry
++        if errno := t._change(mounted, "write", path, b""):
++            return errno
++        entry.dirty = False
++        return entry
++    if isinstance(body, int):
++        return body
++    data = bytearray(b"" if trunc else body)
++    entry = _Open(mounted, path, "file", data=data, writable=True, dirty=bool(trunc))
++    return entry
++
++
++def _path_filestat_get(
++    t: Table, caller: Any, e: _Open, fd: int, flags: int, ptr: int, length: int, out: int
++) -> int:
++    resolved = _resolve(e, caller, ptr, length)
++    if isinstance(resolved, int):
++        return resolved
++    path, folder_only = resolved
++    st = Stat("dir") if path == "/" else t.stat(e.mount, path)
++    if isinstance(st, int):
++        return st
++    if folder_only and st.kind != "dir":
++        return ENOTDIR
++    _Memory(caller).write(out, _filestat(e.mount, path, st))
++    return 0
++
++
++def _path_readlink(t: Table, caller: Any, e: _Open, fd: int, *rest: int) -> int:
++    return EINVAL  # a mount holds no links
++
++
++def _path_refused(t: Table, caller: Any, e: _Open, fd: int, *rest: int) -> int:
++    return ENOTSUP
++
++
++def _path_namespace(method: str) -> Callable[..., int]:
++    def handler(t: Table, caller: Any, e: _Open, fd: int, ptr: int, length: int) -> int:
++        resolved = _resolve(e, caller, ptr, length)
++        if isinstance(resolved, int):
++            return resolved
++        path = resolved[0]
++        mounted = e.mount
++        if not mounted.mount.writable:
++            return EROFS
++        if path == "/":
++            return EPERM
++        if method == "remove" and path in mounted.pending:
++            del mounted.pending[path]  # never written: nothing for the provider to remove
++            return 0
++        errno = t._change(mounted, method, path)
++        t._forget(mounted, path)
++        if errno == 0 and mounted.mount.memo and method == "mkdir":
++            mounted.stats[path] = Stat("dir")
++        return errno
++
++    return handler
++
++
++def _path_rename(
++    t: Table, caller: Any, fd: int, op: int, ol: int, nfd: int, np_: int, nl: int
++) -> int:
++    a, b = t.table.get(fd & 0xFFFFFFFF), t.table.get(nfd & 0xFFFFFFFF)
++    if a is None or b is None or a.mount is not b.mount:
++        return EXDEV
++    src = _resolve(a, caller, op, ol)
++    dst = _resolve(b, caller, np_, nl)
++    if isinstance(src, int):
++        return src
++    if isinstance(dst, int):
++        return dst
++    mounted = a.mount
++    if not mounted.mount.writable:
++        return EROFS
++    s, d = src[0], dst[0]
++    if s in mounted.pending:
++        # Created in this call and not yet written: the provider sees only the final name, at
++        # the close. A file the provider holds at the destination is replaced by that write.
++        entry = mounted.pending.pop(s)
++        dropped = mounted.pending.pop(d, None)
++        if dropped is not None:
++            dropped.dirty = False
++        entry.path = d
++        mounted.pending[d] = entry
++        t._forget(mounted, d)
++        return 0
++    errno = t._change(mounted, "rename", s, d)
++    if errno == 0:
++        t._forget(mounted, s, d)
++        for entry in t.table.values():
++            if entry.mount is mounted and entry.path == s:
++                entry.path = d
++    return errno
++
++
++_HANDLERS: dict[str, Callable[..., int]] = {
++    "fd_advise": _fd_ok,
++    "fd_close": _fd_close,
++    "fd_datasync": _fd_sync,
++    "fd_fdstat_get": _fd_fdstat_get,
++    "fd_fdstat_set_flags": _fd_fdstat_set_flags,
++    "fd_filestat_get": _fd_filestat_get,
++    "fd_filestat_set_size": _fd_filestat_set_size,
++    "fd_filestat_set_times": _fd_ok,
++    "fd_pread": _fd_pread,
++    "fd_pwrite": _fd_pwrite,
++    "fd_read": _fd_read,
++    "fd_readdir": _fd_readdir,
++    "fd_seek": _fd_seek,
++    "fd_sync": _fd_sync,
++    "fd_tell": _fd_tell,
++    "fd_write": _fd_write,
++    "path_create_directory": _path_namespace("mkdir"),
++    "path_filestat_get": _path_filestat_get,
++    "path_filestat_set_times": _fd_ok,
++    "path_link": _path_refused,
++    "path_open": _path_open,
++    "path_readlink": _path_readlink,
++    "path_remove_directory": _path_namespace("rmdir"),
++    "path_symlink": _path_refused,
++    "path_unlink_file": _path_namespace("remove"),
++}
++
++
++# The linker: wasmtime's WASI plus one shadow per call above, defined once per engine. Each
++# shadow serves the table of the call running on its thread.
++
++_current = threading.local()
++_linkers: dict[tuple[int, tuple[str, ...]], Any] = {}
++_trampolines: dict[tuple[int, tuple[tuple[str, tuple[str, ...]], ...]], Any] = {}
++_lock = threading.Lock()
++
++
++def _shadow(name: str) -> Callable[..., int]:
++    def function(caller: Any, *args: int) -> int:
++        table: Table = _current.table
++        observer = table.observer
++        if observer is None:
++            return table.serve(name, caller, args)
++        return observer(name, caller, args, lambda: table.serve(name, caller, args))
++
++    return function
++
++
++def linker(wt: Any, engine: Any, signatures: dict[str, tuple[str, ...]]) -> Any:
++    """wasmtime's WASI with a shadow over each call in `signatures`, once per engine."""
++    key = (id(engine), tuple(signatures))
++    with _lock:
++        found = _linkers.get(key)
++        if found is None:
++            found = wt.Linker(engine)
++            found.define_wasi()
++            found.allow_shadowing = True
++            kinds = {"i32": wt.ValType.i32(), "i64": wt.ValType.i64()}
++            for name, params in signatures.items():
++                ty = wt.FuncType([kinds[p] for p in params], [kinds["i32"]])
++                found.define_func("wasi_snapshot_preview1", name, ty, _shadow(name), True)
++            _linkers[key] = found
++        return found
++
++
++def _trampoline_wat(signatures: dict[str, tuple[str, ...]]) -> str:
++    lines = ["(module"]
++    for name, params in signatures.items():
++        sig = f"(param {' '.join(params)}) (result i32)"
++        lines.append(f'  (import "wasi_snapshot_preview1" "{name}" (func ${name} {sig}))')
++    lines.append('  (import "env" "memory" (memory 0))')
++    lines.append('  (export "memory" (memory 0))')
++    for name, params in signatures.items():
++        sig = f"(param {' '.join(params)}) (result i32)"
++        gets = " ".join(f"(local.get {i})" for i in range(len(params)))
++        lines.append(f'  (func (export "{name}") {sig} (call ${name} {gets}))')
++    lines.append(")")
++    return "\n".join(lines)
++
++
++def bind(
++    wt: Any,
++    store: Any,
++    engine: Any,
++    table: Table,
++    instance: Any,
++    signatures: dict[str, tuple[str, ...]],
++) -> None:
++    """The trampoline on the guest's memory, after the guest is instantiated and before it
++    runs: each forward reaches wasmtime's own call through it, so that call reads and writes
++    the guest's memory."""
++    from wasi_perl import _wasmtime_ffi
++
++    key = (id(engine), tuple(signatures.items()))
++    with _lock:
++        module = _trampolines.get(key)
++        if module is None:
++            module = _trampolines[key] = wt.Module(engine, _trampoline_wat(signatures))
++    plain = wt.Linker(engine)
++    plain.define_wasi()
++    imports = [plain.get(store, "wasi_snapshot_preview1", name) for name in signatures]
++    imports.append(instance.exports(store)["memory"])
++    exports = wt.Instance(store, module, imports).exports(store)
++    table.forwards = {
++        name: _wasmtime_ffi.Forward(exports[name], signatures[name]) for name in signatures
++    }
++
++
++def enter(table: Table) -> None:
++    _current.table = table
++
++
++def leave() -> None:
++    _current.table = None
++
++
++def placeholder() -> Path:
++    """An empty, read-only folder the runner owns, which every mount's preopen names."""
++    global _PLACEHOLDER
++    with _lock:
++        if _PLACEHOLDER is None:
++            folder = Path(tempfile.mkdtemp(prefix="wasi-perl-mount-"))
++            folder.chmod(_stat.S_IRUSR | _stat.S_IXUSR)
++            _PLACEHOLDER = folder
++        return _PLACEHOLDER
++
++
++_PLACEHOLDER: Path | None = None
++
++
++class MemoryProvider:
++    """A provider over a dict of path to bytes, with folders implied by the paths. For tests and
++    measurements: `delay_s` sleeps on every call, to stand in for a database round trip."""
++
++    def __init__(self, files: dict[str, bytes], delay_s: float = 0.0) -> None:
++        self.files = dict(files)
++        self.dirs = {"/"}
++        for p in self.files:
++            parts = p.split("/")[1:-1]
++            for i in range(len(parts)):
++                self.dirs.add("/" + "/".join(parts[: i + 1]))
++        self.delay_s = delay_s
++
++    def _wait(self) -> None:
++        if self.delay_s:
++            import time
++
++            time.sleep(self.delay_s)
++
++    def stat(self, path: str) -> Stat | Errno:
++        self._wait()
++        if path in self.dirs:
++            return Stat("dir")
++        if path in self.files:
++            return Stat("file", len(self.files[path]))
++        return Errno.ENOENT
++
++    def list(self, path: str) -> Iterable[tuple[str, str]] | Errno:
++        self._wait()
++        if path not in self.dirs:
++            return Errno.ENOTDIR if path in self.files else Errno.ENOENT
++        prefix = path.rstrip("/") + "/"
++        out: dict[str, str] = {}
++        for p in (*self.files, *self.dirs):
++            if p.startswith(prefix) and p != path:
++                name = p[len(prefix) :].split("/")[0]
++                out.setdefault(name, "dir" if prefix + name in self.dirs else "file")
++        return sorted(out.items())
++
++    def read(self, path: str) -> bytes | Errno:
++        self._wait()
++        if path in self.dirs:
++            return Errno.EISDIR
++        return self.files.get(path, Errno.ENOENT)
++
++    def write(self, path: str, data: bytes) -> None | Errno:
++        self._wait()
++        if path in self.dirs:
++            return Errno.EISDIR
++        self.files[path] = bytes(data)
++        return None
++
++    def mkdir(self, path: str) -> None | Errno:
++        self._wait()
++        if path in self.dirs or path in self.files:
++            return Errno.EEXIST
++        self.dirs.add(path)
++        return None
++
++    def remove(self, path: str) -> None | Errno:
++        self._wait()
++        if path in self.dirs:
++            return Errno.EISDIR
++        if self.files.pop(path, None) is None:
++            return Errno.ENOENT
++        return None
++
++    def rmdir(self, path: str) -> None | Errno:
++        self._wait()
++        if any(p.startswith(path + "/") for p in (*self.files, *self.dirs)):
++            return Errno.ENOTEMPTY
++        self.dirs.discard(path)
++        return None
++
++    def rename(self, src: str, dst: str) -> None | Errno:
++        self._wait()
++        if src not in self.files:
++            return Errno.ENOENT
++        self.files[dst] = self.files.pop(src)
++        return None
+diff --git a/src/wasi_perl/_wasmtime_ffi.py b/src/wasi_perl/_wasmtime_ffi.py
+index a7af320..041fa6d 100644
+--- a/src/wasi_perl/_wasmtime_ffi.py
++++ b/src/wasi_perl/_wasmtime_ffi.py
+@@ -42,3 +42,49 @@ def on_epoch(store: Any, fn: Callable[[Any, Any], int]) -> list[Any]:
+     finalizer = finalizer_type(lambda _data: None)
+     binding(store.ptr(), callback, None, finalizer)
+     return [callback, finalizer]
++
++
++class Forward:
++    """One function of a mount's trampoline, called on the caller's context through
++    `wasmtime_func_call` with its argument array made once and reused, so a forwarded file call
++    costs no `Func.__call__` and touches wasmtime-py's process-wide exception slot not at all.
++    Adapted from wasi-python's `PreparedCall`."""
++
++    __slots__ = ("func", "kinds", "params", "results")
++
++    def __init__(self, func: Any, kinds: tuple[str, ...]) -> None:
++        from wasmtime import _ffi as ffi
++
++        self.func = func._func
++        self.kinds = kinds
++        self.params = (ffi.wasmtime_val_t * len(kinds))()
++        for i, kind in enumerate(kinds):
++            tag = ffi.WASMTIME_I32 if kind == "i32" else ffi.WASMTIME_I64
++            self.params[i].kind = ctypes.c_ubyte(tag.value)
++        self.results = (ffi.wasmtime_val_t * 1)()
++
++    def __call__(self, caller: Any, *args: int) -> int:
++        from wasmtime import Trap, WasmtimeError
++        from wasmtime import _ffi as ffi
++
++        params = self.params
++        for i, value in enumerate(args):
++            if self.kinds[i] == "i32":
++                params[i].of.i32 = value
++            else:
++                params[i].of.i64 = value
++        trap = ctypes.POINTER(ffi.wasm_trap_t)()
++        error = ffi.wasmtime_func_call(
++            caller._context(),
++            ctypes.byref(self.func),
++            params,
++            len(args),
++            self.results,
++            1,
++            ctypes.byref(trap),
++        )
++        if trap:
++            raise Trap._from_ptr(trap)
++        if error:
++            raise WasmtimeError._from_ptr(error)
++        return int(self.results[0].of.i32)
+diff --git a/src/wasi_perl/runner.py b/src/wasi_perl/runner.py
+index 07c902d..b2b21e2 100644
+--- a/src/wasi_perl/runner.py
++++ b/src/wasi_perl/runner.py
+@@ -22,7 +22,7 @@ from pathlib import Path
+ from typing import Any
+ 
+ import wasi_perl
+-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop, _wasmtime_ffi
++from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _mounts, _stop, _wasmtime_ffi
+ from wasi_perl._artifacts import Artifacts
+ from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
+ from wasi_perl._limits import UNSET
+@@ -102,6 +102,12 @@ class Completed:
+     trapped: str | None
+     fuel_used: int | None
+     truncated: tuple[str, ...] = ()
++    files: dict[str, int] | None = None  # a call with mounts: each provider method's count
++
++
++# A measurement's hook: (signatures, observer). With it, every call shadows the calls the
++# signatures name and reports each to the observer, mounts or none.
++OBSERVE: tuple[dict[str, tuple[str, ...]], Any] | None = None
+ 
+ 
+ class _Stream:
+@@ -239,6 +245,7 @@ def run(
+     output_bytes: int | None = UNSET,
+     cache_dir: str | os.PathLike[str] | bool | None = None,
+     artifacts: Artifacts | None = None,
++    mounts: Iterable[_mounts.Mount] = (),
+ ) -> Completed:
+     """Run one Perl program in a fresh, sealed perl.wasm and return how it ended.
+ 
+@@ -310,7 +317,9 @@ def run(
+             metered = limits.fuel is not None
+             module = _engines.module(metered, found.perl, want, cache.folder)
+             engine = _engines.engine(metered)
+-            return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
++            return _call(
++                wt, engine, module, found, placed, inputs, guest_env, limits, tuple(mounts)
++            )
+         finally:
+             _grants.let_go(slot)
+     finally:
+@@ -327,6 +336,7 @@ def _set_up(
+     guest_env: dict[str, str],
+     out: _Stream,
+     err: _Stream,
++    mounts: tuple[_mounts.Mount, ...] = (),
+ ) -> Any:
+     """The store's WASI context and the linker. wasmtime opens each grant here, and raises
+     WasmtimeError for a folder it cannot open; the caller reports that as the call's trap."""
+@@ -340,7 +350,12 @@ def _set_up(
+     wasi.preopen_dir(str(found.dev), DEV_GUEST, False)
+     for p in placed:
+         wasi.preopen_dir(str(p.host), p.guest, p.writable)
++    for m in mounts:
++        wasi.preopen_dir(str(_mounts.placeholder()), m.guest, False)
+     store.set_wasi(wasi)
++    if mounts or OBSERVE is not None:
++        signatures = OBSERVE[0] if OBSERVE is not None else _mounts.SIGNATURES
++        return _mounts.linker(wt, engine, signatures)
+     linker = wt.Linker(engine)
+     linker.define_wasi()
+     return linker
+@@ -355,8 +370,22 @@ def _call(
+     inputs: _limits.Inputs,
+     guest_env: dict[str, str],
+     limits: _limits.Limits,
++    mounts: tuple[_mounts.Mount, ...] = (),
+ ) -> Completed:
+     metered = limits.fuel is not None
++    table = None
++    bound = None
++    if mounts or OBSERVE is not None:
++        first = 5 + len(placed)  # stdio, the library, /dev and the grants come first
++        table = _mounts.Table([(m, first + i) for i, m in enumerate(mounts)])
++        signatures = OBSERVE[0] if OBSERVE is not None else _mounts.SIGNATURES
++        if OBSERVE is not None:
++            table.observer = OBSERVE[1]
++
++        def bound(store: Any, instance: Any) -> None:
++            _mounts.bind(wt, store, engine, table, instance, signatures)
++            _mounts.enter(table)
++
+     out = _Stream("stdout", limits.output_bytes)
+     err = _Stream("stderr", limits.output_bytes)
+     stop = _stop.Stop(None if limits.deadline_s is None else _limits.ticks(limits.deadline_s))
+@@ -367,7 +396,7 @@ def _call(
+         if limits.memory_bytes is not None:
+             store.set_limits(memory_size=limits.memory_bytes)
+         try:
+-            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
++            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err, mounts)
+         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
+             return Completed(None, b"", b"", _error_words(str(e)), None, ())
+         _stop.arm(store, stop)
+@@ -375,19 +404,23 @@ def _call(
+         _engines.TICKER.enter()
+         try:
+             with _stop.watching_ctrl_c(stop):
+-                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits)
++                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits, bound)
+         finally:
+             _engines.TICKER.leave()
++            if table is not None:
++                _mounts.leave()
++                table.finish()
+     finally:
+         store.close()
+     if stop.interrupted:
+         raise KeyboardInterrupt  # Ctrl-C ended the guest; the store is closed
+     truncated = tuple(s.name for s in (out, err) if s.dropped)
+-    return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated)
++    files = table.record() if table is not None and mounts else None
++    return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated, files)
+ 
+ 
+ def _drive(
+-    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits
++    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits, bound: Any = None
+ ) -> tuple[int | None, str | None, int | None]:
+     """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
+     metered = limits.fuel is not None
+@@ -399,6 +432,8 @@ def _drive(
+     read_status = False  # whether the guest's own record of its exit status is asked for
+     try:
+         instance = linker.instantiate(store, module)
++        if bound is not None:
++            bound(store, instance)
+         if metered:
+             store.set_fuel(limits.fuel)
+             is_metered = True
