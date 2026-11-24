@@ -1,0 +1,68 @@
+{
+ "json_decode": {
+  "fuel": 11156136450,
+  "exit": 0,
+  "answer": "20000 99995000",
+  "stderr": ""
+ },
+ "json_decode+maybexs": {
+  "fuel": 11178649365,
+  "exit": 0,
+  "answer": "20000 99995000",
+  "stderr": ""
+ },
+ "json_small": {
+  "fuel": 101999957,
+  "exit": 0,
+  "answer": "30 217.5",
+  "stderr": ""
+ },
+ "json_encode": {
+  "fuel": 3914000908,
+  "exit": 0,
+  "answer": "1135561",
+  "stderr": ""
+ },
+ "jq_select": {
+  "fuel": 11161604637,
+  "exit": 0,
+  "answer": "14000 bytes sha256 db61c8ff9bf85d72",
+  "stderr": ""
+ },
+ "csv_parsewords": {
+  "fuel": 18214826967,
+  "exit": 0,
+  "answer": "50000 25015654.65 651847",
+  "stderr": ""
+ },
+ "csv_regex": {
+  "fuel": 3527361400,
+  "exit": 0,
+  "answer": "50000 25015654.65 651847",
+  "stderr": ""
+ },
+ "csv_pp+textcsv": {
+  "fuel": 32416228912,
+  "exit": 0,
+  "answer": "50000 25015654.65 651847",
+  "stderr": ""
+ },
+ "diff_lcs+algdiff": {
+  "fuel": 211186558,
+  "exit": 0,
+  "answer": "99 72 66",
+  "stderr": ""
+ },
+ "load_jsonpp": {
+  "fuel": 86595791,
+  "exit": 0,
+  "answer": "",
+  "stderr": ""
+ },
+ "load_none": {
+  "fuel": 1605996,
+  "exit": 0,
+  "answer": "",
+  "stderr": ""
+ }
+}

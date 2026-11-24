@@ -1,0 +1,74 @@
+{
+ "json_decode": {
+  "median_ms": 1314.2,
+  "n": 3
+ },
+ "json_decode+cpanel": {
+  "median_ms": 44.9,
+  "n": 9
+ },
+ "json_decode+maybexs": {
+  "median_ms": 59.8,
+  "n": 9
+ },
+ "json_small": {
+  "median_ms": 28.8,
+  "n": 9
+ },
+ "json_small+cpanel": {
+  "median_ms": 12.1,
+  "n": 9
+ },
+ "json_encode": {
+  "median_ms": 423.6,
+  "n": 5
+ },
+ "json_encode+cpanel": {
+  "median_ms": 58.0,
+  "n": 9
+ },
+ "jq_select": {
+  "median_ms": 1267.3,
+  "n": 3
+ },
+ "jq_select+cpanel": {
+  "median_ms": 42.6,
+  "n": 9
+ },
+ "csv_parsewords": {
+  "median_ms": 1440.5,
+  "n": 3
+ },
+ "csv_regex": {
+  "median_ms": 324.0,
+  "n": 5
+ },
+ "csv_xs+csv_xs": {
+  "median_ms": 132.5,
+  "n": 9
+ },
+ "csv_pp+textcsv": {
+  "median_ms": 128.6,
+  "n": 9
+ },
+ "diff_lcs+algdiff": {
+  "median_ms": 27.8,
+  "n": 9
+ },
+ "load_jsonpp": {
+  "median_ms": 20.7,
+  "n": 9
+ },
+ "load_cpanel+cpanel": {
+  "median_ms": 10.8,
+  "n": 9
+ },
+ "load_textcsv_xs+csv_xs": {
+  "median_ms": 19.5,
+  "n": 9
+ },
+ "load_none": {
+  "median_ms": 1.8,
+  "n": 9
+ }
+}
