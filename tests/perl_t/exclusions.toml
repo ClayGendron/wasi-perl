@@ -1,217 +1,228 @@
 # Perl's own t/ files that are not expected to pass under perl.wasm, each with one reason.
 #
 # A file not listed here must pass. A listed file that passes is reported as a stale
-# exclusion, so it is seen and removed. A file is in or out: there are no partial exclusions.
+# exclusion, so it is seen and removed. A file is in or out: there are no partial exclusions,
+# but each entry records ok_at_least, the "ok" results the file reaches now, and a run where it
+# reaches fewer has regressed, so the part of an excluded file that runs is still guarded.
 # An entry is added with its reason in its own commit, and never to turn a run green.
 #
 # The reasons:
-#   subprocess       the file starts a child perl or a command (runperl, fresh_perl, system,
-#                    backticks, pipe opens, exec, fork), which the sandbox refuses by design.
-#   signals          it needs a signal handler, kill, or alarm, which the sandbox refuses.
-#   threads          it needs threads, which the build leaves out.
-#   porting          it checks Perl's source tree or git (t/porting/), not the interpreter.
-#   dynamic-loading  it needs DynaLoader to load a shared object; the build has no dynamic
-#                    loading.
-#   platform         a WASI difference, named in the entry's own note (no users or groups,
-#                    no chmod bits, and the like).
-#   bug              a defect of this build, with the entry's note saying what fails. A bug is
-#                    a gap to close, not a design choice.
+#   subprocess         the file starts a child perl or a command (runperl, fresh_perl, system,
+#                      backticks, pipe opens, exec, fork), which the sandbox refuses by design.
+#   signals            it needs a signal handler, kill, or alarm, which the sandbox refuses.
+#   refused            it calls another operation the sandbox refuses, one that starts no
+#                      process (pipe, waitpid).
+#   threads            it needs threads, which the build leaves out.
+#   porting            it checks Perl's source tree or git (t/porting/), not the interpreter.
+#   dynamic-loading    it needs DynaLoader to load a shared object; the build has no dynamic
+#                      loading.
+#   platform           a WASI difference, named in the entry's own note (no chmod bits, no
+#                      time-zone database, and the like).
+#   not-this-platform  a test for another operating system, which t/TEST runs only there.
+#   bug                a defect of this build, with the entry's note saying what fails. A bug is
+#                      a gap to close, not a design choice.
 #
-# Each entry: "dir/file.t" = { reason = "...", note = "..." }; note is required for platform
-# and bug, and says what was seen for the others.
+# Each entry: "dir/file.t" = { reason = "...", note = "...", ok_at_least = N }; note is
+# required for platform and bug, and says what was seen for the others. A subprocess, signals
+# or refused file must show "is not available in the wasi-perl sandbox" in its output; one that
+# catches the refusal and never prints it names, in shows, a pattern its output does show, and
+# its note says where it is refused.
 
 [files]
 
 # subprocess
-"base/term.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 20)" }
-"comp/colon.t" = { reason = "subprocess", note = "tests 8 and 19 evaluate qx:...: tokens, and backticks is refused" }
-"comp/hints.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"comp/multiline.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 82)" }
-"comp/parser_run.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/argv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/bom.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/crlf_through.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"io/data.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/errno.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/fflush.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 93)" }
-"io/fs.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 31)" }
-"io/inplace.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/iprefix.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/layers.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/open.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/pvbm.t" = { reason = "subprocess", note = "tests 4 and 5 call pipe(), which the sandbox refuses" }
-"io/tell.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"io/through.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 132)" }
-"japh/abigail.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"lib/croak.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"lib/no_load.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"lib/overload_fallback.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"lib/universal.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"mro/basic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"mro/package_aliases.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"mro/package_aliases_utf8.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/anonsub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/array.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/attrs.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"op/blocks.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/bop.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/caller.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/chdir.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/closure.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 452)" }
-"op/cmpchain.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/concat2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/coresubs.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/current_sub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/dbm.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/debug.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/die.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/die_exit.t" = { reason = "subprocess", note = "every test runs a child perl through system (with STDERR sent to a file)" }
-"op/die_unwind.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/each.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/exec.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 48)" }
-"op/glob.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 28)" }
-"op/goto.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/groups.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 218)" }
-"op/gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/heredoc.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/hexfp.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/hook/require.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/incfilter.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 91)" }
-"op/join.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/lc.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/leaky-magic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/lex.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/lex_assign.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 20)" }
-"op/lexsub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/list.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/magic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 106)" }
-"op/method.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/multideref.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/my_stash.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/override.t" = { reason = "subprocess", note = "tests 31-36 run child perls: under the file's own CORE::GLOBAL::require stub, which_perl cannot load File::Spec (the guest's $^X is \"perl\", so it looks for ./perl)" }
-"op/packagev.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/print.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/range.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/readdir.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/readline.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/recurse.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"op/ref.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/repeat.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/require_errors.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/reset.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/runlevel.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/smartmatch.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/sort.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/splice.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/split.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/sprintf2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/srand.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 57)" }
-"op/stash.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/stash_parse_gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/sub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/sub_lval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/substr.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/taint.t" = { reason = "subprocess", note = "tests run commands through backticks inside eval; then dies: backticks is not available in the wasi-perl sandbox (line 174)" }
-"op/tie.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/tr.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/tr_latin1.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/undef.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/universal.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"op/utf8cache.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/utftaint.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/waitpid.t" = { reason = "subprocess", note = "dies: waitpid is not available in the wasi-perl sandbox (line 23)" }
-"op/warn.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"op/while.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/anyof.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/bigfuzzy_not_utf8.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/pat.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/pat_advanced.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/pat_psycho.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/pat_re_eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/pat_rt_report.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/recompile.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/reg_60508.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/reg_eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/reg_eval_scope.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/regex_sets.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/regexp_unicode_prop.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/script_run.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/speed.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/subst.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"re/substT.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"re/subst_wamp.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"run/cloexec.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"run/exit.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 15)" }
-"run/fresh_perl.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/locale.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/script.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 14)" }
-"run/switch-I-and-M.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switchC.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switchF1.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 35)" }
-"run/switchF2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switchI.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switchM.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switchd.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switches.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/switcht.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 25)" }
-"run/switchx.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"run/todo.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"test_pl/tempfile.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 881)" }
-"uni/attrs.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts" }
-"uni/gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"uni/method.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"uni/overload.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"uni/parser.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
-"uni/upper.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)" }
+"base/term.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 20)", ok_at_least = 1 }
+"comp/colon.t" = { reason = "subprocess", note = "tests 8 and 19 evaluate qx:...: inside eval and print no $@; backticks is not available in the wasi-perl sandbox (EXECUTED: eval q{qx:echo 1:}; print $@)", shows = "^not ok 19$", ok_at_least = 23 }
+"comp/hints.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 30 }
+"comp/multiline.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 82)", ok_at_least = 4 }
+"comp/parser_run.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/argv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/bom.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/crlf_through.t" = { reason = "subprocess", note = "does io/through.t, whose pipe open to a child perl is refused; do catches the refusal and the file dies \"no kid script\"", shows = "no kid script at io/crlf_through\\.t line 10", ok_at_least = 0 }
+"io/data.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/errno.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/fflush.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 93)", ok_at_least = 1 }
+"io/fs.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 31)", ok_at_least = 0 }
+"io/inplace.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/iprefix.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/layers.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 49 }
+"io/open.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1 }
+"io/tell.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 35 }
+"io/through.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 132)", ok_at_least = 0 }
+"japh/abigail.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 49 }
+"lib/croak.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"lib/no_load.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"lib/overload_fallback.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 2 }
+"lib/universal.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"mro/basic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 61 }
+"mro/package_aliases.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 4 }
+"mro/package_aliases_utf8.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 4 }
+"op/anonsub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/array.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 72 }
+"op/attrs.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts", ok_at_least = 0 }
+"op/blocks.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/bop.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 166 }
+"op/caller.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 32 }
+"op/chdir.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 23 }
+"op/closure.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 452)", ok_at_least = 50 }
+"op/cmpchain.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1749 }
+"op/concat2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 2 }
+"op/coresubs.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1103 }
+"op/current_sub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 21 }
+"op/dbm.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/debug.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/die.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 25 }
+"op/die_exit.t" = { reason = "subprocess", note = "sends STDERR to a file, then runs every test as a child perl through system, which is refused into that file; stdout shows only the plan", shows = "\\A1\\.\\.17\\n\\Z", ok_at_least = 0 }
+"op/die_unwind.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 12 }
+"op/each.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 57 }
+"op/eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 97 }
+"op/exec.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 48)", ok_at_least = 0 }
+"op/glob.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 28)", ok_at_least = 0 }
+"op/goto.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 6 }
+"op/groups.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 218)", ok_at_least = 0 }
+"op/gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 93 }
+"op/heredoc.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1 }
+"op/hexfp.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 123 }
+"op/hook/require.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/incfilter.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 91)", ok_at_least = 12 }
+"op/join.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 41 }
+"op/lc.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 131 }
+"op/leaky-magic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 2 }
+"op/lex.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 4 }
+"op/lex_assign.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 20)", ok_at_least = 0 }
+"op/lexsub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 21 }
+"op/list.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 71 }
+"op/magic.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 106)", ok_at_least = 60 }
+"op/method.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 97 }
+"op/multideref.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 64 }
+"op/my_stash.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 7 }
+"op/override.t" = { reason = "subprocess", note = "tests 31-36 run child perls through fresh_perl; under the file's own CORE::GLOBAL::require stub, which_perl's require of File::Spec loads nothing (the guest's $^X is \"perl\", which sends which_perl there) and it dies before the refusal", shows = "Can\\'t locate object method \"curdir\" via package \"File::Spec\" at \\./test\\.pl", ok_at_least = 30 }
+"op/pack.t" = { reason = "subprocess", note = "reads the stand-in t/perl as $^X, runs 4177 tests, all ok, then dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 4177 }
+"op/packagev.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 301 }
+"op/print.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/range.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 161 }
+"op/readdir.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 12 }
+"op/readline.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 3 }
+"op/recurse.t" = { reason = "subprocess", note = "test 27 runs a 64K-deep recursion in a child perl through runperl inside eval, which catches the refusal, so $r is undef", shows = "Failed test 27 - 64K deep recursion - no output expected", ok_at_least = 27 }
+"op/ref.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 127 }
+"op/repeat.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 47 }
+"op/require_errors.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 57 }
+"op/reset.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 34 }
+"op/runlevel.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/smartmatch.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 349 }
+"op/sort.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 164 }
+"op/splice.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 33 }
+"op/split.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 31 }
+"op/sprintf2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1393 }
+"op/srand.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 57)", ok_at_least = 3 }
+"op/stash.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/stash_parse_gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/sub.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 11 }
+"op/sub_lval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 133 }
+"op/substr.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 389 }
+"op/taint.t" = { reason = "subprocess", note = "its tainted() is \"not eval { ..., kill 0; 1 }\" and kill is refused, so every value looks tainted and about 140 isnt_tainted checks fail; it then dies: backticks is not available in the wasi-perl sandbox (line 174)", ok_at_least = 317 }
+"op/tie.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/tr.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 224 }
+"op/tr_latin1.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/undef.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 74 }
+"op/universal.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts", ok_at_least = 112 }
+"op/utf8cache.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"op/utftaint.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 86 }
+"op/warn.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 18 }
+"op/while.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 25 }
+"re/anyof.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/bigfuzzy_not_utf8.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/pat.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 668 }
+"re/pat_advanced.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1341 }
+"re/pat_psycho.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 13 }
+"re/pat_re_eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 440 }
+"re/pat_rt_report.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 143 }
+"re/recompile.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/reg_60508.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/reg_eval.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/reg_eval_scope.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"re/regex_sets.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 76 }
+"re/regexp_unicode_prop.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1108 }
+"re/script_run.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 186 }
+"re/speed.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 25 }
+"re/subst.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 161 }
+"re/substT.t" = { reason = "subprocess", note = "does re/subst.t, whose fresh_perl at test 162 is refused; do catches the refusal and the file exits 0 after 161 of 281", shows = "planned 281 tests but ran 161", ok_at_least = 161 }
+"re/subst_wamp.t" = { reason = "subprocess", note = "does re/subst.t, whose fresh_perl at test 162 is refused; do catches the refusal and the file exits 0 after 161 of 281", shows = "planned 281 tests but ran 161", ok_at_least = 161 }
+"run/cloexec.t" = { reason = "subprocess", note = "tests descriptor inheritance across exec: it sends STDERR to a file and runs a child perl through backticks, refused into that file after test 2", shows = "^ok 2 - tmpfile", ok_at_least = 2 }
+"run/exit.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 15)", ok_at_least = 0 }
+"run/fresh_perl.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/locale.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/script.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 14)", ok_at_least = 0 }
+"run/switch-I-and-M.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switchC.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switchF1.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 35)", ok_at_least = 0 }
+"run/switchF2.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switchI.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 2 }
+"run/switchM.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switchd.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switches.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/switcht.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 25)", ok_at_least = 1 }
+"run/switchx.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"run/todo.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1 }
+"test_pl/tempfile.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 881)", ok_at_least = 16 }
+"uni/attrs.t" = { reason = "subprocess", note = "runperl/fresh_perl find no perl to run (\"which_perl: cannot find ./perl\"; fatal where the file makes warnings die), so no child perl starts", ok_at_least = 0 }
+"uni/gv.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 77 }
+"uni/method.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 24 }
+"uni/overload.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 191 }
+"uni/parser.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 51 }
+"uni/upper.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1 }
 
 # signals
-"io/closepid.t" = { reason = "signals", note = "dies: signal handler for SIGPIPE is not available in the wasi-perl sandbox (line 14)" }
-"io/errnosig.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 21)" }
-"io/openpid.t" = { reason = "signals", note = "dies: signal handler for SIGPIPE is not available in the wasi-perl sandbox (line 21)" }
-"mro/recursion_c3.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 80)" }
-"mro/recursion_c3_utf8.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 81)" }
-"mro/recursion_dfs.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 65)" }
-"mro/recursion_dfs_utf8.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 68)" }
-"op/kill0.t" = { reason = "signals", note = "dies: kill is not available in the wasi-perl sandbox (line 20)" }
-"op/local.t" = { reason = "signals", note = "dies: signal handler for SIGTERM is not available in the wasi-perl sandbox (line 543)" }
-"op/sigdispatch.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 20)" }
-"op/signame_canonical.t" = { reason = "signals", note = "dies: signal handler for SIGIOT is not available in the wasi-perl sandbox (line 62)" }
+"io/closepid.t" = { reason = "signals", note = "dies: signal handler for SIGPIPE is not available in the wasi-perl sandbox (line 14)", ok_at_least = 0 }
+"io/errnosig.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 21)", ok_at_least = 0 }
+"io/openpid.t" = { reason = "signals", note = "dies: signal handler for SIGPIPE is not available in the wasi-perl sandbox (line 21)", ok_at_least = 0 }
+"mro/recursion_c3.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 80)", ok_at_least = 0 }
+"mro/recursion_c3_utf8.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 81)", ok_at_least = 0 }
+"mro/recursion_dfs.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 65)", ok_at_least = 0 }
+"mro/recursion_dfs_utf8.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 68)", ok_at_least = 0 }
+"op/kill0.t" = { reason = "signals", note = "dies: kill is not available in the wasi-perl sandbox (line 20)", ok_at_least = 0 }
+"op/local.t" = { reason = "signals", note = "dies: signal handler for SIGTERM is not available in the wasi-perl sandbox (line 543)", ok_at_least = 236 }
+"op/sigdispatch.t" = { reason = "signals", note = "dies: signal handler for SIGALRM is not available in the wasi-perl sandbox (line 20)", ok_at_least = 0 }
+"op/signame_canonical.t" = { reason = "signals", note = "dies: signal handler for SIGIOT is not available in the wasi-perl sandbox (line 62)", ok_at_least = 0 }
+
+# refused
+"io/pvbm.t" = { reason = "refused", note = "tests 4 and 5 call pipe() inside eval and the file does not print $@; pipe is not available in the wasi-perl sandbox (EXECUTED: eval { pipe(my $r, my $w) }; print $@)", shows = "Failed test 4 - pipe\\(PVBM, \\) succeeds", ok_at_least = 26 }
+"op/waitpid.t" = { reason = "refused", note = "starts no child: it checks that waitpid(0, WNOHANG) returns, and dies: waitpid is not available in the wasi-perl sandbox (line 23)", ok_at_least = 0 }
 
 # porting
-"porting/bench_selftest.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: system is not available in the wasi-perl sandbox" }
-"porting/cpphdrcheck.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox" }
-"porting/globvar.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox" }
-"porting/perlfunc.t" = { reason = "porting", note = "plans \"1..0 # Not all files are available during cross-compilation\", a skip without the word skip" }
-"porting/podcheck.t" = { reason = "porting", note = "plans \"1..0 # ...\" without the word skip (cross-compiled tree)" }
-"porting/test_testlist.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox" }
+"porting/bench_selftest.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: system is not available in the wasi-perl sandbox", ok_at_least = 0 }
+"porting/cpphdrcheck.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
+"porting/globvar.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
+"porting/perlfunc.t" = { reason = "porting", note = "plans \"1..0 # Not all files are available during cross-compilation\", a skip without the word skip", ok_at_least = 0 }
+"porting/podcheck.t" = { reason = "porting", note = "plans \"1..0 # ...\" without the word skip (cross-compiled tree)", ok_at_least = 0 }
+"porting/test_testlist.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
 
 # platform
-"benchmark/gh7094-speed-up-keys-on-empty-hash.t" = { reason = "platform", note = "a wall-clock benchmark (t/TEST runs benchmark/ only with PERL_BENCHMARK); its timing ratios vary run to run (2.2 and 10.4 against a bound of 0.25) and assert time, not operations" }
-"bigmem/regexp.t" = { reason = "platform", note = "wasm32 is a 32-bit target: the pattern at line 38 is compiled before the PERL_TEST_MEMORY skip and is \"Regexp out of space\" with 32-bit sizes" }
-"op/coreamp.t" = { reason = "platform", note = "no sockets in WASI preview1: &CORE::bind dies \"Unsupported socket function\" (line 353)" }
-"op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set" }
-"op/pack.t" = { reason = "platform", note = "opens the perl binary through which_perl (./perl) to pack it; the guest has no perl executable file" }
-"op/require_37033.t" = { reason = "platform", note = "WASI does not reuse the lowest free descriptor: after STDIN is closed a new file gets 8, not 0 (test 7)" }
-"op/stat.t" = { reason = "platform", note = "chmod is not implemented under WASI (tests 6, 18, 22, 25) and a hard link keeps its ctime (test 9); then backticks is refused at line 277" }
-"op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)" }
-"win32/crypt.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): checks Windows crypt salts and errno" }
-"win32/fs.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): calls Win32::FsType" }
-"win32/runenv.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): requires Win32.pm" }
-"win32/seekdir.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): checks Windows telldir past the end (tests 181, 184)" }
-"win32/stat.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): calls Win32::FsType" }
-"win32/symlink.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): requires Win32API::File" }
+"bigmem/regexp.t" = { reason = "platform", note = "wasm32 is a 32-bit target: the pattern at line 38 is compiled before the PERL_TEST_MEMORY skip and is \"Regexp out of space\" with 32-bit sizes", ok_at_least = 0 }
+"op/coreamp.t" = { reason = "platform", note = "no sockets in WASI preview1: &CORE::bind dies \"Unsupported socket function\" (line 353)", ok_at_least = 21 }
+"op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set", ok_at_least = 5 }
+"op/require_37033.t" = { reason = "platform", note = "WASI does not reuse the lowest free descriptor: after STDIN is closed a new file gets 8, not 0 (test 7)", ok_at_least = 9 }
+"op/stat.t" = { reason = "platform", note = "chmod is not implemented under WASI (tests 6, 18, 22, 25) and a hard link keeps its ctime (test 9); then backticks is refused at line 277", ok_at_least = 30 }
+"op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)", ok_at_least = 71 }
+
+# not-this-platform
+"win32/crypt.t" = { reason = "not-this-platform", note = "Windows only: checks Windows crypt salts and errno", ok_at_least = 7 }
+"win32/fs.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", ok_at_least = 0 }
+"win32/runenv.t" = { reason = "not-this-platform", note = "Windows only: requires Win32.pm", ok_at_least = 0 }
+"win32/seekdir.t" = { reason = "not-this-platform", note = "Windows only: checks Windows telldir past the end (tests 181, 184)", ok_at_least = 190 }
+"win32/stat.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", ok_at_least = 0 }
+"win32/symlink.t" = { reason = "not-this-platform", note = "Windows only: requires Win32API::File", ok_at_least = 0 }
 
 # bug
-"bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)" }
-"bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)" }
-"io/dup.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): open(STDERR, \">&STDOUT\") fails at line 23" }
-"io/perlio.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): \"cannot dup STDOUT: Not supported\"" }
-"lib/deprecate.t" = { reason = "bug", note = "all 10 tests pass, then exits 2: an END block's File::Path cannot load Carp after the test chdirs away from the relative @INC; unexplained why natively it can" }
-"op/fh.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): open of \">&STDOUT\" fails (tests 6, 8)" }
-"op/hash-clear-placeholders.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): Devel::Peek's dump capture dies \"Can't dup STDERR\"" }
-"op/hash-rt85026.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): Devel::Peek's dump capture dies \"Can't dup STDERR\"" }
-"op/numify_chkflags.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): bails out \"Can't save STDERR: Not supported\"" }
-"op/tie_fetch_count.t" = { reason = "bug", note = "traps \"memory out of bounds\" at line 274: four-argument select with a non-empty bit vector (EXECUTED: perl -e '$v=\"\\xff\"; select $v,undef,undef,0' traps the same way); also chown on a tied glob does not FETCH (tests 170-171)" }
-"op/write.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): open(LEX, \">&STDOUT\") or die at line 315 stops the format suite (636 tests)" }
-"test_pl/can_isa_ok.t" = { reason = "bug", note = "needs dup for \">&\" handles (spec 009): dies \"Can't dup fileno 1: Not supported\"" }
+"bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", ok_at_least = 0 }
+"bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", ok_at_least = 0 }
+"io/dup.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open(STDERR, \">&STDOUT\") fails at line 23", ok_at_least = 1 }
+"io/perlio.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: \"cannot dup STDOUT: Not supported\"", ok_at_least = 28 }
+"lib/deprecate.t" = { reason = "bug", note = "all 10 tests pass, then exits 2: an END block's File::Path cannot load Carp after the test chdirs away from the relative @INC; unexplained why natively it can", ok_at_least = 10 }
+"op/fh.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open of \">&STDOUT\" fails (tests 6, 8)", ok_at_least = 6 }
+"op/hash-clear-placeholders.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: Devel::Peek's dump capture dies \"Can't dup STDERR\"", ok_at_least = 0 }
+"op/hash-rt85026.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: Devel::Peek's dump capture dies \"Can't dup STDERR\"", ok_at_least = 0 }
+"op/numify_chkflags.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: bails out \"Can't save STDERR: Not supported\"", ok_at_least = 0 }
+"op/tie_fetch_count.t" = { reason = "bug", note = "traps \"memory out of bounds\" at line 274: four-argument select with a non-empty bit vector (EXECUTED: perl -e '$v=\"\\xff\"; select $v,undef,undef,0' traps the same way); also chown on a tied glob does not FETCH (tests 170-171)", ok_at_least = 185 }
+"op/write.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open(LEX, \">&STDOUT\") or die at line 315 stops the format suite (636 tests)", ok_at_least = 6 }
+"test_pl/can_isa_ok.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: dies \"Can't dup fileno 1: Not supported\"", ok_at_least = 0 }
