@@ -58,7 +58,7 @@ The guest's randomness is the host's. Perl seeds its hash order, its internal ra
 
 - A program can read the device itself: `open my $f, '<', '/dev/urandom'` gives the host's random bytes. Every read is filled in full, whatever its size.
 - It works as Linux's device does for a user who is not root. A write takes every byte and drops it. `sysseek` answers 0. `-c` is true, `-t` is false, and `select` finds it ready at once. `fcntl` flags such as `O_NONBLOCK` read back. A path through it, such as `/dev/urandom/x`, answers ENOTDIR, and `readlink` of it EINVAL.
-- `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`, `PERL_INTERNAL_RAND_SEED` and `srand(N)` work as natively. `PERL_HASH_SEED=0` gives the same key order on every call.
+- `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`, `PERL_INTERNAL_RAND_SEED` and `srand(N)` pin what they pin natively: a fixed `PERL_HASH_SEED` gives the same key order on every call. That order equals native perl's only with `PERL_HASH_SEED=0` or `PERL_PERTURB_KEYS=0`. With any other seed, in the default deterministic mode (`PERL_PERTURB_KEYS=2`), the guest's order is pinned but differs from native's.
 - Only `/dev/urandom` and `/dev/random`, with `.` components dropped, are the device. `/dev/zero` and every other name under `/dev` are missing, and a path that climbs out of a grant into `/dev` is refused, as before.
 
 ## Exit statuses

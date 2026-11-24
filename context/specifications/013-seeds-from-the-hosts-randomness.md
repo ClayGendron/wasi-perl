@@ -197,7 +197,7 @@ The findings:
   - `PERL_PERTURB_KEYS=0` and `=2` pin the order;
   - `=1` gives more than one order;
   - `PERL_INTERNAL_RAND_SEED=7` and `=8` give one order each, and the same one as each other.
-- **The aside: recorded as a known difference this change did not cause.** With a fixed `PERL_HASH_SEED` in deterministic key-order mode, the guest's order can differ from native's. The reviewer saw it for seed `1` on perf-base too. Here it shows for `12345678` with `PERL_PERTURB_KEYS=2`, while `=0` agrees. The seed bytes and hash function agree (the review, `PERL_HASH_SEED_DEBUG`). The cause is not known (`uvsize` is 8 in both, READ: `recipes/config.sh` 1236), and it was not chased.
+- **The aside: recorded as a known difference this change did not cause.** With a fixed nonzero `PERL_HASH_SEED` in deterministic key-order mode (`PERL_PERTURB_KEYS=2`), the guest's order differs from native's for every seed the round-2 review tried (0 excepted), on this build and on perf-base alike; with `PERL_PERTURB_KEYS=0` or `PERL_HASH_SEED=0` it equals native's. `docs/sandbox.md` says so. The reviewer saw it for seeds `1` and `12345678`. The seed bytes and hash function agree (the review, `PERL_HASH_SEED_DEBUG`). The cause is not known (`uvsize` is 8 in both, READ: `recipes/config.sh` 1236), and it was not chased.
 
 Results after the fixes, all EXECUTED:
 
