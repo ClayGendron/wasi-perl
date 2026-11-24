@@ -46,7 +46,7 @@ def test_a_trap_is_never_read_as_an_exit(standin):
 
 
 def test_without_the_export_a_refused_status_is_wasmtimes_words(standin_without_status, tmp_path):
-    from conftest import write_set
+    from standin_sets import write_set
     from wasi_perl import Artifacts
 
     a = Artifacts.at(write_set(tmp_path / "old", standin_without_status))

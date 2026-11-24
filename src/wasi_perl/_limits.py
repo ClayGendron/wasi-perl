@@ -7,6 +7,8 @@ from __future__ import annotations
 import math
 import numbers
 import operator
+import sys
+import threading
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
 
@@ -125,6 +127,102 @@ def check_inputs(argv: Any, env: Any, stdin: Any) -> Inputs:
                     f"stdin must be bytes-like, or None; got {type(stdin).__name__}"
                 ) from None
     return Inputs(args, plain_env, data)
+
+
+# The host descriptors each live call is counted as: the cap of the guest's own descriptor table,
+# 256 in the build since the guest-side table landed (spec 011). A perl.wasm without that table
+# holds as many as wasmtime lets it; the count is then the runner's estimate, not a bound.
+GUEST_DESCRIPTORS = 256
+WINDOWS_DESCRIPTORS = 4096  # Windows' budget, which has no soft limit to halve
+OPEN_MAX = 10240  # macOS's OPEN_MAX: the soft limit its setrlimit(2) has long accepted
+
+
+class TooManyCalls(RuntimeError):
+    """Raised by `run` before any work when other calls of this process are running and one more
+    would pass its budget of host descriptors: half its soft RLIMIT_NOFILE on POSIX (4,096 on
+    Windows), each call counted at the guest table's cap of 256. A call with no other call
+    running is never refused. Retry once a call has ended."""
+
+
+_descriptor_lock = threading.Lock()
+_held: dict[object, int] = {}  # each live call's slot: the descriptors it is counted at
+_soft_raised = False
+
+
+def _raise_soft_limit() -> None:
+    """Once per process, the soft RLIMIT_NOFILE raised to the hard limit (to OPEN_MAX where the
+    hard limit is unlimited, and on macOS at most OPEN_MAX), so a low default (macOS's 256) does
+    not leave room for one call alone; a refusal leaves the limit as it was. The embedder's own
+    files gain from it too. Windows has no such limit."""
+    global _soft_raised
+    if _soft_raised:
+        return
+    _soft_raised = True
+    try:
+        import resource
+    except ImportError:
+        return
+    try:
+        which, infinity = resource.RLIMIT_NOFILE, resource.RLIM_INFINITY
+        soft, hard = resource.getrlimit(which)
+        target = OPEN_MAX if hard == infinity else hard
+        if sys.platform == "darwin":
+            target = min(target, OPEN_MAX)
+        if soft == infinity or soft >= target:
+            return
+        for want in dict.fromkeys((target, min(target, OPEN_MAX))):
+            if want <= soft:
+                continue
+            try:
+                resource.setrlimit(which, (want, hard))
+                return
+            except (ValueError, OSError):
+                continue
+    except (ValueError, OSError, AttributeError):
+        return
+
+
+def descriptor_budget() -> int:
+    """The host descriptors this process's live calls may hold in all: half the soft
+    RLIMIT_NOFILE, read at each call after the once-per-process raise, so an embedder that raises
+    it later is seen."""
+    _raise_soft_limit()
+    try:
+        import resource
+    except ImportError:
+        return WINDOWS_DESCRIPTORS
+    soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    if soft == resource.RLIM_INFINITY or soft < 0:
+        return 1 << 20
+    return soft // 2
+
+
+def descriptors_reserved() -> int:
+    with _descriptor_lock:
+        return sum(_held.values())
+
+
+def reserve_descriptors(slot: object) -> None:
+    """Count one more live call, under `slot`, which the caller made before its `try`, so
+    `release_descriptors(slot)` in its `finally` releases it whatever interrupts. The count is
+    one dictionary store, so no signal falls between taking it and being able to give it back.
+    A call alone is never refused; beside others, TooManyCalls when the budget is spent."""
+    budget = descriptor_budget()
+    with _descriptor_lock:
+        used = sum(_held.values())
+        if _held and used + GUEST_DESCRIPTORS > budget:
+            raise TooManyCalls(
+                f"wasi_perl: {len(_held)} calls are running, each counted at "
+                f"{GUEST_DESCRIPTORS} host descriptors (the guest table's cap), and one more "
+                f"would pass this process's budget of {budget} (half its soft open-file limit); "
+                "retry once a call has ended, or raise the limit"
+            )
+        _held[slot] = GUEST_DESCRIPTORS
+
+
+def release_descriptors(slot: object) -> None:
+    with _descriptor_lock:
+        _held.pop(slot, None)
 
 
 class _Unset:
