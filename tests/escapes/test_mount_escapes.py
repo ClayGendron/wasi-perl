@@ -214,6 +214,14 @@ CHANGES = {
         'rename("/t/$name/mount", "/t/$name/aside") or die "aside: $!";'
         ' mkdir("/t/$name/mount") or die "mkdir: $!"; put("/t/$name/mount/kept");'
     ),
+    # The same, with the placeholder removed rather than set aside: an `rmdir` needs write
+    # permission on the folder that holds the name, not on the folder removed, so a guest that
+    # is not the superuser can make it on macOS too, where setting the placeholder aside is
+    # refused (`ASIDE_BY_SYSTEM`).
+    "the placeholder removed, and a folder of its own holding a file in its place": (
+        'rmdir("/t/$name/mount") or die "remove: $!";'
+        ' mkdir("/t/$name/mount") or die "mkdir: $!"; put("/t/$name/mount/kept");'
+    ),
 }
 # Windows will not rename a folder below which a handle is open, and the call's store holds the
 # placeholder open as each mount's preopen (wasmtime opens a Windows grant's folders and files
@@ -232,15 +240,28 @@ MOVE_BY_SYSTEM = {
     "darwin": "ok",
     "win32": "refused rename: Permission denied",
 }
-# Setting the placeholder aside is a rename of the very folder the store holds open as a
-# preopen, which Windows refuses for the same reason (INFERRED from the move's refusal above;
-# the first Windows run of this case confirms it).
+# Setting the placeholder aside renames the very folder the store holds open as a preopen.
+# - Windows refuses it, for the same reason as the move (seen on windows-2025 in CI run for
+#   aaf2c50, job 138823344362).
+# - macOS, as BSD does, needs write permission on a folder to rename it to another name, since
+#   its `..` entry is rewritten, and the placeholder is 0500; so a guest that is not the
+#   superuser is refused (seen on macos-15 in the same run, job 138823344564, which is not root).
+# - Linux needs write permission only on the folder that holds the name.
 ASIDE_BY_SYSTEM = {
     "linux": "ok",
-    "darwin": "ok",
+    "darwin": "ok" if SUPERUSER else "refused aside: Permission denied",
     "win32": "refused aside: Permission denied",
 }
+# Removing the placeholder: Windows will not remove a folder the store holds open (INFERRED
+# from its refusal to rename one; the first Windows run of this case confirms it). POSIX
+# removes an open folder's name.
+REMOVE_BY_SYSTEM = {
+    "linux": "ok",
+    "darwin": "ok",
+    "win32": "refused remove: Permission denied",
+}
 ASIDE = "a folder of its own holding a file in the placeholder's place"
+REMOVED = "the placeholder removed, and a folder of its own holding a file in its place"
 
 
 @pytest.mark.parametrize("change", list(CHANGES))
@@ -269,19 +290,25 @@ def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch, 
     answer = lines(done)["change"].split(" at -e line ")[0]
     assert (victim / "mount").is_dir()  # outside every grant: never touched
     moves = CHANGES[change].startswith(MOVE)
-    if change == ASIDE:
-        assert answer == ASIDE_BY_SYSTEM[sys.platform]
+    if change in (ASIDE, REMOVED):
+        by_system = ASIDE_BY_SYSTEM if change == ASIDE else REMOVE_BY_SYSTEM
+        assert answer == by_system[sys.platform]
         if answer != "ok":
-            assert list(temp.iterdir()) == []  # nothing changed: both are gone
+            # Refused before anything changed: the placeholder, empty, and its folder, then
+            # empty, are removed by the empty-folder rule.
+            assert list(temp.iterdir()) == []
             return
         (made,) = [p.name for p in temp.iterdir()]
-        # The guest's `mount` holds its file, and is left; the runner's own placeholder, set
+        # The guest's `mount` holds its file, and is left. The runner's own placeholder, set
         # aside, is left too, since the clean-up removes `mount` by name in the folder it holds;
         # so the folder is not empty, and is left.
-        assert sorted(os.listdir(temp / made)) == ["aside", "mount"]
+        assert sorted(os.listdir(temp / made)) == (
+            ["aside", "mount"] if change == ASIDE else ["mount"]
+        )
         assert os.listdir(temp / made / "mount") == ["kept"]
         assert (temp / made / "mount" / "kept").read_bytes() == b"guest"
-        assert os.listdir(temp / made / "aside") == []
+        if change == ASIDE:
+            assert os.listdir(temp / made / "aside") == []
         return
     if moves and sys.platform == "win32":
         assert answer == MOVE_BY_SYSTEM["win32"]
