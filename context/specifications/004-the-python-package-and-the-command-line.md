@@ -27,7 +27,7 @@ perl.wasm is a WebAssembly command. A host must start it with exceptions turned 
    - `Completed(exit_code, stdout, stderr, trapped, fuel_used, truncated)`, frozen, as wasi-python's first six fields mean:
      - `exit_code`: the guest's exit status (`exit N`, `die` uncaught is Perl's own 255, a normal end is 0); `None` when it trapped.
      - `stdout`, `stderr`: bytes, each up to `output_bytes`.
-     - `trapped`: `None`, or `"out of fuel"`, `"deadline"`, or wasmtime's words: a trap's code as plain words (`"stack overflow"`, `"unreachable"`), else the first line of wasmtime's error (an instantiation refused for memory, say). The two fixed strings are promised; wasmtime's words are not.
+     - `trapped`: `None`, or `"out of fuel"`, `"deadline"`, or wasmtime's words: a trap's code as plain words (`"stack overflow"`, `"unreachable"`), else the last line of the cause wasmtime's error names, or its first line when it names none (an instantiation refused for memory: "memory minimum size of 129 pages exceeds memory limits"). The two fixed strings are promised; wasmtime's words are not.
      - `fuel_used`: with `fuel`, the instructions spent (`fuel` itself when it ran out); `None` without `fuel`, or when the deadline ended the call (the count is stale then).
      - `truncated`: a tuple naming each stream (`"stdout"`, `"stderr"`) that passed `output_bytes`, in that order.
    - **Nothing the guest does makes `run` raise.** A trap, an exit, a deadline, a write refused: each is in `Completed`. `run` raises only for its caller's mistakes and the host's state, before the guest runs: `TypeError`, `ValueError`, `ArtifactsMissing`, `ImportError`, `OSError`.
@@ -58,6 +58,7 @@ perl.wasm is a WebAssembly command. A host must start it with exceptions turned 
    - **Memory** by `store.set_limits(memory_size=memory_bytes)`: `memory.grow` past it returns −1, so Perl's `malloc` fails and Perl says "Out of memory!" and exits; an initial memory above the cap fails instantiation, reported as `trapped` with wasmtime's first line.
    - **Output** per stream, by `WasiConfig.stdout_custom` and `stderr_custom` callbacks: each keeps bytes until the stream holds `output_bytes`, drops the rest, still returns the full length (so the guest's write succeeds and does not retry), and marks the stream truncated. No temporary file is written, so a guest that writes without end uses no disk and at most `output_bytes` of memory per stream, until its deadline or fuel ends it. Temp files (`stdout_file`) were rejected: their size is bounded only by the deadline, which is disk use the caller never asked for. wasi-python moved to pipes for speed (wasmtime hands a callback 4 KiB at a time, with a Python thread state each time); the callback is the simple, portable form, and speed is a later memo's question.
    - **Stdin** is given to wasmtime as bytes through the C API's `wasi_config_set_stdin_bytes` (called through wasmtime-py's own `_ffi`, the one private name this package uses), so no file holds it either.
+   - **An exit status of 126 or more is read from the guest.** wasmtime 51 refuses `proc_exit` with a status outside `[0, 126)`: the call fails with a `WasmtimeError` (not a `Trap`) whose cause reads "exit with invalid exit status outside of [0..126)" (EXECUTED with the stand-in's `exit(255)`), and Perl's uncaught `die` is 255. The contract, agreed with spec 001's build (the orchestrator, 2026-11-24): perl.wasm exports `wasi_perl_exit_status() -> i32`, which returns the status the guest passed to `exit` (`& 0xff`), or −1 if it never called it. The runner asks the export only after a normal exit (`ExitTrap`, whose code it then prefers the export's value to) or that one refusal (recognised by its cause's text), and takes a value from 0 to 255 as `exit_code` with `trapped = None`. After any `Trap` (fuel, the deadline, `unreachable`, a stack overflow) the export is never called: a trap stays a trap even if the guest had recorded a status, and a store a trap stopped runs no more guest code. `fuel_used` is read before the export runs, since it spends a few instructions of its own. A perl.wasm without the export reports the refusal as `trapped` with wasmtime's words, as any other error. A guest cannot forge the refusal: its text is wasmtime's, from inside `proc_exit`.
    - The guest runs on the calling thread, with wasmtime's default wasm stack (512 KiB of native stack for wasm frames; Perl's C stack is the 8 MiB in linear memory). The store is closed in a `finally`, trap or not.
 
 8. **The module cache** (wasi-python's `_engines._module`, `_load`, `_store` and the POSIX and Windows checks of `_platform_*`, adapted and trimmed).
@@ -85,12 +86,12 @@ perl.wasm is a WebAssembly command. A host must start it with exceptions turned 
 
 12. **The checks**, under `tests/runner/`, each seen failing before it passed (against an empty package), counting outcomes, never time. A stand-in guest, `tests/fixtures/standin.c`, is compiled by `tests/conftest.py` with the pinned wasi-sdk into `build/fixtures/standin.wasm` (found at `$WASI_SDK_PATH`, else `downloads/wasi-sdk-34.0-*`, else `../wasi-perl-downloads/`; the checks that need it skip, saying so, when no SDK is found) and passed as `artifacts=` with a scratch library and `dev/`. Real-Perl checks find perl.wasm through `$WASI_PERL_ARTIFACTS` or the checkout's `build/artifacts/`, are marked `slow`, and skip with a message naming spec 001's `scripts/build.sh` when it is absent.
     - `test_arguments.py`: each rule of Decision 3, 4 and 5, one case each, raised before any work (a spy on the module compile stays at 0).
-    - `test_limits.py`: an endless loop ends `"deadline"` with a 0.2 s deadline and with the default lowered by `set_defaults`; with `fuel` it ends `"out of fuel"` and `fuel_used == fuel`; a bounded loop under fuel ends 0 with `0 < fuel_used < fuel`; 1 MiB of output under a 4 KiB cap keeps exactly 4096 bytes and names `("stdout",)` while stderr is whole; an endless writer under a cap and a deadline keeps exactly the cap (memory bounded, no file written); a 256 MiB allocation under a 64 MiB cap fails inside the guest; an instantiation above the cap is `trapped`; `exit 7` is 7; a `longjmp` runs (exceptions on); a trap is named; stdin reaches the guest; the guest's environment is exactly `env` plus `PWD`.
+    - `test_limits.py`: `exit` 126, 200 and 255 are read from the export (with and without fuel); a guest that records a status and then traps, spins out of fuel, or meets its deadline is reported as that trap, never as the status; a stand-in built without the export reports the refusal in wasmtime's words and still exits 7 normally. An endless loop ends `"deadline"` with a 0.2 s deadline and with the default lowered by `set_defaults`; with `fuel` it ends `"out of fuel"` and `fuel_used == fuel`; a bounded loop under fuel ends 0 with `0 < fuel_used < fuel`; 1 MiB of output under a 4 KiB cap keeps exactly 4096 bytes and names `("stdout",)` while stderr is whole; an endless writer under a cap and a deadline keeps exactly the cap (memory bounded, no file written); a 256 MiB allocation under a 64 MiB cap fails inside the guest; an instantiation above the cap is `trapped`; `exit 7` is 7; a `longjmp` runs (exceptions on); a trap is named; stdin reaches the guest; the guest's environment is exactly `env` plus `PWD`.
     - `test_grants.py`: a read-only grant reads and refuses a write with the host folder unchanged; a writable grant takes a write; with no grant nothing is writable; `cwd` makes a relative path land in its grant; the library and `/dev` are read-only; each refusal of Decision 4 (guest paths, duplicate, nested read-only in writable, the cache, the artifacts, a link in a writable folder).
     - `test_cache.py`: a second call loads the `.cwasm` (count); a group-writable folder is not used (warning, compiled); a symlinked `.cwasm`, a 0644 one and a hard-linked one are not loaded and are replaced; a stale (garbage) one is replaced; a foreign owner is refused through the owner seam where the check cannot `chown`; `cache_dir=False` writes nothing; the key changes with the flavor.
     - `test_artifacts.py`: the set is found by the variable; a changed `perl.wasm`, a changed library file, an unlisted library file and a missing `SHA256SUMS` are each `ArtifactsMissing`.
     - `test_cli.py`: the argv split, each option reaching `run()` (a fake `run` records its arguments), grant order and modes, a Windows drive letter whole, usage errors exit 2 with nothing on standard output, a refusal exits 1 with the error line, the result line's shape (sorted keys, ASCII, one line, `stdout_base64` for non-UTF-8), and one real call through `main()`.
-    - `test_perl.py` (slow, real perl.wasm): hello, `exit 7`, `die` uncaught is 255, a grant read by `-ne`, a write to a read-only grant refused, `cwd`.
+    - `test_perl.py` (slow, real perl.wasm): hello, `exit 7`, `die "x\n"` uncaught is 255 with `trapped` None, a grant read by `-ne`, a write to a read-only grant refused, `cwd`.
 
 ## Acceptance
 
@@ -101,4 +102,43 @@ perl.wasm is a WebAssembly command. A host must start it with exceptions turned 
 
 ## Landing notes
 
-(Written when built.)
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/004-runner`, Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root in a container. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise.
+
+### What was built
+
+- `src/wasi_perl/`: `__init__.py` (the API), `runner.py` (`run`, `Completed`, `Defaults`, the output streams, stdin as bytes, the exit-status read), `_limits.py`, `_grants.py` (`Grant`, guest paths, the link-by-link walk, the identity rules, `cwd`), `_artifacts.py` (finding and checking the set), `_cache.py` (where, the POSIX and Windows checks, read and write), `_engines.py` (wasmtime's import, the two engines, the modules, the epoch ticker), `cli.py`, `__main__.py`. Each adapted module names wasi-python in its docstring.
+- `scripts/write_sums.py`: writes a set's `SHA256SUMS` in `sha256sum`'s format; the checks seal their stand-in sets with it, and the build is to call it.
+- `tests/conftest.py`, `tests/fixtures/standin.c` (built into `build/fixtures/` with wasi-sdk 34, the sjlj flags, Perl's 8 MiB stack and `-Wl,--wrap=_Exit` for the exit-status export; also built with `-DNO_EXIT_STATUS` as a perl.wasm from before the export), `tests/runner/test_*.py`; `pyproject.toml`, `uv.lock`, `README.md`.
+
+### The checks
+
+```
+$ uv run pytest -q
+141 passed, 8 skipped, 4 warnings in 5.36s
+$ uv run ruff check src tests scripts
+All checks passed!
+$ uv run ruff format --check src tests scripts
+18 files already formatted
+```
+
+The 8 skips: the 7 checks of `tests/runner/test_perl.py` (no perl.wasm yet: spec 001's `build/artifacts/` does not exist at this commit), and `test_a_link_in_a_folder_this_user_cannot_write_is_followed`, which cannot run as root (root can write every folder). The 4 warnings are the cache's own "not using the module cache" warnings, from checks that plant a bad `.cwasm` on purpose.
+
+### Seen failing first
+
+- Against the empty package, every test file fails to import (`build/logs/004-seen-failing.txt`: 7 errors during collection).
+- Against stand-ins of the runner, each one change made by text replacement and restored (`build/logs/004-mutations.txt`): every grant preopened writable (2 grant checks fail); the library preopened writable (2); the refused exit status not read (2); the status read after a trap too (1); the output cap ignored (3); no memory limit (3); the cache file's owner and mode not checked (5); the library tree not checked (4); links never refused (1); a read-only grant inside a writable one allowed (1); the cache rule off (3 failed, 3 errors); the runtime rule off (1); `PWD` in `env` allowed (1); the CLI's valued options not consuming their value (5). One survived: the walk of the way to the cache before `mkdir` removed, since the second walk after `mkdir` refuses the same folder. That is the design (two walks, wasi-python's), not a gap.
+
+### Found while building
+
+- **wasmtime 51 refuses `proc_exit` with a status of 126 or more** (the orchestrator's finding; EXECUTED here with the stand-in's `exit(255)`): a `WasmtimeError` whose cause is "exit with invalid exit status outside of [0..126)". Decision 7's exit-status contract answers it; its checks are in `test_limits.py`.
+- **`-O2` elides an unused `malloc`/`memset`**: the stand-in's first `alloc` mode "allocated" 256 MiB under a 64 MiB cap with linear memory still at 8 MiB. The stand-in now reads the memory back through a `volatile` pointer, and the memory checks fail without `set_limits` (the mutation above).
+- **The output callback costs host time per piece**: a stand-in writing 64 KiB blocks without end under 50 million instructions of fuel ran for 127 s of wall time before its fuel ran out, with memory held at the 1,000-byte cap (EXECUTED; `--durations`). Bytes past the cap are dropped, never kept, but wasmtime still hands every 4 KiB piece to Python. The check now uses 200,000 instructions. The deadline bounds such a guest; a faster capture (wasi-python's pipes, or refusing writes past the cap) is a later memo's question.
+- **wasmtime-py 51 has no `DirPerms`/`FilePerms`**: `preopen_dir(host, guest, fs_mutable)` is the call, READ in `wasmtime/_wasi.py`; `fs_mutable=False` refuses writes with `EPERM` (EXECUTED, `test_a_read_only_grant_reads_and_refuses_a_write`).
+- The wheel: `uv build --wheel` gives `wasi_perl-0.1.0-py3-none-any.whl` with the package and the entry point; with files placed in the git-ignored `src/wasi_perl/artifacts/` they are in the wheel too (EXECUTED, then removed).
+
+### Left over
+
+- The real-Perl checks wait for spec 001's `perl.wasm` (with the `chdir($PWD)` constructor and the `wasi_perl_exit_status` export). `test_cwd` skips with a message on a build without the constructor.
+- The set's `SHA256SUMS` and `MANIFEST` are the build's to write; until spec 001's assembly writes them, a found set is refused with `ArtifactsMissing`, and the real-Perl checks pass the set as `artifacts=`, which is not checked.
+- wasi-python's post-preopen identity check is not ported (Decision 4); the README's "Not protected" names the race.
+- The guest runs on the calling thread with wasmtime's default wasm stack (INFERRED adequate: Perl's own recursion is on its linear-memory stack); a host thread with a small native stack (macOS secondary threads, 512 KiB) is a risk to measure once perl.wasm exists.
