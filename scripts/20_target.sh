@@ -2,6 +2,8 @@
 # Cross-build perl for wasm32-wasip1 from the pinned tarball.
 # The target is described by the hand-written recipes/config.sh; Configure -S only substitutes
 # it into the .SH files and probes nothing. make then runs with the host tools from build/native.
+# The XS distributions of recipes/cpan-xs join the tree under cpan/, so make_ext.pl builds and
+# links them as it does the core's own static extensions.
 . "$(dirname "$0")/lib.sh"
 LOG="$LOGS/20_target.log"
 TARBALL="$DOWNLOADS/perl-$PERL_VERSION.tar.xz"
@@ -20,9 +22,26 @@ PATCHES="$ROOT/recipes/patches/perl-$PERL_VERSION"
 want=$(grep " perl-$PERL_VERSION.tar.xz " "$DOWNLOADS/SHA256SUMS" | cut -d' ' -f1)
 echo "$want  $TARBALL" | sha256sum -c --status || fail "$TARBALL does not match downloads/SHA256SUMS"
 
+# Each listed XS tarball is checked against its pin, and its module named in config.sh's three
+# lists, before anything is built or removed. The stamp holds each pin, not only the list.
+xs=$(awk '!/^#/ && NF { print $1 "=" $2 }' "$ROOT/recipes/cpan-xs")
+pins=""
+for entry in $xs; do
+    t=${entry%%=*} folder=${entry#*=}
+    [ -n "$folder" ] && [ "$folder" = "$(basename "$folder")" ] \
+        || fail "recipes/cpan-xs gives $t no folder under cpan/"
+    check_pinned "$t"
+    pins="$pins $t=$(pin_of "$t")"
+    module=$(printf '%s\n' "$folder" | tr - /)
+    for var in static_ext extensions known_extensions; do
+        sed -n "s/^$var='\(.*\)'\$/ \1 /p" "$ROOT/recipes/config.sh" | grep -qF " $module " \
+            || fail "recipes/config.sh's $var does not name $module, which recipes/cpan-xs lists"
+    done
+done
+
 inputs=$(find "$ROOT/recipes" "$0" "$(dirname "$0")/lib.sh" "$ROOT/tests/build/memchr-test.c" -type f | LC_ALL=C sort)
 # shellcheck disable=SC2086
-stamp=$(echo "$want" | stamp_of - $inputs "$BUILD/.native.stamp")
+stamp=$(echo "$want$pins" | stamp_of - $inputs "$BUILD/.native.stamp")
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/perl.wasm" ]; then
     echo "20_target: up to date"
     exit 0
@@ -57,6 +76,9 @@ if [ -d "$PATCHES" ]; then
         run "$LOG" patch -p1 -i "$p"
     done
 fi
+for entry in $xs; do
+    unpack_pinned "${entry%%=*}" "cpan/${entry#*=}" "$LOG"
+done
 
 sed -e "s|@ROOT@|$ROOT|g" -e "s|@BUILD@|$BUILD|g" -e "s|@SDK@|$SDK|g" -e "s|@SYSROOT@|$SYSROOT|g" \
     -e "s|@NATIVE@|$NATIVE|g" -e "s|@NATIVEPERL@|$BUILD/native-install/bin/perl|g" \
@@ -75,6 +97,11 @@ run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-refusals.a" "$STUBS/sandb
 run "$LOG" make generate_uudmap.o
 mkdir -p "$BUILD/host-tools"
 cp "$NATIVE/generate_uudmap" "$BUILD/host-tools/generate_uudmap"
+# Perl's Makefile orders only its own extensions that need the Unicode tables after mktables,
+# which makes them. A CPAN extension's Makefile.PL may need them too (Text-CSV_XS's loads
+# charnames, which reads unicore/Name.pm), and under -j it would race mktables. So the tables are
+# made first, by a make of their own; a later make finds them up to date and leaves them alone.
+run "$LOG" make -j"$JOBS" uni.data
 # The utilities are extracted by running perl on their .PL files; the guest perl cannot run on
 # the build host, so the host miniperl extracts them first and make then finds them up to date.
 run "$LOG" make -j"$JOBS" perl utils/Makefile

@@ -1,0 +1,92 @@
+{
+ "json_decode": {
+  "median_ms": 536.8,
+  "n": 5,
+  "answer": "20000 99995000"
+ },
+ "json_decode+cpanel": {
+  "median_ms": 21.6,
+  "n": 9,
+  "answer": "20000 99995000"
+ },
+ "json_decode+maybexs": {
+  "median_ms": 26.9,
+  "n": 9,
+  "answer": "20000 99995000"
+ },
+ "json_small": {
+  "median_ms": 10.3,
+  "n": 9,
+  "answer": "30 217.5"
+ },
+ "json_small+cpanel": {
+  "median_ms": 4.7,
+  "n": 9,
+  "answer": "30 217.5"
+ },
+ "json_encode": {
+  "median_ms": 194.2,
+  "n": 5,
+  "answer": "1135561"
+ },
+ "json_encode+cpanel": {
+  "median_ms": 38.2,
+  "n": 9,
+  "answer": "1155561"
+ },
+ "jq_select": {
+  "median_ms": 524.6,
+  "n": 5,
+  "answer": "14000 bytes sha256 db61c8ff9bf85d72"
+ },
+ "jq_select+cpanel": {
+  "median_ms": 22.5,
+  "n": 9,
+  "answer": "14000 bytes sha256 db61c8ff9bf85d72"
+ },
+ "csv_parsewords": {
+  "median_ms": 443.3,
+  "n": 5,
+  "answer": "50000 25015654.65 651847"
+ },
+ "csv_regex": {
+  "median_ms": 137.7,
+  "n": 9,
+  "answer": "50000 25015654.65 651847"
+ },
+ "csv_xs+csv_xs": {
+  "median_ms": 55.9,
+  "n": 9,
+  "answer": "50000 25015654.65 651847"
+ },
+ "csv_pp+textcsv": {
+  "median_ms": 55.2,
+  "n": 9,
+  "answer": "50000 25015654.65 651847"
+ },
+ "diff_lcs+algdiff": {
+  "median_ms": 13.3,
+  "n": 9,
+  "answer": "99 72 66"
+ },
+ "load_jsonpp": {
+  "median_ms": 9.9,
+  "n": 9,
+  "answer": ""
+ },
+ "load_cpanel+cpanel": {
+  "median_ms": 4.7,
+  "n": 9,
+  "answer": ""
+ },
+ "load_textcsv_xs+csv_xs": {
+  "median_ms": 10.0,
+  "n": 9,
+  "answer": ""
+ },
+ "load_none": {
+  "median_ms": 1.4,
+  "n": 9,
+  "answer": ""
+ }
+}

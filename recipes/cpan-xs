@@ -1,0 +1,8 @@
+# XS distributions from CPAN, linked into perl.wasm statically like the core's own extensions.
+# Each line: the tarball, pinned in downloads/SHA256SUMS, and the folder under cpan/ that
+# scripts/20_target.sh unpacks it as. The folder is the module's name with "::" as "-", so Perl's
+# make_ext.pl finds it from the module's entry in static_ext, which recipes/config.sh adds to
+# static_ext, extensions and known_extensions. scripts/10_native.sh builds the same tarballs for
+# native perl, into build/native-cpan.
+Cpanel-JSON-XS-4.83.tar.gz Cpanel-JSON-XS
+Text-CSV_XS-1.65.tgz Text-CSV_XS

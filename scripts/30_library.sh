@@ -7,7 +7,9 @@
 # inside it) is copied to build/artifacts/lib/perl5/5.42 without what a sandboxed run never
 # reads: pod/ and *.pod, the CORE/ headers, static archives with the extralibs.ld lists of
 # what to link them with, .packlist and *.bs files, and what only builds XS code (C headers,
-# Encode's enc2xs templates, xsubpp and its typemap).
+# Encode's enc2xs templates, xsubpp and its typemap). The pure-Perl distributions of
+# recipes/cpan-pure are laid in first, each lib/ tree as the distribution ships it, so the same
+# rules cover them; one that would replace a file already there is refused.
 #
 # build/artifacts/MANIFEST is "<sha256>  <path>" for every file under lib/ and dev/, paths
 # relative to build/artifacts; build/artifacts/SHA256SUMS is the same for every file of the set
@@ -21,14 +23,22 @@ STAMP="$BUILD/.library.stamp"
 PRIVLIB=usr/local/lib/perl5/5.42
 
 [ -f "$BUILD/.target.stamp" ] && [ -f "$ART/perl.wasm" ] || fail "perl.wasm is missing; run scripts/20_target.sh"
-stamp=$(stamp_of "$0" "$BUILD/.target.stamp")
+# Each listed tarball is checked against its pin before anything is removed; the stamp holds
+# each pin, not only the list.
+pure=$(listed_tarballs "$ROOT/recipes/cpan-pure")
+pins=""
+for t in $pure; do
+    check_pinned "$t"
+    pins="$pins $t=$(pin_of "$t")"
+done
+stamp=$(echo "$pins" | stamp_of - "$0" "$(dirname "$0")/lib.sh" "$BUILD/.target.stamp")
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/SHA256SUMS" ]; then
     echo "30_library: up to date"
     exit 0
 fi
 
 : >"$LOG"
-rm -rf "$STAGE" "$ART/lib" "$ART/dev" "$ART/MANIFEST" "$ART/SHA256SUMS" "$STAMP"
+rm -rf "$STAGE" "$BUILD/cpan-pure" "$ART/lib" "$ART/dev" "$ART/MANIFEST" "$ART/SHA256SUMS" "$STAMP"
 cd "$SRC"
 run "$LOG" ./miniperl installperl --destdir="$STAGE"
 [ -d "$STAGE/$PRIVLIB" ] || fail "installperl did not install $PRIVLIB (see $LOG)"
@@ -36,6 +46,22 @@ run "$LOG" ./miniperl installperl --destdir="$STAGE"
 mkdir -p "$ART/lib/perl5" "$ART/dev"
 cp -R "$STAGE/$PRIVLIB" "$ART/lib/perl5/5.42"
 lib="$ART/lib/perl5/5.42"
+mkdir -p "$BUILD/cpan-pure"
+for t in $pure; do
+    dist="$BUILD/cpan-pure/$(dist_of "$t")"
+    unpack_pinned "$t" "$dist" "$LOG"
+    [ -d "$dist/lib" ] || fail "$t has no lib/ folder"
+    cd "$dist/lib"
+    [ -z "$(find . ! -type f ! -type d)" ] || fail "$t's lib/ holds something that is neither a file nor a folder"
+    find . -type f | sed 's|^\./||' | while read -r f; do
+        [ ! -e "$lib/$f" ] || fail "$t's lib/$f would replace a file already in the library"
+        mkdir -p "$lib/$(dirname "$f")"
+        cp "$f" "$lib/$f"
+        # As installperl installs a module: read-only.
+        chmod 0444 "$lib/$f"
+    done
+done
+cd "$SRC"
 find "$lib" \( -name pod -o -name CORE \) -type d -prune -exec rm -rf {} +
 find "$lib" -type f \( -name '*.pod' -o -name '*.a' -o -name '.packlist' -o -name '*.bs' \
     -o -name 'extralibs.ld' -o -name 'extralibs.all' -o -name '*.h' -o -name '*.e2x' \) -delete

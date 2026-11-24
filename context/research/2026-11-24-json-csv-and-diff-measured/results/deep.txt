@@ -1,0 +1,8 @@
+guest: decodes 1719 levels; at 1720: (None, 'stack overflow', b'')
+  the next call: (0, None, b'ok\n')
+guest: encodes 1923 levels; at 1924: (None, 'stack overflow', b'')
+  the next call: (0, None, b'200\n')
+native decode 10000: exit 0 b'ok\n'
+native decode 100000: exit -11 b''
+native encode 10000: exit 0 b'20000\n'
+native encode 100000: exit 0 b'200000\n'

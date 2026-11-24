@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- JSON, CSV and diff modules from CPAN. Cpanel::JSON::XS 4.83 and Text::CSV_XS 1.65 are linked into `perl.wasm`; JSON::MaybeXS 1.004008, Text::CSV 2.06 and Algorithm::Diff 1.201 are in the library. Each is built from a CPAN tarball pinned by URL and SHA-256 in `downloads/SHA256SUMS`, with no change to its source; all five are under Perl's own terms. Decoding a 1.4 MB JSON file takes 370 M guest instructions instead of JSON::PP's 11,156 M (45 ms instead of 1,250 ms on one Linux VM), and parsing 50,000 quoted CSV rows 1,511 M instead of Text::ParseWords' 18,215 M. `use JSON::MaybeXS` picks Cpanel::JSON::XS, and `use Text::CSV` picks Text::CSV_XS. `perl.wasm` grows by 126,212 bytes and imports nothing new. One output differs from JSON::PP: a float with a whole value encodes as `5.0`, not `5`. `docs/modules.md` lists the five. The build refuses a tarball that is unpinned, off its pin by one byte, or not one top folder, before it touches its build tree. Native perl gets the same five in `build/native-cpan`, apart from the oracle's library. Specification 018; the numbers are in `context/research/2026-11-24-json-csv-and-diff-measured.md`.
+
 ### Security
 
 - Perl's seeds now come from the host's randomness. Before, the guest had no `/dev/urandom`, so Perl seeded its hash order, its internal random state and `srand` from the time of day, which can be guessed from when a call started; that weakened Perl's defence against hash flooding. Now the guest serves `/dev/urandom` and `/dev/random` itself, from WASI's `random_get`, which `perl.wasm` now imports; the host never sees the name. The device answers as Linux's does. An open with no access mode, as Perl's seed makes, now reads as on Linux, so `sysopen(F, $path, 0)` opens a handle for input where it failed with EINVAL. `docs/sandbox.md` lists what differs from native.

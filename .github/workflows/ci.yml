@@ -84,8 +84,52 @@ jobs:
           key: downloads-${{ hashFiles('downloads/SHA256SUMS') }}
       - name: Build from the pins
         run: scripts/build.sh
+      # A step's failure is one line naming its log, and the logs are an artifact; the end of the
+      # newest log is printed here too, so the cause shows in the job's own output.
+      - name: The end of the failing step's log
+        if: failure()
+        run: |
+          log=$(ls -t build/logs/*.log 2>/dev/null | head -n 1)
+          if [ -n "$log" ]; then
+            echo "the last 60 lines of $log:"
+            tail -n 60 "$log"
+          fi
       - name: The checks on the built perl.wasm
-        run: uv run pytest tests/build -p no:cacheprovider -ra
+        run: uv run pytest tests/build -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/build-junit.xml"
+      # The checks of the CPAN modules need the build tree, the native install in build/native-cpan
+      # and the pinned tarballs, all of which this job has; a skip here means one went missing,
+      # so it fails. Every test function of the two files must have run at least once.
+      - name: No check of the CPAN modules was skipped
+        if: always()
+        run: |
+          if [ ! -f "$RUNNER_TEMP/build-junit.xml" ]; then
+            echo "the checks did not run, so there is nothing to check here"
+            exit 0
+          fi
+          uv run --no-project python -I - "$RUNNER_TEMP/build-junit.xml" <<'PY'
+          import ast, sys, xml.etree.ElementTree as ET
+          files = ("test_cpan_modules", "test_cpan_unpack")
+          floor = 0
+          for f in files:
+              tree = ast.parse(open(f"tests/build/{f}.py", encoding="utf-8").read())
+              floor += sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
+          ran = skipped = 0
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              where, name = case.get("classname", ""), case.get("name", "")
+              if not where:  # a whole module, collected or skipped as one
+                  where, name = name, "(the module)"
+              if not where.startswith(tuple(f"tests.build.{f}" for f in files)):
+                  continue
+              ran += 1
+              skip = case.find("skipped")
+              if skip is None:
+                  skip = case.find("error")
+              if skip is not None:
+                  skipped += 1
+                  print(f"did not run: {where}::{name}: {skip.get('message')}")
+          print(f"{ran} checks of the CPAN modules (at least {floor}), {skipped} skipped")
+          sys.exit(1 if skipped or ran < floor else 0)
+          PY
       - name: Keep the verified downloads for the next run
         if: steps.downloads.outputs.cache-hit != 'true'
         run: |
