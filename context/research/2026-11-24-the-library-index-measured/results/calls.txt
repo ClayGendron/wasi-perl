@@ -1,0 +1,6 @@
+before	-e 1	path_filestat_get ok 0 failed 0; path_open ok 0 failed 0
+before	-MPOSIX -e 1	path_filestat_get ok 22 failed 73; path_open ok 11 failed 0
+before	five	path_filestat_get ok 36 failed 118; path_open ok 18 failed 0
+after	-e 1	path_filestat_get ok 0 failed 0; path_open ok 0 failed 0
+after	-MPOSIX -e 1	path_filestat_get ok 22 failed 0; path_open ok 11 failed 0
+after	five	path_filestat_get ok 36 failed 0; path_open ok 18 failed 0

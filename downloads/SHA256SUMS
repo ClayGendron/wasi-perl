@@ -1,3 +1,8 @@
 c9387e1473a1866935cb047ece7c2e0a80767a3acdecb79d4a375f8a95970ddc  perl-5.42.3.tar.xz  https://www.cpan.org/src/5.0/perl-5.42.3.tar.xz
 b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  wasi-sdk-34.0-x86_64-linux.tar.gz  https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
 a18020674fac4107f329bc9ed720ea9c88e4b30a61e8a527787bcce051123d32  wasmtime-v51.0.0-x86_64-linux.tar.xz  https://github.com/bytecodealliance/wasmtime/releases/download/v51.0.0/wasmtime-v51.0.0-x86_64-linux.tar.xz
+daabf6ad0376ee4613e671c521f5d05650c42205e403cac077e79d8594da3ade  Cpanel-JSON-XS-4.83.tar.gz  https://www.cpan.org/authors/id/R/RU/RURBAN/Cpanel-JSON-XS-4.83.tar.gz
+4f0c16457c87def295a994e9c4ba397a8baafad96cefaf2d61483125f90ff974  Text-CSV_XS-1.65.tgz  https://www.cpan.org/authors/id/H/HM/HMBRAND/Text-CSV_XS-1.65.tgz
+cd3937afa78831f80a2ad5abab6c51b9e82fca4c31e5856ea208d598db5dc867  JSON-MaybeXS-1.004008.tar.gz  https://www.cpan.org/authors/id/E/ET/ETHER/JSON-MaybeXS-1.004008.tar.gz
+dfcaec925a788b0ba41e51bc6d16e21b0e98b4c7af9b79395090add75f5e506f  Text-CSV-2.06.tar.gz  https://www.cpan.org/authors/id/I/IS/ISHIGAKI/Text-CSV-2.06.tar.gz
+0022da5982645d9ef0207f3eb9ef63e70e9713ed2340ed7b3850779b0d842a7d  Algorithm-Diff-1.201.tar.gz  https://www.cpan.org/authors/id/R/RJ/RJBS/Algorithm-Diff-1.201.tar.gz

@@ -1,0 +1,25 @@
+json deep 100000: died: json text or perl structure exceeds maximum nesting level (max_depth set too low?),
+json deep 512: ok 1024
+json deep 513: died: json text or perl structure exceeds maximum nesting level (max_depth set too low?),
+json truncated: died: , or ] expected while parsing array,
+json bad utf8: ok 6
+json bad utf8 strict: died: malformed UTF-8 character in JSON string,
+json huge number: ok 5004
+json huge exponent: ok 6
+json nul: died: unexpected end of string while parsing JSON string,
+json trailing: died: garbage after JSON object,
+json empty: died: malformed JSON string, neither tag, array, object, number, string or atom,
+json lone surrogate: died: missing low surrogate character in surrogate pair,
+Text::CSV_XS unterminated quote: error 2027
+Text::CSV_XS quote in field: error 2034
+Text::CSV_XS nul: ok 3
+Text::CSV_XS long field: ok 2
+Text::CSV_XS many fields: ok 100000
+Text::CSV unterminated quote: error 2027
+Text::CSV quote in field: error 2034
+Text::CSV nul: ok 3
+Text::CSV long field: ok 2
+Text::CSV many fields: ok 100000
+json true is JSON::PP::Boolean: 1
+encode 5.0: [5,5.0,"5"]
+exit 0 stderr b''

@@ -1,6 +1,6 @@
 # 020 — Docs for agents: the fast way to write common programs
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 8. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. Its choices are the page's six items and the 20% margin on each ratio. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M6; round 2: N6; round 3: R3-1, R3-2).
+- **Status:** agreed by the owner 2026-11-24, through AskUserQuestion. Asked to agree specifications 018 and 020 together, the owner answered "Agree both (Recommended)". That agrees this text's choices: the page's six items and the 20% margin on each ratio. Written by the orchestrator, 2026-11-24, for synthesis item 8. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M6; round 2: N6; round 3: R3-1, R3-2).
 - **Owner:** Clay Gendron
 - **Kind:** `docs/` (a new `docs/fast-perl.md`, linked from the README and `docs/modules.md`), with its examples run as checks in `tests/oneliners/`.
 - **Depends on:** 018, whose modules it names.
@@ -14,6 +14,7 @@ Agents write the Perl they have seen. Some common forms cost 4–6× more than a
 
 1. **The page says the fact and the number, and stops**, as `AGENTS.md` asks of `docs/`. Each item:
    - **Whole-file regex work:** `perl -0777 -ne` or `-0777 -pi -e` instead of a line loop, when the pattern does not depend on lines. It runs 4.8–5.6× fewer instructions (F §6).
+     - *Re-measured 2026-11-24, after spec 016 (the likeliest cause, INFERRED: the earlier build also predates 013 and 018):* the forms the page shows run 9.07× fewer instructions (a count, `$n++ while /ERROR/g`; F's `$n++ if /ERROR/` form gives 7.05×) and 7.55× (`-pi -e 's/ERROR/WARN/g'`), so the page quotes 9× and 7.5× and its checks centre on them (`../research/2026-11-24-fast-perl-measured.md`).
    - **Keyed sorts:** a Schwartzian transform instead of `split` inside the `sort` block: 5× (F §6).
    - **JSON:** `use JSON::MaybeXS` or `use Cpanel::JSON::XS`, not `JSON::PP`: 29× on decode (spec 018).
    - **CSV:** `use Text::CSV`, which uses the XS parser.

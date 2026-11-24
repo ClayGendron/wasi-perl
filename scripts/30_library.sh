@@ -7,11 +7,14 @@
 # inside it) is copied to build/artifacts/lib/perl5/5.42 without what a sandboxed run never
 # reads: pod/ and *.pod, the CORE/ headers, static archives with the extralibs.ld lists of
 # what to link them with, .packlist and *.bs files, and what only builds XS code (C headers,
-# Encode's enc2xs templates, xsubpp and its typemap).
+# Encode's enc2xs templates, xsubpp and its typemap). The pure-Perl distributions of
+# recipes/cpan-pure are laid in first, each lib/ tree as the distribution ships it, so the same
+# rules cover them; one that would replace a file already there is refused.
 #
 # build/artifacts/MANIFEST is "<sha256>  <path>" for every file under lib/ and dev/, paths
-# relative to build/artifacts; build/artifacts/SHA256SUMS is the same for every file of the set
-# but itself (perl.wasm, MANIFEST, lib/ and dev/), the list the runner checks a set against.
+# relative to build/artifacts. installperl installs the tree's linked perl, so this step runs
+# after 20_target.sh's link; perl.wasm and SHA256SUMS, the list the runner checks a set against,
+# are 40_link.sh's, which links perl.wasm again with the index of this library.
 . "$(dirname "$0")/lib.sh"
 LOG="$LOGS/30_library.log"
 SRC="$BUILD/target"
@@ -20,15 +23,23 @@ ART="$BUILD/artifacts"
 STAMP="$BUILD/.library.stamp"
 PRIVLIB=usr/local/lib/perl5/5.42
 
-[ -f "$BUILD/.target.stamp" ] && [ -f "$ART/perl.wasm" ] || fail "perl.wasm is missing; run scripts/20_target.sh"
-stamp=$(stamp_of "$0" "$BUILD/.target.stamp")
-if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/SHA256SUMS" ]; then
+[ -f "$BUILD/.target.stamp" ] && [ -f "$SRC/perl" ] || fail "build/target/perl is missing; run scripts/20_target.sh"
+# Each listed tarball is checked against its pin before anything is removed; the stamp holds
+# each pin, not only the list.
+pure=$(listed_tarballs "$ROOT/recipes/cpan-pure")
+pins=""
+for t in $pure; do
+    check_pinned "$t"
+    pins="$pins $t=$(pin_of "$t")"
+done
+stamp=$(echo "$pins" | stamp_of - "$0" "$(dirname "$0")/lib.sh" "$BUILD/.target.stamp")
+if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/MANIFEST" ]; then
     echo "30_library: up to date"
     exit 0
 fi
 
 : >"$LOG"
-rm -rf "$STAGE" "$ART/lib" "$ART/dev" "$ART/MANIFEST" "$ART/SHA256SUMS" "$STAMP"
+rm -rf "$STAGE" "$BUILD/cpan-pure" "$ART/lib" "$ART/dev" "$ART/MANIFEST" "$ART/SHA256SUMS" "$STAMP"
 cd "$SRC"
 run "$LOG" ./miniperl installperl --destdir="$STAGE"
 [ -d "$STAGE/$PRIVLIB" ] || fail "installperl did not install $PRIVLIB (see $LOG)"
@@ -36,6 +47,26 @@ run "$LOG" ./miniperl installperl --destdir="$STAGE"
 mkdir -p "$ART/lib/perl5" "$ART/dev"
 cp -R "$STAGE/$PRIVLIB" "$ART/lib/perl5/5.42"
 lib="$ART/lib/perl5/5.42"
+mkdir -p "$BUILD/cpan-pure"
+# A find pattern for a name holding a newline, which find's line-by-line readers would split.
+nl_name=$(printf '*\n*')
+for t in $pure; do
+    dist="$BUILD/cpan-pure/$(dist_of "$t")"
+    unpack_pinned "$t" "$dist" "$LOG"
+    [ -d "$dist/lib" ] || fail "$t has no lib/ folder"
+    cd "$dist/lib"
+    [ -z "$(find . ! -type f ! -type d)" ] || fail "$t's lib/ holds something that is neither a file nor a folder"
+    # The copy below reads one name a line, so a name holding a newline would be read as two.
+    [ -z "$(find . -name "$nl_name")" ] || fail "$t's lib/ holds a name with a newline"
+    find . -type f | sed 's|^\./||' | while read -r f; do
+        [ ! -e "$lib/$f" ] || fail "$t's lib/$f would replace a file already in the library"
+        mkdir -p "$lib/$(dirname "$f")"
+        cp "$f" "$lib/$f"
+        # As installperl installs a module: read-only.
+        chmod 0444 "$lib/$f"
+    done
+done
+cd "$SRC"
 find "$lib" \( -name pod -o -name CORE \) -type d -prune -exec rm -rf {} +
 find "$lib" -type f \( -name '*.pod' -o -name '*.a' -o -name '.packlist' -o -name '*.bs' \
     -o -name 'extralibs.ld' -o -name 'extralibs.all' -o -name '*.h' -o -name '*.e2x' \) -delete
@@ -55,20 +86,12 @@ fi
 
 cd "$ART"
 # sha256sum marks a name holding a backslash or a newline, and the lists' readers split on
-# blanks; a name with either, or with a quote, is refused rather than listed wrongly.
-if find . | grep -q "[[:space:]\\\\'\"]"; then
-    fail "an artifact file name holds a blank, a quote or a backslash"
+# blanks; a name with either, or with a quote, is refused rather than listed wrongly. grep reads
+# a line at a time, so a newline is looked for by find itself.
+if find . | grep -q "[[:space:]\\\\'\"]" || [ -n "$(find . -name "$nl_name")" ]; then
+    fail "an artifact file name holds a blank, a quote, a backslash or a newline"
 fi
-# listed <find arguments>: "<sha256>  <path>" per file, sorted by path component (as Python
-# sorts paths: "a/x" before "a-b/x"), so the runner's own writer gives the same bytes.
-listed() {
-    find "$@" -type f | sed 's|^\./||' | sed 's|/|\x01|g' | LC_ALL=C sort | sed 's|\x01|/|g' \
-        | xargs -d '\n' sha256sum --
-}
 listed lib dev >"$BUILD/MANIFEST.tmp"
 mv "$BUILD/MANIFEST.tmp" MANIFEST
-# SHA256SUMS lists every file of the set but itself: perl.wasm, MANIFEST, lib/ and dev/.
-listed . ! -path ./SHA256SUMS >"$BUILD/SHA256SUMS.tmp"
-mv "$BUILD/SHA256SUMS.tmp" SHA256SUMS
 echo "$stamp" >"$STAMP"
 echo "30_library: ok ($(wc -l <MANIFEST | tr -d ' ') files in $ART/MANIFEST)"

@@ -11,7 +11,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from _build_helpers import ARTIFACTS, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, ROOT
+from _build_helpers import ARTIFACTS, BUILD, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, ROOT
 
 # The extensions linked statically, as %Config names them.
 STATIC_EXT = sorted(
@@ -19,6 +19,7 @@ STATIC_EXT = sorted(
         "B",
         "Compress/Raw/Bzip2",
         "Compress/Raw/Zlib",
+        "Cpanel/JSON/XS",
         "Cwd",
         "Data/Dumper",
         "Devel/PPPort",
@@ -53,6 +54,7 @@ STATIC_EXT = sorted(
         "Socket",
         "Storable",
         "Sys/Hostname",
+        "Text/CSV_XS",
         "Time/HiRes",
         "Time/Piece",
         "Unicode/Collate",
@@ -205,14 +207,21 @@ FAILS_IN_THE_SANDBOX: dict[str, bytes] = {
 }
 
 
+# The extensions that come from CPAN, not from Perl's tarball. Native perl has them only from
+# build/native-cpan, which scripts/10_native.sh fills from the same pinned tarballs.
+FROM_CPAN = {"Cpanel/JSON/XS", "Text/CSV_XS"}
+
+
 def test_every_listed_extension_loads_as_natively(guest, native):
     r = guest("-MConfig", "-e", 'print "$_\\n" for split / /, $Config{extensions}')
     extensions = r.stdout.decode().split()
     assert "POSIX" in extensions and "JSON/PP" in extensions
+    assert FROM_CPAN <= set(extensions)
+    native_cpan = {"PERL5LIB": str(BUILD / "native-cpan" / "lib" / "perl5")}
     for ext in extensions:
         module = DISTRIBUTION_MODULE.get(ext, ext.replace("/", "::"))
         prog = f"use {module}; print qq{{ok\\n}}"
-        g, n = guest("-e", prog), native("-e", prog)
+        g, n = guest("-e", prog), native("-e", prog, env=native_cpan if ext in FROM_CPAN else None)
         assert (n.code, n.stdout) == (0, b"ok\n"), (ext, n.stderr)
         if ext in FAILS_IN_THE_SANDBOX:
             assert g.code != 0 and FAILS_IN_THE_SANDBOX[ext] in g.stderr, (

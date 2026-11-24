@@ -1,0 +1,46 @@
+{
+ "json_decode": {
+  "median_ms": 1250.4,
+  "n": 3
+ },
+ "json_decode+maybexs": {
+  "median_ms": 1263.8,
+  "n": 3
+ },
+ "json_small": {
+  "median_ms": 22.7,
+  "n": 9
+ },
+ "json_encode": {
+  "median_ms": 420.8,
+  "n": 5
+ },
+ "jq_select": {
+  "median_ms": 1265.6,
+  "n": 3
+ },
+ "csv_parsewords": {
+  "median_ms": 1341.8,
+  "n": 3
+ },
+ "csv_regex": {
+  "median_ms": 325.2,
+  "n": 5
+ },
+ "csv_pp+textcsv": {
+  "median_ms": 3636.5,
+  "n": 3
+ },
+ "diff_lcs+algdiff": {
+  "median_ms": 26.6,
+  "n": 9
+ },
+ "load_jsonpp": {
+  "median_ms": 20.0,
+  "n": 9
+ },
+ "load_none": {
+  "median_ms": 1.6,
+  "n": 9
+ }
+}

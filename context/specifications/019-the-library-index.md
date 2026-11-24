@@ -1,6 +1,6 @@
 # 019 — The library index: module searches that ask the host only for files that exist
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 7, a leaner `@INC`. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: an index rather than a new layout, the build order of Decision 5 with its new `scripts/40_link.sh`, and the rule for a set passed with `artifacts=`. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H2, H3, M5, M6; round 2: N2, N4).
+- **Status:** agreed by the owner 2026-11-24, through AskUserQuestion. Asked to agree 019 and 021 together, the owner answered "Agree both (Recommended)". That agrees this text's new choices: an index rather than a new layout, the build order of Decision 5 with its new `scripts/40_link.sh`, and the rule for a set passed with `artifacts=`. Written by the orchestrator, 2026-11-24, for synthesis item 7, a leaner `@INC`. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H2, H3, M5, M6; round 2: N2, N4).
 - **Owner:** Clay Gendron
 - **Kind:**
   - the build recipe: `recipes/wasi-fd-table.c`, and a new `recipes/wasi-lib-index-empty.c`;
@@ -94,6 +94,12 @@ The index answers only where the host's answer is already known. Every other cal
   | `open "+<"`, `5.42/Evil.pm` | `EPERM` | `EPERM`, from the host |
   | `open ">"`, `nope/x` | `EPERM` | `EPERM`, from the host |
 
+- **Amended 2026-11-24, after round 1 of the review** (`../reviews/019-the-library-index-pr-2026-11-24.md`, H1, M1, L3). The owner's choice, answered 2026-11-24: keep host behaviour, the index answers only where every host agrees. Every host includes one whose names ignore case (macOS and Windows) and one whose names keep it (Linux). So:
+  - the names keep their case and are sorted by their ASCII-lowercased bytes (`LC_ALL=C`), and the search compares with A to Z as a to z; `lib_index.sh` refuses two names that differ only in case;
+  - the index answers ENOENT only when no name of the path, in any case, is in the index and no prefix of it is a file in any case; it answers ENOTDIR only below a file reached by its exact names; everything else goes to the host, a name the index holds in another case among it;
+  - a path goes to the host whole if a component ends in `.` or a blank, or holds `~`, `\` or `:` (Windows rewrites them), has a stem (the part before its first `.`) that is a Windows device name in any case (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, `CONIN$`, `CONOUT$`; the coordinator's ruling under the owner's rule, 2026-11-24), is longer than 255 bytes (the host answers ENAMETOOLONG), or holds a byte of 0x80 or above (wasmtime answers EILSEQ for one that is not UTF-8);
+  - the look's own stat is no longer judged. `path_open` already judges a read before the look, so the counts do not change, and a write-shaped open keeps the look's refusal of a special file.
+
 ### 4. Only the library is indexed
 
 Grants, mounts and `/dev` are untouched. `/dev/urandom` is spec 013's.
@@ -166,3 +172,100 @@ Grants, mounts and `/dev` are untouched. `/dev/urandom` is spec 013's.
 3. A memo records the fuel and wall time of the module-loading programs before and after.
 4. `CHANGELOG.md` under "Unreleased".
 5. A fresh agent's review lands.
+
+## Landing notes
+
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/019-the-library-index`, from dev at `8897c22`, Linux x86-64, 4 vCPUs, CPython 3.13, wasmtime-py 51.0.0, as root. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise. Every build and every timed or fuel run held `flock /home/user/wasi-perl-wt/machine.lock`.
+
+### What was built
+
+- **Decision 1.** The index; `@INC`, the layout and `PERL_DISABLE_PMC` are unchanged. The guest's `@INC` is `/usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42`, as on dev (check 3 pins it).
+- **Decision 2.** `scripts/lib_index.sh <folder> <out.c>` writes the names (`find`, then sorted by their ASCII-lowercased bytes with `LC_ALL=C sort`; round 1), their count and the marker `wasi-perl-lib-index-sha256:<hex>`, the SHA-256 of the names one per line. The structure is declared once, in a new `recipes/include/wasi-perl-lib-index.h`, which the table, the empty index and the generated source include: `count`, a pointer to the names and a pointer to the marker. `recipes/wasi-lib-index-empty.c` has a count of 0 and the marker of no names (the SHA-256 of nothing). `20_target.sh` compiles it and adds it to `libwasi-perl-fd-table.a` beside the table. The built index has 1,728 names (1,461 files and 267 folders), and `perl.wasm` grows by 54,726 bytes to 9,442,629 (round 1's build).
+- **Decision 3.** `recipes/wasi-fd-table.c`: `start()` finds the grant named `/usr/local/lib/perl5` as it finds `/dev` (one `is_named` for both). `index_answer()` reads a path through the library's real descriptor: it drops `.` components, gives up (asks the host) on an empty or `..` component, a path of more than 1,023 bytes, the grant itself, or a count of 0; then walks the path's folders by binary search, as amended in round 1 (below). A name is a folder when the first name not below `name/` starts with `name/`. It is asked by `path_filestat_get` and by `path_open` when `asks_only_to_read()` holds: none of `CREAT`, `TRUNC`, `EXCL`; none of `FD_WRITE`, `FD_DATASYNC`, `FD_ALLOCATE`, `FD_FILESTAT_SET_SIZE`; none of `APPEND`, `DSYNC`, `RSYNC`, `SYNC`.
+- **Decision 4.** Only the library's grant is judged; `/dev`, grants and every other call are untouched.
+- **Decision 5.** As the table says. Steps 4 and 6 are empty: step 6 is a copy from `build/link/perl.wasm`. The relink is `make perl "libs=build/index/lib-index.o <libs>"`, with `<libs>` read from the tree's substituted `config.sh`, and no `-j`. `.link.stamp` is `stamp_of` over `40_link.sh`, `lib_index.sh`, `lib.sh` and `.library.stamp`. `listed` moved to `lib.sh` unchanged; `MANIFEST` is byte for byte dev's, and `SHA256SUMS` has the same 1,464 lines with the new `perl.wasm` hash.
+- **Decision 6.** The `Artifacts` docstring and a new "Adding Perl code" section of `docs/modules.md`.
+
+### Choices the specification left to the implementer
+
+- **A shared header.** The specification names the table, the empty index and the generator; the structure they share is declared in `recipes/include/wasi-perl-lib-index.h`, which `wasi-cc`'s `-I` already reaches, so its three users cannot disagree on it. INFERRED: a recipe file, the smallest way to keep one definition.
+- **What `lib_index.sh` refuses.** Anything that is neither a file nor a folder; an empty folder, since a folder is known only by the names below it, so an empty one would read as a file; a name holding a blank, a control character, a quote or a backslash, which `30_library.sh` already refuses; and a library folder that holds nothing. `30_library.sh` deletes empty folders, so the built library has none.
+- **Where the index is judged on a real descriptor.** The table compares the real descriptor with the library grant's number, which is the same as its virtual number and never freed. So a duplicate of the grant's number, which names the same host descriptor, is judged too. INFERRED: it is the library's grant.
+- **The checks' homes.** Check 4, 5 and 7 are in `tests/build/test_lib_index.py`; checks 1, 2, 3 and 6 in `tests/build/test_library_lookups.py`. The counts come from the wasmtime command line's trace, as `test_reads_and_writes.py` counts calls, since a Python host function cannot pass a WASI call on. That command line grants every folder writable, so the traced runs use a copy of the library; the errors a program sees are read under wasmtime-py with the library read-only. Check 7's "touched script" bullet is checked from the stamps (`.link.stamp` is recomputed from its four inputs; neither earlier step reads `lib_index.sh`), and was run once by hand: a line added to `lib_index.sh` gave "30_library: up to date, 40_link: ok"; a line added to `30_library.sh` gave "30_library: ok, 40_link: ok"; with both reverted and rebuilt, a further `build.sh` gave every step "up to date" (`build/logs/touch-lib-index.out`, `touch-library.out`, `up-to-date.out`).
+- **CI.** The build job's gate that fails on a skipped CPAN check now counts the two new files too. Locally: a full run, "71 checks … (at least 40), 0 skipped", exit 0; a run with no `perl.wasm`, 38 skipped, exit 1.
+- **One existing check's stand-in changed.** `tests/build/test_cpan_unpack.py`'s scratch checkouts stood in `build/artifacts/perl.wasm` for 30_library.sh's precondition; they now stand in `build/target/perl`, which Decision 5 makes the precondition. What the checks assert is unchanged. The review should see it.
+
+### Findings
+
+- **A host whose file names ignore case** (round 0's H1, fixed in round 1). Round 0's index answered ENOENT for `5.42/Strict.pm`, which macOS and Windows find. Round 1 sends it to the host; see below.
+- **`recipes/config.sh`'s `libs`** is at line 940, not 935 as the specification cites (READ). Nothing depends on the line.
+- **Fuel rises 1.2–1.3%** for the module-loading programs, from the lookups in WebAssembly, while their wall time falls 15–16% (`../research/2026-11-24-the-library-index-measured.md`).
+
+### The checks
+
+| check | before the code (dev's set) | after |
+|---|---|---|
+| 1: five modules, failed stats under the library | failed: 118 | passed: 0 (36 found, unchanged) |
+| 2: `-MPOSIX -e 1`, failed stats | failed: 73 | passed: 0 (22 found, unchanged) |
+| 3: `require Not::There` as natively, same `@INC` | passed (a pin) | passed |
+| 3: `-e`, `-d`, `-f`, `$!{ENOENT}`, `opendir` listing | passed (a pin) | passed |
+| 3: each row's errno (10 cases) | passed (a pin) | passed |
+| 3: each row reaches the host or not (10 cases) | the four "from the index" rows failed; the six host rows passed | passed |
+| 3: `tests/escapes` unchanged | passed | passed |
+| 4: the C-level probe (6 cases) and `lib_index.sh`'s order and refusals (2) | failed: no `lib_index.sh` | passed |
+| 5: the index is `MANIFEST`'s library; the shipped marker once, with its hash | failed (marker); skipped (no `build/index`) | passed |
+| 6: a passed set with an added file | failed: `require Added` loaded it | passed: "Can't locate Added.pm in @INC"; from a `-I` grant it loads |
+| 7: `SHA256SUMS` last and pins `perl.wasm` | passed: dev's `30_library.sh` wrote it last too | passed |
+| 7: one link and no compile in the relink's log; the link's stamp | skipped: no `40_link.sh` outputs | passed |
+
+### The acceptance runs
+
+| command | result |
+|---|---|
+| `flock …machine.lock scripts/build.sh` from an empty `build/` | 00–40 ok; 1,462 files in `MANIFEST`, 1,464 in `SHA256SUMS`; a second run: every step "up to date" |
+| `uv run pytest tests/build -ra` | 509 passed, 0 skipped |
+| `WASI_PERL_ORACLE=build/native-install/bin/perl uv run pytest tests/runner tests/escapes tests/oneliners -ra` | 701 passed, 2 skipped ("root can write every folder"; "macOS, run in CI"), as on dev; the same against the set `assemble_artifacts.py` copies into the package |
+| `uv run python tests/perl_t/run_suite.py --quiet --list-failures --jobs 4` | 616 run, 439 passed, 177 excluded, 0 failed, 0 stale exclusions, 0 regressed (19,052 guarded oks); `tests/perl_t/exclusions.toml` unchanged |
+| `uv run pytest -m "not slow"` | 496 passed, 2 skipped, 245 deselected |
+| `uv run ruff check`; `uv run ruff format --check` | all checks passed; 40 files already formatted |
+
+### Round 1 of the review
+
+The review (`../reviews/019-the-library-index-pr-2026-11-24.md`) found H1, M1 and L1–L4. All are fixed in one commit; Decision 3's amendment records the owner's choice for H1.
+
+- **H1.** `lib_index.sh` sorts the names by their lowercased bytes and refuses two that differ only in case. `index_answer()` searches with A to Z as a to z, narrowing the range at each folder so each comparison starts at the folder's end. ENOENT only when a name is in the index in no case, ENOTDIR only below a file reached by its exact names, anything else the host's. A component ending in `.` or a blank, or holding `~`, `\` or `:`, goes to the host. `tests/runner/test_library_case.py` runs `-e`, `open` and `require Strict` on every CI leg and asserts what a plain open of the host's own `Strict.pm` does; the wheel legs' gate counts it, so it cannot skip there.
+- **M1.** A component over 255 bytes, or any byte of 0x80 or above, goes to the host: ENAMETOOLONG and EILSEQ are back.
+- **L1.** `lib_index.sh` and `30_library.sh` refuse a name holding a newline, looked for with `find -name`, not `grep`.
+- **L2.** `40_link.sh` is up to date only while `build/artifacts/perl.wasm` exists.
+- **L3.** The index is out of `look()`; the counts are unchanged (118 → 0, 73 → 0). `docs/modules.md` and the `Artifacts` docstring say the library must be mounted read-only. The C probe's create check now expects the look's stat to reach the host (1 stat, 1 open), as on dev.
+- **L4.** The test comment now says what a row is, in words.
+- **Windows device names** (asked after round 1, by the same rule). A component whose stem is `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, `CONIN$` or `CONOUT$`, in any case, sends the path to the host. Five C-probe rows (`CON`, `con.pm`, `LPT1.x`, `Nul.txt/x`, `conout$`) and one host-call row (`stat` of `5.42/con.pm`) failed on the build before it (6 failed) and pass after. Fuel: the five modules 123,227,113, `-MPOSIX` 72,010,878, `-e 1` 1,600,492 (EXECUTED; +1.25% and +1.3% on dev's).
+- **CI's first run on round 1** (`d4db0ab`, run 45484104559) failed on macOS and Windows in `test_require_in_another_case_loads_as_the_host_finds_it`: the host found `Strict.pm`, and `strict.pm` itself then dies "Incorrect use of pragma 'strict' at /usr/local/lib/perl5/5.42/Strict.pm line 41", as it would on dev. The check was wrong about Perl, not the index (EXECUTED: both job logs). The check now loads `TEXT::ABBREV`, which has no such guard, and a second check asserts that `require Strict` dies in the host's `Strict.pm`, not "Can't locate", wherever a plain open of the host's `Strict.pm` succeeds. `tests/build/test_library_lookups.py` gains a check that exercises the found branch on Linux too: a library copy holding `5.42/Strict.pm` and `5.42/TEXT/ABBREV.pm` answers as a case-insensitive host would, and the guest loads the one and dies in the other.
+
+The new checks, each seen failing on round 0's build before the code changed (EXECUTED: 37 failed, 44 passed):
+
+| check | on round 0's code | after |
+|---|---|---|
+| `lib_index.sh`: folded order; refuses a newline, two files and two folders by case (4) | failed | passed |
+| C probe: 14 paths the host may answer otherwise reach the host | failed: answered by the index | passed |
+| C probe: a create's look stat reaches the host | failed: 0 stats | passed |
+| C probe: names in no case answered without the host (4) | passed | passed |
+| row errnos: two ENAMETOOLONG, two EILSEQ | failed: ENOENT, ENOTDIR | passed |
+| row host calls: other case (4), trailing `.`, `~`, long (2), not UTF-8 (2) | failed: 0 host calls | passed: 1 |
+| `require Strict` asks the host once, for `5.42/Strict.pm` | failed: 0 | passed |
+| `30_library.sh` refuses a newline | failed: "cp: cannot stat 'x'" | passed |
+| `40_link.sh` not up to date without `perl.wasm` | failed: "up to date" | passed |
+| `tests/runner/test_library_case.py` (2) | passed on Linux, as on dev; INFERRED to fail on round 0 on a case-insensitive host | passed |
+| the built index and marker, sorted by the new order | failed | passed |
+
+Round 1's runs (EXECUTED):
+
+| command | result |
+|---|---|
+| `flock …machine.lock scripts/build.sh` | 20–40 ok; `perl.wasm` `ade0a15c…616a`, 9,442,629 bytes |
+| `uv run pytest tests/build -ra` | 551 passed, 0 skipped |
+| `WASI_PERL_ORACLE=build/native-install/bin/perl uv run pytest tests/runner tests/escapes tests/oneliners -ra` | 703 passed, 2 skipped, as before; the wheel legs' gate script on this run's JUnit: "259 guest checks (at least 249 … 2 library-case checks), 0 skipped" |
+| `uv run python tests/perl_t/run_suite.py --quiet --list-failures --jobs 4` | 616 run, 439 passed, 177 excluded, 0 failed, 0 regressed; exclusions unchanged |
+| `uv run pytest -m "not slow"` | 496 passed, 2 skipped, 247 deselected |
+| `uv run ruff check`; `uv run ruff format --check` | clean; 41 files already formatted |
+| `count_calls.sh`, both programs | 22 ok / 0 failed and 36 ok / 0 failed stats; opens 11 and 18, as round 0 |

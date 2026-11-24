@@ -1,0 +1,7 @@
+# Pure-Perl distributions from CPAN, laid into the library. Each line: the tarball, pinned in
+# downloads/SHA256SUMS. scripts/30_library.sh copies its lib/ tree into lib/perl5/5.42 and refuses
+# to replace a file already there. scripts/10_native.sh builds the same tarballs for native perl,
+# into build/native-cpan.
+JSON-MaybeXS-1.004008.tar.gz
+Text-CSV-2.06.tar.gz
+Algorithm-Diff-1.201.tar.gz
