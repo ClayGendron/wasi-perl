@@ -39,14 +39,14 @@ The owner's bar is that Perl's own suite passes, apart from a listed set of excl
 
 ## Landing notes
 
-Built 2026-11-24 on `spec/007-perl-t`, merged with dev at `71fe6c3` (001 to 006, 002's XS modules, 003's refusals and its `%SIG` amendment, 009's descriptor table), built in this worktree by `WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=3 scripts/build.sh` and run by dev's own runner. The review (`context/reviews/007-perls-own-test-suite-pr-2026-11-24.md`, two rounds) is answered here.
+Built 2026-11-24 on `spec/007-perl-t`, merged with dev at `961791f` (001 to 006, 002's XS modules, 003's refusals and its `%SIG` amendment, 009's descriptor table, 010's select over bit vectors), built in this worktree by `WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=3 scripts/build.sh` and run by dev's own runner. The review (`context/reviews/007-perls-own-test-suite-pr-2026-11-24.md`, two rounds) is answered here.
 
 ### The scoreboard
 
 EXECUTED, about 95 s on 4 cores:
 
 ```
-perl t/: 616 run, 438 passed, 178 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 5, not-this-platform 6, bug 5), 0 failed, 0 stale exclusions, 0 regressed (18915 guarded oks)
+perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)
 ```
 
 616 rather than 617 because `t/benchmark/` runs only with `PERL_BENCHMARK` (decision 7). Its one file passed in one run with `times` fixed and failed in the next (EXECUTED: a speed ratio of 0.30 against its bound of 0.25, with four guests sharing the cores), which is timing noise, not a defect.
@@ -57,7 +57,7 @@ With 009 (EXECUTED): op/fh.t, op/hash-clear-placeholders.t, op/hash-rt85026.t, o
 
 ### The `select` defect
 
-Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers, and wasi-libc's `fd_set` is a count and an array of descriptors. So op/tie_fetch_count.t traps "memory out of bounds" at line 274 (`perl -e '$v="\xff"; select $v,undef,undef,0'` traps too, EXECUTED), and op/sselect.t's results change from run to run with whatever memory follows the mask (EXECUTED: six runs fail tests 17-20 or 19-20; it passed in two earlier runs, so it may show as a stale exclusion until the fix lands). A translation was written here and then withdrawn, because specification 010's descriptor table makes `select` read Perl's bit vectors; both files are `bug` entries until it lands.
+Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers, and wasi-libc's `fd_set` is a count and an array of descriptors. Before 010, op/tie_fetch_count.t trapped "memory out of bounds" at line 274 and op/sselect.t's results changed from run to run (EXECUTED). A translation written here was withdrawn in favour of 010's, which makes `select` read Perl's bit vectors. With 010 (EXECUTED): op/sselect.t passes (four runs) and left the list; op/tie_fetch_count.t runs all 343 tests and fails only 170-171, because chown is unimplemented, so it is `platform`.
 
 ### The `times` fix (H1)
 
@@ -65,7 +65,7 @@ Perl's `pp_sselect` hands the C `select()` its bit vectors as `fd_set` pointers,
 
 ### The other findings
 
-- **M1:** the `ok_at_least` and refusal guard (decision 3). 18915 `ok` results of excluded files are now guarded. Round 2 (R2-1): `shows` is allowed for every reason, and every entry that is not a refusal reason has one, so each excluded file has a failure signature its output must show (a trap counts as the line `trapped: <why>`). Refusal entries whose file catches the refusal use `shows` too (io/dup.t, comp/colon.t, io/crlf_through.t, io/pvbm.t, op/die_exit.t, op/override.t, op/recurse.t, re/substT.t, re/subst_wamp.t, run/cloexec.t), each EXECUTED-checked where the refusal is hidden (`eval { pipe … }`, `eval q{qx:…:}` and `eval { waitpid(0,1) }` each give the sandbox message in `$@`).
+- **M1:** the `ok_at_least` and refusal guard (decision 3). 19052 `ok` results of excluded files are now guarded. Round 2 (R2-1): `shows` is allowed for every reason, and every entry that is not a refusal reason has one, so each excluded file has a failure signature its output must show (a trap counts as the line `trapped: <why>`). Refusal entries whose file catches the refusal use `shows` too (io/dup.t, comp/colon.t, io/crlf_through.t, io/pvbm.t, op/die_exit.t, op/override.t, op/recurse.t, re/substT.t, re/subst_wamp.t, run/cloexec.t), each EXECUTED-checked where the refusal is hidden (`eval { pipe … }`, `eval q{qx:…:}` and `eval { waitpid(0,1) }` each give the sandbox message in `$@`).
 - **M2:** op/pack.t is `subprocess` (with `t/perl` it runs 4177 tests, all ok, then a runperl is refused); op/waitpid.t and io/pvbm.t are `refused`.
 - **M3:** the stand-in `t/perl`. The scoreboard did not change; op/pack.t now reaches 4177.
 - **L1:** the unpacked tree carries a stamp of the tarball's hash and of the tree's own content (round 2, R2-2: one SHA-256 over every path and file), and is unpacked again when either differs. R2-3: the regressed messages read "no refusal in its output" and "its output lacks the entry's shows pattern". **L2:** the tarball is found through `WASI_PERL_TARBALL`, `downloads/`, `WASI_PERL_DOWNLOAD_CACHE`, then `git rev-parse --git-common-dir`. **L3:** `Bail out!` is case-insensitive; strict TAP outside `lib/` (decision 7); no file changed outcome. **L4:** no specification numbers in `exclusions.toml`. **L5:** op/taint.t's note names `kill`. **L6:** `not-this-platform`. **L7:** above. **L8:** a skip reason is stripped of `skip`, `Skipped:` and kin. **L9:** the slow test fails, not skips, without a build when `CI` is set.
@@ -91,12 +91,11 @@ Defaults match CI's perl-t job (008's ci.yml, READ): the tarball in `downloads/`
 | threads | 0 |
 | porting | 6 (30 of 36 `t/porting/` pass) |
 | dynamic-loading | 0 |
-| platform | 5: chmod (op/filetest.t, op/stat.t), the time-zone database (op/time.t), no sockets (op/coreamp.t), 32-bit regex sizes (bigmem/regexp.t) |
+| platform | 6: chmod (op/filetest.t, op/stat.t), chown (op/tie_fetch_count.t tests 170-171), the time-zone database (op/time.t), no sockets (op/coreamp.t), 32-bit regex sizes (bigmem/regexp.t) |
 | not-this-platform | 6 (`win32/`) |
-| bug | 5 |
+| bug | 3 |
 
 ### The `bug` entries, grouped by cause
 
-- **Four-argument `select` reads wasi-libc's `fd_set`, not Perl's bit vectors, 2 files:** op/tie_fetch_count.t (a trap), op/sselect.t (results vary). Fixed by the descriptor table's `select` (010).
 - **XS::APItest is not built, 2 files:** bigmem/stack.t, bigmem/stack_over.t.
 - **Unexplained, 1 file:** lib/deprecate.t passes its 10 tests, then its END block's File::Path cannot load Carp after the test leaves its relative `@INC`, and it exits 2.
