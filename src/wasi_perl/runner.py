@@ -292,11 +292,13 @@ def run(
     else:
         found, want = artifacts, None
     writing = any(g.writable for g in asked)
+    # A rule's inputs are found only when a grant can break the rule: the cache rule binds every
+    # grant, the runtime rules only a writable one. A call with no grant has nothing to judge.
     placed, cwd_guest = _grants.judge(
         asked,
         cwd_guest,
-        caches=_cache.every(cache),
-        runtime=_runtime_folders(found),
+        caches=_cache.every(cache) if asked else (),
+        runtime=_runtime_folders(found) if writing else (),
         runtime_files=_runtime_files(found) if writing else (),
     )
     guest_env = dict(inputs.env)
