@@ -1,0 +1,83 @@
+{
+ "n": 100,
+ "ondemand perl.wasm e_1": {
+  "median": 1.077,
+  "p10": 1.002,
+  "p90": 1.455
+ },
+ "ondemand snap-preload e_1": {
+  "median": 1.454,
+  "p10": 1.35,
+  "p90": 1.9
+ },
+ "ondemand perl.wasm ne_file": {
+  "median": 1.501,
+  "p10": 1.364,
+  "p90": 1.784
+ },
+ "ondemand snap-preload ne_file": {
+  "median": 1.883,
+  "p10": 1.743,
+  "p90": 2.289
+ },
+ "ondemand perl.wasm MPOSIX": {
+  "median": 15.551,
+  "p10": 14.894,
+  "p90": 19.338
+ },
+ "ondemand snap-preload MPOSIX": {
+  "median": 4.254,
+  "p10": 4.075,
+  "p90": 5.254
+ },
+ "ondemand perl.wasm five": {
+  "median": 25.197,
+  "p10": 24.252,
+  "p90": 26.806
+ },
+ "ondemand snap-preload five": {
+  "median": 4.315,
+  "p10": 4.11,
+  "p90": 4.839
+ },
+ "pooling perl.wasm e_1": {
+  "median": 1.035,
+  "p10": 0.989,
+  "p90": 1.352
+ },
+ "pooling snap-preload e_1": {
+  "median": 1.371,
+  "p10": 1.31,
+  "p90": 1.741
+ },
+ "pooling perl.wasm ne_file": {
+  "median": 1.902,
+  "p10": 1.813,
+  "p90": 2.033
+ },
+ "pooling snap-preload ne_file": {
+  "median": 2.345,
+  "p10": 2.221,
+  "p90": 2.635
+ },
+ "pooling perl.wasm MPOSIX": {
+  "median": 15.287,
+  "p10": 14.672,
+  "p90": 17.941
+ },
+ "pooling snap-preload MPOSIX": {
+  "median": 4.113,
+  "p10": 3.955,
+  "p90": 5.308
+ },
+ "pooling perl.wasm five": {
+  "median": 28.172,
+  "p10": 25.473,
+  "p90": 31.251
+ },
+ "pooling snap-preload five": {
+  "median": 5.177,
+  "p10": 4.461,
+  "p90": 6.369
+ }
+}

@@ -1,0 +1,192 @@
+{
+ "n": 30,
+ "sizes": {
+  "perl.wasm": 9260141,
+  "snap-construct": 9102275,
+  "snap-preload": 11118670
+ },
+ "fuel": {
+  "perl.wasm e_1": {
+   "exit": 0,
+   "fuel": 1581968,
+   "stderr": ""
+  },
+  "perl.wasm ne_file": {
+   "exit": 0,
+   "fuel": 1662596,
+   "stderr": ""
+  },
+  "perl.wasm MPOSIX": {
+   "exit": 0,
+   "fuel": 72328984,
+   "stderr": ""
+  },
+  "perl.wasm MJSON_PP": {
+   "exit": 0,
+   "fuel": 87930782,
+   "stderr": ""
+  },
+  "perl.wasm five": {
+   "exit": 0,
+   "fuel": 123793163,
+   "stderr": ""
+  },
+  "perl.wasm six": {
+   "exit": 0,
+   "fuel": 172981357,
+   "stderr": ""
+  },
+  "snap-construct e_1": {
+   "exit": 0,
+   "fuel": 1463090,
+   "stderr": ""
+  },
+  "snap-construct ne_file": {
+   "exit": 0,
+   "fuel": 1548331,
+   "stderr": ""
+  },
+  "snap-construct MPOSIX": {
+   "exit": 0,
+   "fuel": 71837078,
+   "stderr": ""
+  },
+  "snap-construct MJSON_PP": {
+   "exit": 0,
+   "fuel": 87699004,
+   "stderr": ""
+  },
+  "snap-construct five": {
+   "exit": 0,
+   "fuel": 123699173,
+   "stderr": ""
+  },
+  "snap-construct six": {
+   "exit": 0,
+   "fuel": 173208226,
+   "stderr": ""
+  },
+  "snap-preload e_1": {
+   "exit": 0,
+   "fuel": 1253175,
+   "stderr": ""
+  },
+  "snap-preload ne_file": {
+   "exit": 0,
+   "fuel": 1330031,
+   "stderr": ""
+  },
+  "snap-preload MPOSIX": {
+   "exit": 0,
+   "fuel": 17372677,
+   "stderr": ""
+  },
+  "snap-preload MJSON_PP": {
+   "exit": 0,
+   "fuel": 1373577,
+   "stderr": ""
+  },
+  "snap-preload five": {
+   "exit": 0,
+   "fuel": 18018739,
+   "stderr": ""
+  },
+  "snap-preload six": {
+   "exit": 0,
+   "fuel": 18123893,
+   "stderr": ""
+  }
+ },
+ "ms_median": {
+  "ondemand perl.wasm": {
+   "instantiate": 0.05,
+   "instantiate_pre": 0.045,
+   "e_1": 1.354,
+   "ne_file": 1.302,
+   "MPOSIX": 13.514,
+   "MJSON_PP": 20.533,
+   "five": 27.627,
+   "six": 37.022
+  },
+  "ondemand snap-construct": {
+   "instantiate": 0.046,
+   "instantiate_pre": 0.038,
+   "e_1": 4.001,
+   "ne_file": 3.996,
+   "MPOSIX": 14.606,
+   "MJSON_PP": 19.752,
+   "five": 25.054,
+   "six": 37.155
+  },
+  "ondemand snap-preload": {
+   "instantiate": 0.044,
+   "instantiate_pre": 0.038,
+   "e_1": 1.815,
+   "ne_file": 2.08,
+   "MPOSIX": 4.271,
+   "MJSON_PP": 1.864,
+   "five": 4.707,
+   "six": 4.665
+  },
+  "nocow perl.wasm": {
+   "instantiate": 1.762,
+   "instantiate_pre": 1.768,
+   "e_1": 3.063,
+   "ne_file": 3.353,
+   "MPOSIX": 16.942,
+   "MJSON_PP": 21.092,
+   "five": 29.965,
+   "six": 45.089
+  },
+  "nocow snap-construct": {
+   "instantiate": 1.999,
+   "instantiate_pre": 1.995,
+   "e_1": 3.708,
+   "ne_file": 4.475,
+   "MPOSIX": 19.767,
+   "MJSON_PP": 25.387,
+   "five": 32.381,
+   "six": 44.315
+  },
+  "nocow snap-preload": {
+   "instantiate": 2.745,
+   "instantiate_pre": 2.718,
+   "e_1": 3.846,
+   "ne_file": 4.925,
+   "MPOSIX": 7.533,
+   "MJSON_PP": 4.694,
+   "five": 7.897,
+   "six": 7.249
+  },
+  "pooling perl.wasm": {
+   "instantiate": 0.041,
+   "instantiate_pre": 0.035,
+   "e_1": 1.336,
+   "ne_file": 1.733,
+   "MPOSIX": 17.536,
+   "MJSON_PP": 24.429,
+   "five": 31.787,
+   "six": 44.073
+  },
+  "pooling snap-construct": {
+   "instantiate": 0.042,
+   "instantiate_pre": 0.039,
+   "e_1": 1.505,
+   "ne_file": 2.879,
+   "MPOSIX": 18.802,
+   "MJSON_PP": 24.839,
+   "five": 31.989,
+   "six": 43.812
+  },
+  "pooling snap-preload": {
+   "instantiate": 0.047,
+   "instantiate_pre": 0.039,
+   "e_1": 1.974,
+   "ne_file": 2.495,
+   "MPOSIX": 6.022,
+   "MJSON_PP": 2.07,
+   "five": 5.313,
+   "six": 6.024
+  }
+ }
+}

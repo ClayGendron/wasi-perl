@@ -1,0 +1,4 @@
+empty 6314830 instructions per op less empty: 0
+stat_missing 60711524 instructions per op less empty: 2719
+stat_found 56728047 instructions per op less empty: 2520
+open_close 245041052 instructions per op less empty: 11936

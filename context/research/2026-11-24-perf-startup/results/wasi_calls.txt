@@ -1,0 +1,44 @@
+== e_1: calls (failed) per WASI function
+     1      0  args_get
+     1      0  args_sizes_get
+     4      0  clock_time_get
+     1      0  environ_sizes_get
+     1      0  fd_close
+    11      1  fd_fdstat_get
+     1      0  fd_filestat_get
+     2      0  fd_prestat_dir_name
+     4      0  fd_prestat_get
+     4      3  fd_tell
+     1      0  path_filestat_get
+     1      0  path_open
+     1      0  proc_exit
+== e_1: path_open results
+      1 result=Ok
+== e_1: path_filestat_get results
+      1 result=Ok
+== e_1: fd_read bytes total
+0
+== five: calls (failed) per WASI function
+     1      0  args_get
+     1      0  args_sizes_get
+     4      0  clock_time_get
+     1      0  environ_sizes_get
+    19      0  fd_close
+    47      1  fd_fdstat_get
+     1      0  fd_filestat_get
+     2      0  fd_prestat_dir_name
+     4      0  fd_prestat_get
+    38      0  fd_read
+    14      0  fd_seek
+    36      3  fd_tell
+   155    118  path_filestat_get
+    19      0  path_open
+     1      0  proc_exit
+== five: path_open results
+     19 result=Ok
+== five: path_filestat_get results
+    118 result=Err
+     37 result=Ok
+== five: fd_read bytes total
+238168
+-MPOSIX stat counts (EXECUTED): 12 path_open, 73 path_filestat_get failed, 23 ok; -Mstrict -Mwarnings: 3 path_open, 14 failed, 5 ok; scalar(@POSIX::EXPORT) = 587
