@@ -2,6 +2,15 @@
 
 wasi-perl runs Perl inside WebAssembly with WASI preview1. WASI preview1 has no processes and no signals. So the operations that would start a process or handle a signal are refused. A refusal is an ordinary Perl `die`, never a crash.
 
+## What the host must run
+
+`perl.wasm` is one `wasm32-wasip1` command. A host needs WASI preview1 and two WebAssembly features:
+
+- **Exception handling.** `die` and `eval` unwind through it.
+- **SIMD128.** `memchr`, which finds each line's end, compares sixteen bytes a step with it. Nothing else in the module uses SIMD.
+
+wasmtime enables SIMD128 by default; the runner turns on exception handling. A host without either refuses to load the module.
+
 ## The refusal
 
 Every refusal dies with one message:
@@ -49,7 +58,17 @@ About `%SIG`:
 - Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
 - Four-argument `select` over the bit vectors `vec` builds, `IO::Select` and `IO::Poll`. A regular file is always ready to read and to write, as on POSIX.
 - In-place edits (`-i`) on every host. A Windows host refuses to rename a file over one the program holds open, which `-i` does; the guest then closes its own descriptors on that file, renames again and opens the new file in their place.
+- An open with no access mode reads, as on Linux, where `O_RDONLY` is 0: `sysopen(F, $path, 0)` opens for reading, and the handle is one for input, so a `print` to it fails with "opened only for input". `O_APPEND` alone reads from the start. wasi-libc alone would refuse such an open with EINVAL. Perl's own seed opens `/dev/urandom` this way.
 - Copying a descriptor, as on POSIX: `open my $save, '>&', STDOUT`, `open STDERR, '>&STDOUT'`, the `&=` forms, `POSIX::dup`, `POSIX::dup2` and `fcntl(F_DUPFD)`. The copies share one open file and its offset; the file closes with the last of them. Test::More loads and works.
+
+## Randomness
+
+The guest's randomness is the host's. Perl seeds its hash order, its internal random state and `rand` from `/dev/urandom`, as natively. In the guest, `/dev/urandom` and `/dev/random` are served by the guest itself, from WASI's `random_get`. The host never sees the name, and `perl.wasm` imports `random_get` for it. So no two calls share a hash seed, and the seed cannot be guessed from when a call started.
+
+- A program can read the device itself: `open my $f, '<', '/dev/urandom'` gives the host's random bytes. Every read is filled in full, whatever its size.
+- It works as Linux's device does for a user who is not root. A write takes every byte and drops it. `sysseek` answers 0. `-c` is true, `-t` is false, and `select` finds it ready at once. `fcntl` flags such as `O_NONBLOCK` read back. A path through it, such as `/dev/urandom/x`, answers ENOTDIR, and `readlink` of it EINVAL.
+- `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`, `PERL_INTERNAL_RAND_SEED` and `srand(N)` pin what they pin natively: a fixed `PERL_HASH_SEED` gives the same key order on every call. That order equals native perl's only with `PERL_HASH_SEED=0` or `PERL_PERTURB_KEYS=0`. With any other seed, in the default deterministic mode (`PERL_PERTURB_KEYS=2`), the guest's order is pinned but differs from native's.
+- Only `/dev/urandom` and `/dev/random`, with `.` components dropped, are the device. `/dev/zero` and every other name under `/dev` are missing, and a path that climbs out of a grant into `/dev` is refused, as before.
 
 ## Exit statuses
 
@@ -65,9 +84,14 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 
 ## Differences from native that remain
 
+- **PerlIO's buffer is 64 KiB, not 8 KiB.** Perl reads and writes a file 64 KiB at a time, which spares the host most of its calls. Two things follow.
+  - A call stopped by its deadline, its fuel or a trap keeps only the output the program had flushed. Standard output is a file, not a terminal, so Perl flushes it each time 64 KiB fill up. Up to 64 KiB printed just before the stop is lost, where natively a killed perl loses up to 8 KiB. `$| = 1` flushes every print.
+  - A buffered read reads ahead 64 KiB. After one `<F>` on a large file, `sysseek(F, 0, 1)` answers 65536, where natively it answers 8192. `tell(F)` is the same as natively.
 - **Descriptor numbers start higher.** Each granted folder holds a descriptor from 3 up, so the first file a program opens gets a number above them, not 3. New descriptors still take the lowest free number.
 - **A granted folder's number always names that folder.** `open my $fh, '<&=', 3` succeeds on it, where natively it gives EBADF. Closing it succeeds and leaves the folder granted. `dup2` or `dup3` onto it fails with EBADF, and no `open` or `dup` is given it.
 - **At most 256 open descriptors.** The standard streams and the granted folders count against them. Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").
 - **Special files are refused at open.** Opening a FIFO, a device or a socket file in a granted folder fails with ENXIO ("No such device or address"), or ENOTDIR for `opendir`, before the host is asked: a host's open of a FIFO would wait for the other end, past every limit. So does a link to one. `utime` on a FIFO sets its times, as natively, but through a link to one it fails with ENXIO. A name that does not exist is created as usual. `-e` sees a FIFO, but `-p` is false: WASI has no file type for a FIFO.
 - **After a rename over an open file on Windows, the old handle reads the new file.** Natively it goes on reading the old one. For `-i` the handle is already at its end, so nothing changes. Linux and macOS hosts allow the rename, and the handle reads the old file as natively.
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
+- **`/dev` lists only `null`.** `/dev/urandom` and `/dev/random` open and stat, but `readdir` on `/dev` does not show them: the listing is the host's folder.
+- **The random device refuses what a device file allows.** On its handle, `truncate` and `sync` answer EINVAL ("Invalid argument"), and `utime` dies with "The futimes function is unimplemented", as on any handle here. By name, `mkdir`, `rmdir`, `unlink`, `rename`, `link`, `symlink` and `utime` answer EPERM ("Operation not permitted"), the read-only `/dev` folder's answer. Natively root may do each. Its `stat` gives `/dev`'s own times and an inode number of the guest's choosing. `/dev/random` is always ready to write, where Linux's may not be.

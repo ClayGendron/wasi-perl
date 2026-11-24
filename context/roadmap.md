@@ -44,3 +44,8 @@ Then, under "You can do all 10":
 | 020 | Docs for agents: the fast way to write common programs, each example a check | 018 |
 | 021 | `wasm-opt -O3` after the last link, in 019's `40_link.sh`; over `perl-reactor.wasm` too once 022 is built | 016, 019; before or after 022 |
 | 022 | A preload image the embedder makes at install time, with wasi-python's snapshot API | 013, 014, 017, 019; before or after 021 |
+
+Open items from the review of 016 (`reviews/016-the-guests-reads-and-writes-pr-2026-11-24.md`, M2 and L5), for a later change:
+
+- **A skip in `tests/build` should fail CI.** The checks on the built `perl.wasm` skip when a tool is missing: the wasmtime command line at its one pinned path, `llvm-objdump`, native perl or wasmtime-py. CI's build job passes on skips, so a wasmtime bump that leaves `tests/build/_build_helpers.py` behind would skip 016's call-count checks unseen. Either a step after the build job's checks reads a JUnit file and fails on any skip, as the wheel-test job does for the guest checks, or `_need` in `tests/build/conftest.py` fails instead of skipping when `CI` is set.
+- **`src/wasi_perl/_engines.py` should state `wasm_simd = True`** beside `wasm_exceptions`. Since 016 the module needs SIMD128 to load at all; wasmtime enables it by default today, and the engine states only the performance defaults.

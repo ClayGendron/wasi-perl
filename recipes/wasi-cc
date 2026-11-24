@@ -35,20 +35,23 @@ set -- --target=wasm32-wasip1 --sysroot="$sysroot" \
     -I"$here/include" -include wasi-perl-libc.h \
     "$@"
 # The sandbox refuses processes and signals by standing in for the Perl functions that would
-# start or signal one (sandbox-refusals.c): each is wrapped at every link, which changes only a
+# start or signal one (sandbox-refusals.c), and types a sysopen handle as Linux does
+# (PerlIO_intmode2str, in the same file): each is wrapped at every link, which changes only a
 # link that calls it, and the archive that holds the stand-ins is linked once it is built. A
 # perl link without the archive fails on the missing __wrap_ symbols instead of linking quietly.
 refusals="$here/../build/stubs/libwasi-perl-refusals.a"
 wraps=
 for s in Perl_pp_fork Perl_pp_wait Perl_pp_waitpid Perl_pp_alarm Perl_pp_pipe_op Perl_pp_getppid \
     Perl_do_exec3 Perl_do_aexec5 Perl_my_popen Perl_my_popen_list Perl_apply Perl_magic_setsig \
-    Perl_my_failure_exit Perl_my_unexec PerlIO_openn Perl_lex_start; do
+    Perl_my_failure_exit Perl_my_unexec PerlIO_openn Perl_lex_start PerlIO_intmode2str; do
     wraps="$wraps,--wrap=$s"
 done
 # The guest numbers its own descriptors (wasi-fd-table.c): every wasi-libc function that hands a
 # descriptor to the host is wrapped, and so are dup, dup2, dup3 and fcntl, which wasi-libc
-# defines to fail, and select, which must read Perl's bit vectors. Each __wasi_ function is defined in one wasi-libc object and called from
-# others, so the wrap catches every call. Unlike the refusals, these are wrapped in every
+# defines to fail, select, which must read Perl's bit vectors, and open and openat, which must
+# read an open with no access mode as Linux does, and isatty, which answers for a regular file
+# the table looked at before its open without asking the host. Each __wasi_ function is defined in one
+# wasi-libc object and called from others, so the wrap catches every call. Unlike the refusals, these are wrapped in every
 # program, so the archive is built before the first link and a link without it fails.
 fdtable="$here/../build/stubs/libwasi-perl-fd-table.a"
 for s in fd_advise fd_allocate fd_close fd_datasync fd_fdstat_get fd_fdstat_set_flags \
@@ -59,7 +62,7 @@ for s in fd_advise fd_allocate fd_close fd_datasync fd_fdstat_get fd_fdstat_set_
     poll_oneoff sock_accept sock_recv sock_send sock_shutdown; do
     wraps="$wraps,--wrap=__wasi_$s"
 done
-wraps="$wraps,--wrap=dup,--wrap=dup2,--wrap=dup3,--wrap=fcntl,--wrap=select"
+wraps="$wraps,--wrap=dup,--wrap=dup2,--wrap=dup3,--wrap=fcntl,--wrap=select,--wrap=open,--wrap=openat,--wrap=isatty"
 if [ "$link" = yes ]; then
     set -- "$@" --no-wasm-opt "-Wl${wraps}" "$fdtable"
     [ -f "$refusals" ] && set -- "$@" "$refusals"

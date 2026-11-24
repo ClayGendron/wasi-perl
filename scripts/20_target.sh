@@ -20,7 +20,7 @@ PATCHES="$ROOT/recipes/patches/perl-$PERL_VERSION"
 want=$(grep " perl-$PERL_VERSION.tar.xz " "$DOWNLOADS/SHA256SUMS" | cut -d' ' -f1)
 echo "$want  $TARBALL" | sha256sum -c --status || fail "$TARBALL does not match downloads/SHA256SUMS"
 
-inputs=$(find "$ROOT/recipes" "$0" "$(dirname "$0")/lib.sh" -type f | LC_ALL=C sort)
+inputs=$(find "$ROOT/recipes" "$0" "$(dirname "$0")/lib.sh" "$ROOT/tests/build/memchr-test.c" -type f | LC_ALL=C sort)
 # shellcheck disable=SC2086
 stamp=$(echo "$want" | stamp_of - $inputs "$BUILD/.native.stamp")
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/perl.wasm" ]; then
@@ -29,15 +29,22 @@ if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/perl.wasm" 
 fi
 
 : >"$LOG"
-rm -rf "$SRC" "$ART" "$STUBS" "$BUILD/host-tools" "$STAMP"
+rm -rf "$SRC" "$ART" "$STUBS" "$BUILD/host-tools" "$BUILD/tests" "$STAMP"
 
 # The stand-ins for what wasi-libc lacks, linked into every perl link through $libs.
 mkdir -p "$STUBS"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-stubs.c" -o "$STUBS/wasi-stubs.o"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-posix-stubs.c" -o "$STUBS/wasi-posix-stubs.o"
+# memchr compares sixteen bytes a step with SIMD128. It alone is compiled for SIMD: building
+# everything that way gained nothing measurable.
+run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -msimd128 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-memchr.c" -o "$STUBS/wasi-memchr.o"
 # The descriptor table is linked into every program wasi-cc links, so it comes first.
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-fd-table.c" -o "$STUBS/wasi-fd-table.o"
 run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-fd-table.a" "$STUBS/wasi-fd-table.o"
+# The check of memchr against a byte loop, linked with the object perl links; tests/build runs
+# it.
+mkdir -p "$BUILD/tests"
+run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror "$ROOT/tests/build/memchr-test.c" "$STUBS/wasi-memchr.o" -o "$BUILD/tests/memchr-test.wasm"
 
 mkdir -p "$BUILD/unpack-target"
 run "$LOG" tar -C "$BUILD/unpack-target" -xf "$TARBALL"
