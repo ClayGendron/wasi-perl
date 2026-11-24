@@ -231,15 +231,48 @@ def test_only_memchr_uses_simd(perl_wasm):
     assert users == {"memchr"}, sorted(users)
 
 
-def test_the_shipped_module_keeps_memchr_s_sixteen_byte_compare(perl_wasm):
-    # The pass drops memchr's name, but keeps its SIMD128 compare: the shipped module still
-    # compares sixteen bytes a step. (It may add SIMD of its own: with SIMD128 enabled it writes
-    # a 16-byte store of a constant as one v128.store.)
-    def ops(wasm: Path) -> set[str]:
-        return set(re.findall(SIMD_OP, _whole_disassembly(wasm)))
+# What the build's wasm-opt pass adds to the SIMD of the module wasm-ld linked: it writes a
+# 16-byte store of a constant as one v128.store. Pinned exactly, so a binaryen that vectorised
+# more would be seen, and a review would decide.
+PASS_SIMD = {"v128.const", "v128.store"}
+WASM_DIS = BUILD / "tools" / "binaryen-version_133" / "bin" / "wasm-dis"
 
-    assert {"i8x16.eq", "i8x16.bitmask"} <= ops(LINKED)
-    assert {"i8x16.eq", "i8x16.bitmask"} <= ops(perl_wasm)
+
+def _simd_by_function(wasm: Path) -> tuple[set[str], int]:
+    """The SIMD ops of the module and how many functions use any, by binaryen's disassembler,
+    which numbers the functions a pass left unnamed."""
+    assert WASM_DIS.is_file(), f"{WASM_DIS} is missing: scripts/00_download.sh unpacks it"
+    text = subprocess.run(
+        [str(WASM_DIS), str(wasm)], capture_output=True, text=True, check=True
+    ).stdout
+    ops: set[str] = set()
+    users: set[str] = set()
+    current = None
+    for line in text.splitlines():
+        m = re.match(r"^ \(func \$(\S+)", line)
+        if m:
+            current = m.group(1)
+        found = re.findall(SIMD_OP, line)
+        if found and current is not None:
+            ops |= set(found)
+            users.add(current)
+    return ops, len(users)
+
+
+@pytest.mark.parametrize("module", ["perl.wasm", "perl-reactor.wasm"])
+def test_the_shipped_module_keeps_memchr_s_sixteen_byte_compare(perl_wasm, module):
+    # The pass drops memchr's name, but keeps its SIMD128 compare: the shipped module still
+    # compares sixteen bytes a step, with exactly the linked module's SIMD and the pass's own
+    # store, in at most two functions.
+    linked = BUILD / "link" / module
+    shipped = perl_wasm.parent / module
+    assert linked.exists() and shipped.exists(), "scripts/40_link.sh builds both"
+    linked_ops, linked_users = _simd_by_function(linked)
+    shipped_ops, shipped_users = _simd_by_function(shipped)
+    assert {"i8x16.eq", "i8x16.bitmask"} <= linked_ops
+    assert linked_users == 1
+    assert shipped_ops == linked_ops | PASS_SIMD
+    assert shipped_users <= 2
 
 
 # The baseline's 10 MB log: 200,000 lines, every seventh an ERROR.
