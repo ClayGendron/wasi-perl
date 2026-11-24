@@ -11,7 +11,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from conftest import ARTIFACTS, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, ROOT
+from _build_helpers import ARTIFACTS, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, ROOT
 
 # The extensions linked statically, as %Config names them.
 STATIC_EXT = sorted(

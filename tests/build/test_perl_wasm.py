@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
+from _build_helpers import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
 
 HELLO = 'print "hello, WebAssembly\\n"'
 DIE_IN_EVAL = 'eval { die "boom\\n" }; print "caught: $@"; print "after\\n"'

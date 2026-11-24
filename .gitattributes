@@ -1,0 +1,3 @@
+# The checks compare bytes, so the corpus and every fixture are checked out exactly as committed,
+# on Windows too.
+tests/** -text
