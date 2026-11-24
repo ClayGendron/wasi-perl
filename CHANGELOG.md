@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Nothing yet.
+### Security
+
+- Perl's seeds now come from the host's randomness. Before, the guest had no `/dev/urandom`, so Perl seeded its hash order, its internal random state and `srand` from the time of day, which can be guessed from when a call started; that weakened Perl's defence against hash flooding. Now the guest serves `/dev/urandom` and `/dev/random` itself, from WASI's `random_get`, which `perl.wasm` now imports; the host never sees the name. The device answers as Linux's does. An open with no access mode, as Perl's seed makes, now reads as on Linux, so `sysopen(F, $path, 0)` works where it failed with EINVAL. `docs/sandbox.md` lists what differs from native.
 
 ## 0.1.0 — 2026-11-24
 
