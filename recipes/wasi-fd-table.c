@@ -20,12 +20,14 @@
  * program started (stdio and the preopened folders, numbered from 0 with no gap, as wasi-libc
  * assumes when it looks for preopens) gets the same virtual number. Nothing runs before
  * that, so the order of constructors does not matter. The host sees the same real
- * descriptors as before, and the module imports nothing new.
+ * descriptors as before. The module imports one WASI preview1 function a program without the
+ * table would not: random_get, which the random device reads.
  *
- * Three more answers are the guest's own, each where the host's would differ from a POSIX
+ * Four more answers are the guest's own, each where the host's would differ from a POSIX
  * system's: an open of a special file is refused before the host could wait in it
- * (path_open), select reads Perl's bit vectors (select), and a rename over a file the
- * program holds open succeeds where the host refuses it (path_rename). */
+ * (path_open), select reads Perl's bit vectors (select), a rename over a file the program
+ * holds open succeeds where the host refuses it (path_rename), and /dev/urandom and
+ * /dev/random are a device of the guest's own that reads random_get (the random device). */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -46,6 +48,10 @@
  * it failed. Every call through it answers EBADF, as the host would; its close succeeds. */
 #define GONE ((__wasi_fd_t)-1)
 
+/* The real number of an open file that is the guest's random device. No host descriptor stands
+ * behind it, so no call may hand it to the host: each wrapper answers for it itself. */
+#define VIRTUAL_RANDOM ((__wasi_fd_t)-2)
+
 struct file {
     __wasi_fd_t real;
     uint32_t refs; /* 0: this entry is free */
@@ -54,6 +60,7 @@ struct file {
     __wasi_fdflags_t fdflags;
     __wasi_rights_t base, inheriting;
     uint8_t reopenable;
+    uint8_t device; /* which random device, when real is VIRTUAL_RANDOM */
 };
 
 /* Each open file has at least one virtual number, so there are never more files than numbers.
@@ -68,10 +75,14 @@ static uint8_t cloexec[FD_LIMIT];
  * may be put on it (dup2, dup3, fd_renumber answer EBADF). Since it is never freed, no open,
  * dup or F_DUPFD is given it, and a path under one grant can never land in another. */
 static uint8_t grant[FD_LIMIT];
+/* The number of the grant the guest sees at /dev, or -1 when there is none. */
+static int devdir = -1;
 static int started;
 
 __typeof__(__wasi_fd_fdstat_get) __real___wasi_fd_fdstat_get;
 __typeof__(__wasi_fd_prestat_get) __real___wasi_fd_prestat_get;
+__typeof__(__wasi_fd_prestat_dir_name) __real___wasi_fd_prestat_dir_name;
+__typeof__(__wasi_fd_filestat_get) __real___wasi_fd_filestat_get;
 __typeof__(__wasi_fd_close) __real___wasi_fd_close;
 __typeof__(__wasi_path_open) __real___wasi_path_open;
 __typeof__(__wasi_path_rename) __real___wasi_path_rename;
@@ -91,10 +102,25 @@ static int new_file(__wasi_fd_t real)
         if (files[i].refs == 0) {
             files[i].real = real;
             files[i].reopenable = 0;
+            files[i].device = 0;
             return i;
         }
     }
     abort(); /* cannot happen: there are fewer open files than numbers in use */
+}
+
+/* Whether the grant at real descriptor fd is the one the guest sees at /dev, by its name as
+ * wasi-libc reads it: trailing slashes do not count. */
+static int is_dev(__wasi_fd_t fd, const __wasi_prestat_t *pre)
+{
+    char name[8];
+    size_t n = pre->u.dir.pr_name_len;
+    if (n >= sizeof name ||
+        __real___wasi_fd_prestat_dir_name(fd, (uint8_t *)name, (__wasi_size_t)n) != 0)
+        return 0;
+    while (n > 1 && name[n - 1] == '/')
+        n--;
+    return n == 4 && memcmp(name, "/dev", 4) == 0;
 }
 
 /* The descriptors the host opened before the program started, each under its own number.
@@ -113,6 +139,8 @@ static void start(void)
         bind(fd, new_file((__wasi_fd_t)fd), fd > 2);
         grant[fd] = fd > 2 && __real___wasi_fd_prestat_get((__wasi_fd_t)fd, &pre) == 0 &&
                     pre.tag == __WASI_PREOPENTYPE_DIR;
+        if (grant[fd] && devdir < 0 && is_dev((__wasi_fd_t)fd, &pre))
+            devdir = fd;
     }
 }
 
@@ -138,81 +166,318 @@ static __wasi_errno_t release(int v)
     struct file *f = &files[slot[v] - 1];
     slot[v] = 0;
     cloexec[v] = 0;
-    if (--f->refs != 0 || f->real == GONE)
+    if (--f->refs != 0 || f->real == GONE || f->real == VIRTUAL_RANDOM)
         return __WASI_ERRNO_SUCCESS;
     return __real___wasi_fd_close(f->real);
 }
 
 /* Replaces the virtual number fd, a parameter of the calling wrapper, by its real one, or
- * returns EBADF from the wrapper. */
-#define TO_REAL(fd)                                                                              \
+ * returns from the wrapper: EBADF for a closed number, and `on_random` for the random device,
+ * which has no real one. */
+#define TO_REAL_OR(fd, on_random)                                                                \
     do {                                                                                         \
         if (!is_open((int)(fd)))                                                                 \
             return __WASI_ERRNO_BADF;                                                            \
+        if (files[slot[fd] - 1].real == VIRTUAL_RANDOM)                                          \
+            return (on_random);                                                                  \
         (fd) = files[slot[fd] - 1].real;                                                         \
     } while (0)
 
+/* A path call's folder: the random device is not one. */
+#define TO_REAL(fd) TO_REAL_OR(fd, __WASI_ERRNO_NOTDIR)
+
 /* A wrapper that translates the descriptor in its first argument and passes the call on. */
-#define PASS_FD(name, params, args)                                                              \
+#define PASS_FD(name, on_random, params, args)                                                   \
     __typeof__(__wasi_##name) __real___wasi_##name, __wrap___wasi_##name;                       \
     __wasi_errno_t __wrap___wasi_##name params                                                   \
     {                                                                                            \
-        TO_REAL(fd);                                                                             \
+        TO_REAL_OR(fd, on_random);                                                               \
         return __real___wasi_##name args;                                                        \
     }
 
-PASS_FD(fd_advise, (__wasi_fd_t fd, __wasi_filesize_t offset, __wasi_filesize_t len,
-                    __wasi_advice_t advice), (fd, offset, len, advice))
-PASS_FD(fd_allocate, (__wasi_fd_t fd, __wasi_filesize_t offset, __wasi_filesize_t len),
+/* What Linux's character devices answer: EINVAL for the calls a device does not support,
+ * ENOTDIR for a listing, ENOTSOCK for the socket calls. EBADF from the preopen calls says it
+ * is not a preopened folder, as WASI's own does for every other descriptor. */
+#define INVAL __WASI_ERRNO_INVAL
+PASS_FD(fd_advise, INVAL, (__wasi_fd_t fd, __wasi_filesize_t offset, __wasi_filesize_t len,
+                           __wasi_advice_t advice), (fd, offset, len, advice))
+PASS_FD(fd_allocate, INVAL, (__wasi_fd_t fd, __wasi_filesize_t offset, __wasi_filesize_t len),
         (fd, offset, len))
-PASS_FD(fd_datasync, (__wasi_fd_t fd), (fd))
-PASS_FD(fd_fdstat_set_flags, (__wasi_fd_t fd, __wasi_fdflags_t flags), (fd, flags))
-PASS_FD(fd_fdstat_set_rights, (__wasi_fd_t fd, __wasi_rights_t base, __wasi_rights_t inheriting),
-        (fd, base, inheriting))
-PASS_FD(fd_filestat_get, (__wasi_fd_t fd, __wasi_filestat_t *buf), (fd, buf))
-PASS_FD(fd_filestat_set_size, (__wasi_fd_t fd, __wasi_filesize_t size), (fd, size))
-PASS_FD(fd_filestat_set_times, (__wasi_fd_t fd, __wasi_timestamp_t atim, __wasi_timestamp_t mtim,
-                                __wasi_fstflags_t flags), (fd, atim, mtim, flags))
-PASS_FD(fd_pread, (__wasi_fd_t fd, const __wasi_iovec_t *iovs, size_t iovs_len,
-                   __wasi_filesize_t offset, __wasi_size_t *nread), (fd, iovs, iovs_len, offset, nread))
-PASS_FD(fd_prestat_get, (__wasi_fd_t fd, __wasi_prestat_t *buf), (fd, buf))
-PASS_FD(fd_prestat_dir_name, (__wasi_fd_t fd, uint8_t *path, __wasi_size_t path_len),
-        (fd, path, path_len))
-PASS_FD(fd_pwrite, (__wasi_fd_t fd, const __wasi_ciovec_t *iovs, size_t iovs_len,
-                    __wasi_filesize_t offset, __wasi_size_t *nwritten),
-        (fd, iovs, iovs_len, offset, nwritten))
-PASS_FD(fd_read, (__wasi_fd_t fd, const __wasi_iovec_t *iovs, size_t iovs_len, __wasi_size_t *nread),
-        (fd, iovs, iovs_len, nread))
-PASS_FD(fd_readdir, (__wasi_fd_t fd, uint8_t *buf, __wasi_size_t buf_len, __wasi_dircookie_t cookie,
-                     __wasi_size_t *used), (fd, buf, buf_len, cookie, used))
-PASS_FD(fd_seek, (__wasi_fd_t fd, __wasi_filedelta_t offset, __wasi_whence_t whence,
-                  __wasi_filesize_t *newoffset), (fd, offset, whence, newoffset))
-PASS_FD(fd_sync, (__wasi_fd_t fd), (fd))
-PASS_FD(fd_tell, (__wasi_fd_t fd, __wasi_filesize_t *offset), (fd, offset))
-PASS_FD(fd_write, (__wasi_fd_t fd, const __wasi_ciovec_t *iovs, size_t iovs_len,
-                   __wasi_size_t *nwritten), (fd, iovs, iovs_len, nwritten))
-PASS_FD(path_create_directory, (__wasi_fd_t fd, const char *path), (fd, path))
-PASS_FD(path_filestat_get, (__wasi_fd_t fd, __wasi_lookupflags_t flags, const char *path,
-                            __wasi_filestat_t *buf), (fd, flags, path, buf))
-PASS_FD(path_readlink, (__wasi_fd_t fd, const char *path, uint8_t *buf, __wasi_size_t buf_len,
-                        __wasi_size_t *used), (fd, path, buf, buf_len, used))
-PASS_FD(path_remove_directory, (__wasi_fd_t fd, const char *path), (fd, path))
-PASS_FD(path_unlink_file, (__wasi_fd_t fd, const char *path), (fd, path))
-PASS_FD(sock_recv, (__wasi_fd_t fd, const __wasi_iovec_t *ri_data, size_t ri_data_len,
-                    __wasi_riflags_t ri_flags, __wasi_size_t *ro_datalen, __wasi_roflags_t *ro_flags),
+PASS_FD(fd_datasync, INVAL, (__wasi_fd_t fd), (fd))
+PASS_FD(fd_fdstat_set_rights, INVAL,
+        (__wasi_fd_t fd, __wasi_rights_t base, __wasi_rights_t inheriting), (fd, base, inheriting))
+PASS_FD(fd_filestat_set_size, INVAL, (__wasi_fd_t fd, __wasi_filesize_t size), (fd, size))
+PASS_FD(fd_filestat_set_times, INVAL, (__wasi_fd_t fd, __wasi_timestamp_t atim,
+                                       __wasi_timestamp_t mtim, __wasi_fstflags_t flags),
+        (fd, atim, mtim, flags))
+PASS_FD(fd_prestat_get, __WASI_ERRNO_BADF, (__wasi_fd_t fd, __wasi_prestat_t *buf), (fd, buf))
+PASS_FD(fd_prestat_dir_name, __WASI_ERRNO_BADF,
+        (__wasi_fd_t fd, uint8_t *path, __wasi_size_t path_len), (fd, path, path_len))
+PASS_FD(fd_readdir, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, uint8_t *buf, __wasi_size_t buf_len,
+                                          __wasi_dircookie_t cookie, __wasi_size_t *used),
+        (fd, buf, buf_len, cookie, used))
+PASS_FD(fd_sync, INVAL, (__wasi_fd_t fd), (fd))
+PASS_FD(path_create_directory, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
+PASS_FD(path_readlink, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path, uint8_t *buf,
+                                             __wasi_size_t buf_len, __wasi_size_t *used),
+        (fd, path, buf, buf_len, used))
+PASS_FD(path_remove_directory, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
+PASS_FD(path_unlink_file, __WASI_ERRNO_NOTDIR, (__wasi_fd_t fd, const char *path), (fd, path))
+PASS_FD(sock_recv, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, const __wasi_iovec_t *ri_data,
+                                          size_t ri_data_len, __wasi_riflags_t ri_flags,
+                                          __wasi_size_t *ro_datalen, __wasi_roflags_t *ro_flags),
         (fd, ri_data, ri_data_len, ri_flags, ro_datalen, ro_flags))
-PASS_FD(sock_send, (__wasi_fd_t fd, const __wasi_ciovec_t *si_data, size_t si_data_len,
-                    __wasi_siflags_t si_flags, __wasi_size_t *so_datalen),
+PASS_FD(sock_send, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, const __wasi_ciovec_t *si_data,
+                                          size_t si_data_len, __wasi_siflags_t si_flags,
+                                          __wasi_size_t *so_datalen),
         (fd, si_data, si_data_len, si_flags, so_datalen))
-PASS_FD(sock_shutdown, (__wasi_fd_t fd, __wasi_sdflags_t how), (fd, how))
+PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t how), (fd, how))
 
-/* The calls with a descriptor in another place, or two. */
+/* The random device. Natively Perl seeds its hash randomisation, its internal random state and
+ * srand from /dev/urandom, and only when that cannot be opened from the time of day, which can be
+ * guessed from when a call started. WASI has no device files, so the guest serves two itself.
+ * An open whose folder is the /dev grant and whose path, with `.` components dropped, is exactly
+ * `urandom` or `random` makes an entry in this table that holds no host descriptor, and its
+ * reads are WASI's random_get. So every caller of Perl's seed, and every program that reads the
+ * device, gets the host's randomness with no change to Perl. Every other name under /dev, and
+ * every path through another grant, is the host's as before; listing /dev still shows the host's
+ * folder.
+ *
+ * It answers as Linux's /dev/urandom does for a user who is not root: reads fill every buffer and
+ * are never short; writes take every byte and drop it; a seek or tell answers offset 0, as
+ * Linux's noop_llseek does from a new descriptor; stat answers a character device of size 0;
+ * close, dup and fcntl are table operations, and a wait finds it ready at once. */
+#define URANDOM 1
+#define RANDOM 2
+/* Far above any inode a host gives a file under /dev, whose dev the device's stat carries. */
+#define URANDOM_INO (UINT64_MAX - 9)
+#define RANDOM_INO (UINT64_MAX - 8)
+
+/* Which device a path names, relative to the grant at virtual number dir (0 for none), and in
+ * *slash whether a `/` follows the name, which makes a path that must be a folder. */
+static int device_at(int dir, const char *path, int *slash)
+{
+    int which = 0;
+    *slash = 0;
+    if (devdir < 0 || dir != devdir)
+        return 0;
+    for (const char *p = path; *p != '\0';) {
+        const char *end = strchr(p, '/');
+        size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
+        if (n == 0 || (n == 1 && *p == '.')) {
+            *slash |= which != 0;
+        } else if (which != 0) {
+            return 0;
+        } else if (n == 7 && memcmp(p, "urandom", 7) == 0) {
+            which = URANDOM;
+        } else if (n == 6 && memcmp(p, "random", 6) == 0) {
+            which = RANDOM;
+        } else {
+            return 0;
+        }
+        if (end == NULL)
+            break;
+        *slash |= which != 0;
+        p = end + 1;
+    }
+    return which;
+}
+
+static int is_random(int v)
+{
+    return is_open(v) && files[slot[v] - 1].real == VIRTUAL_RANDOM;
+}
+
+/* A character device of size 0, on the /dev grant's device and with its folder's times. */
+static __wasi_errno_t random_stat(int which, __wasi_filestat_t *buf)
+{
+    __wasi_filestat_t dev;
+    __wasi_errno_t error = __real___wasi_fd_filestat_get(files[slot[devdir] - 1].real, &dev);
+    if (error != __WASI_ERRNO_SUCCESS)
+        return error;
+    memset(buf, 0, sizeof *buf);
+    buf->dev = dev.dev;
+    buf->ino = which == RANDOM ? RANDOM_INO : URANDOM_INO;
+    buf->filetype = __WASI_FILETYPE_CHARACTER_DEVICE;
+    buf->nlink = 1;
+    buf->atim = dev.atim;
+    buf->mtim = dev.mtim;
+    buf->ctim = dev.ctim;
+    return __WASI_ERRNO_SUCCESS;
+}
+
+/* How much of a buffer of len bytes one call moves after `total`: what still fits in its count. */
+static __wasi_size_t fits(__wasi_size_t total, size_t len)
+{
+    return len > UINT32_MAX - total ? UINT32_MAX - total : (__wasi_size_t)len;
+}
+
+static __wasi_errno_t random_read(int v, const __wasi_iovec_t *iovs, size_t iovs_len,
+                                  __wasi_size_t *nread)
+{
+    __wasi_size_t total = 0;
+    if (!(files[slot[v] - 1].base & __WASI_RIGHTS_FD_READ))
+        return __WASI_ERRNO_BADF;
+    for (size_t i = 0; i < iovs_len; i++) {
+        __wasi_size_t len = fits(total, iovs[i].buf_len);
+        if (len == 0)
+            continue;
+        __wasi_errno_t error = __wasi_random_get(iovs[i].buf, len);
+        if (error != __WASI_ERRNO_SUCCESS)
+            return error;
+        total += len;
+    }
+    *nread = total;
+    return __WASI_ERRNO_SUCCESS;
+}
+
+static __wasi_errno_t random_write(int v, const __wasi_ciovec_t *iovs, size_t iovs_len,
+                                   __wasi_size_t *nwritten)
+{
+    __wasi_size_t total = 0;
+    if (!(files[slot[v] - 1].base & __WASI_RIGHTS_FD_WRITE))
+        return __WASI_ERRNO_BADF;
+    for (size_t i = 0; i < iovs_len; i++)
+        total += fits(total, iovs[i].buf_len);
+    *nwritten = total;
+    return __WASI_ERRNO_SUCCESS;
+}
+
+__typeof__(__wasi_fd_read) __real___wasi_fd_read, __wrap___wasi_fd_read;
+__wasi_errno_t __wrap___wasi_fd_read(__wasi_fd_t fd, const __wasi_iovec_t *iovs, size_t iovs_len,
+                                     __wasi_size_t *nread)
+{
+    if (is_random((int)fd))
+        return random_read((int)fd, iovs, iovs_len, nread);
+    TO_REAL(fd);
+    return __real___wasi_fd_read(fd, iovs, iovs_len, nread);
+}
+
+__typeof__(__wasi_fd_pread) __real___wasi_fd_pread, __wrap___wasi_fd_pread;
+__wasi_errno_t __wrap___wasi_fd_pread(__wasi_fd_t fd, const __wasi_iovec_t *iovs, size_t iovs_len,
+                                      __wasi_filesize_t offset, __wasi_size_t *nread)
+{
+    if (is_random((int)fd))
+        return random_read((int)fd, iovs, iovs_len, nread);
+    TO_REAL(fd);
+    return __real___wasi_fd_pread(fd, iovs, iovs_len, offset, nread);
+}
+
+__typeof__(__wasi_fd_write) __real___wasi_fd_write, __wrap___wasi_fd_write;
+__wasi_errno_t __wrap___wasi_fd_write(__wasi_fd_t fd, const __wasi_ciovec_t *iovs,
+                                      size_t iovs_len, __wasi_size_t *nwritten)
+{
+    if (is_random((int)fd))
+        return random_write((int)fd, iovs, iovs_len, nwritten);
+    TO_REAL(fd);
+    return __real___wasi_fd_write(fd, iovs, iovs_len, nwritten);
+}
+
+__typeof__(__wasi_fd_pwrite) __real___wasi_fd_pwrite, __wrap___wasi_fd_pwrite;
+__wasi_errno_t __wrap___wasi_fd_pwrite(__wasi_fd_t fd, const __wasi_ciovec_t *iovs,
+                                       size_t iovs_len, __wasi_filesize_t offset,
+                                       __wasi_size_t *nwritten)
+{
+    if (is_random((int)fd))
+        return random_write((int)fd, iovs, iovs_len, nwritten);
+    TO_REAL(fd);
+    return __real___wasi_fd_pwrite(fd, iovs, iovs_len, offset, nwritten);
+}
+
+__typeof__(__wasi_fd_seek) __real___wasi_fd_seek, __wrap___wasi_fd_seek;
+__wasi_errno_t __wrap___wasi_fd_seek(__wasi_fd_t fd, __wasi_filedelta_t offset,
+                                     __wasi_whence_t whence, __wasi_filesize_t *newoffset)
+{
+    if (is_random((int)fd)) {
+        *newoffset = 0;
+        return __WASI_ERRNO_SUCCESS;
+    }
+    TO_REAL(fd);
+    return __real___wasi_fd_seek(fd, offset, whence, newoffset);
+}
+
+__typeof__(__wasi_fd_tell) __real___wasi_fd_tell, __wrap___wasi_fd_tell;
+__wasi_errno_t __wrap___wasi_fd_tell(__wasi_fd_t fd, __wasi_filesize_t *offset)
+{
+    if (is_random((int)fd)) {
+        *offset = 0;
+        return __WASI_ERRNO_SUCCESS;
+    }
+    TO_REAL(fd);
+    return __real___wasi_fd_tell(fd, offset);
+}
+
+/* The rights include seek and tell because wasi-libc's isatty takes a character device without
+ * them for a terminal; natively -t is false on the device. Reading and writing are as the open
+ * asked, so fcntl(F_GETFL) reads back the open's mode. */
 __typeof__(__wasi_fd_fdstat_get) __wrap___wasi_fd_fdstat_get;
 __wasi_errno_t __wrap___wasi_fd_fdstat_get(__wasi_fd_t fd, __wasi_fdstat_t *buf)
 {
+    if (is_random((int)fd)) {
+        memset(buf, 0, sizeof *buf);
+        buf->fs_filetype = __WASI_FILETYPE_CHARACTER_DEVICE;
+        buf->fs_rights_base = files[slot[fd] - 1].base | __WASI_RIGHTS_FD_SEEK |
+                              __WASI_RIGHTS_FD_TELL | __WASI_RIGHTS_FD_FDSTAT_SET_FLAGS |
+                              __WASI_RIGHTS_FD_FILESTAT_GET | __WASI_RIGHTS_POLL_FD_READWRITE;
+        return __WASI_ERRNO_SUCCESS;
+    }
     TO_REAL(fd);
     return __real___wasi_fd_fdstat_get(fd, buf);
 }
+
+/* fcntl(F_SETFL) reaches here. The device never waits and has no offset to append at, so a
+ * flag changes nothing. */
+__typeof__(__wasi_fd_fdstat_set_flags) __real___wasi_fd_fdstat_set_flags,
+    __wrap___wasi_fd_fdstat_set_flags;
+__wasi_errno_t __wrap___wasi_fd_fdstat_set_flags(__wasi_fd_t fd, __wasi_fdflags_t flags)
+{
+    if (is_random((int)fd))
+        return __WASI_ERRNO_SUCCESS;
+    TO_REAL(fd);
+    return __real___wasi_fd_fdstat_set_flags(fd, flags);
+}
+
+__typeof__(__wasi_fd_filestat_get) __real___wasi_fd_filestat_get, __wrap___wasi_fd_filestat_get;
+__wasi_errno_t __wrap___wasi_fd_filestat_get(__wasi_fd_t fd, __wasi_filestat_t *buf)
+{
+    if (is_random((int)fd))
+        return random_stat(files[slot[fd] - 1].device, buf);
+    TO_REAL(fd);
+    return __real___wasi_fd_filestat_get(fd, buf);
+}
+
+__typeof__(__wasi_path_filestat_get) __real___wasi_path_filestat_get,
+    __wrap___wasi_path_filestat_get;
+__wasi_errno_t __wrap___wasi_path_filestat_get(__wasi_fd_t fd, __wasi_lookupflags_t flags,
+                                               const char *path, __wasi_filestat_t *buf)
+{
+    int slash = 0, which = is_open((int)fd) ? device_at((int)fd, path, &slash) : 0;
+    if (which != 0)
+        return slash ? __WASI_ERRNO_NOTDIR : random_stat(which, buf);
+    TO_REAL(fd);
+    return __real___wasi_path_filestat_get(fd, flags, path, buf);
+}
+
+/* An open of the device. As on Linux, a path that must be a folder answers ENOTDIR and an
+ * exclusive create EEXIST; anything else opens it, for reading, writing or both as asked, and
+ * truncating or appending changes nothing. */
+static __wasi_errno_t open_random(int v, int which, int slash, __wasi_oflags_t oflags,
+                                  __wasi_rights_t base, __wasi_fd_t *opened)
+{
+    int f;
+    if (slash || (oflags & __WASI_OFLAGS_DIRECTORY))
+        return __WASI_ERRNO_NOTDIR;
+    if ((oflags & __WASI_OFLAGS_CREAT) && (oflags & __WASI_OFLAGS_EXCL))
+        return __WASI_ERRNO_EXIST;
+    f = new_file(VIRTUAL_RANDOM);
+    files[f].device = (uint8_t)which;
+    files[f].base = base & (__WASI_RIGHTS_FD_READ | __WASI_RIGHTS_FD_WRITE);
+    bind(v, f, 0);
+    *opened = (__wasi_fd_t)v;
+    return __WASI_ERRNO_SUCCESS;
+}
+
+/* The calls with a descriptor in another place, or two. */
 
 /* Setting a file's times through a link it follows makes wasmtime open the file to call
  * futimens on it, for writing and then for reading, and a FIFO's open waits for the other
@@ -506,7 +771,8 @@ done:
  * userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively; the
  * host would fail the whole call. A regular file is always ready to read and to write, as
  * POSIX says of select and poll; the host would report it only once a read it starts in the
- * background is done, which a zero timeout can outrun. A third kind is not sent at all: a
+ * background is done, which a zero timeout can outrun. So is the random device, which has no
+ * host descriptor and whose reads and writes never wait. A third kind is not sent at all: a
  * read on a descriptor without the right to read, or a write on one without the right to
  * write (a copy of STDOUT asked whether it is readable). The host fails the whole call for
  * those; natively that entry is simply never ready. The host's events follow these in `out`. */
@@ -531,14 +797,16 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
         __wasi_fdstat_t st;
         int open = in[i].u.tag != __WASI_EVENTTYPE_CLOCK && is_open((int)fd) &&
                    files[slot[fd] - 1].real != GONE;
-        int known = open && __real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0;
+        int device = open && files[slot[fd] - 1].real == VIRTUAL_RANDOM;
+        int known = open && !device &&
+                    __real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0;
         if (known && st.fs_filetype != __WASI_FILETYPE_REGULAR_FILE &&
             !(st.fs_rights_base & (in[i].u.tag == __WASI_EVENTTYPE_FD_READ
                                        ? __WASI_RIGHTS_FD_READ
                                        : __WASI_RIGHTS_FD_WRITE)))
             continue;
         if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK &&
-            (!open || (known && st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
+            (!open || device || (known && st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
             memset(&out[nlocal], 0, sizeof out[nlocal]);
             out[nlocal].userdata = in[i].userdata;
             out[nlocal].error = open ? __WASI_ERRNO_SUCCESS : __WASI_ERRNO_BADF;
@@ -620,11 +888,13 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
 {
     __wasi_fd_t real;
     __wasi_errno_t error;
-    int v, f;
+    int v, f, slash = 0, which = is_open((int)fd) ? device_at((int)fd, path, &slash) : 0;
     TO_REAL(fd);
     v = lowest_free(0);
     if (v < 0)
         return __WASI_ERRNO_MFILE;
+    if (which != 0)
+        return open_random(v, which, slash, oflags, base, opened);
     error = look(fd, dirflags, path, oflags);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
@@ -649,7 +919,7 @@ __wasi_errno_t __wrap___wasi_sock_accept(__wasi_fd_t fd, __wasi_fdflags_t flags,
     __wasi_fd_t real;
     __wasi_errno_t error;
     int v;
-    TO_REAL(fd);
+    TO_REAL_OR(fd, __WASI_ERRNO_NOTSOCK);
     v = lowest_free(0);
     if (v < 0)
         return __WASI_ERRNO_MFILE;
@@ -682,6 +952,9 @@ __wasi_errno_t __wrap___wasi_fd_renumber(__wasi_fd_t fd, __wasi_fd_t to)
         return __WASI_ERRNO_BADF; /* as WASI's own, which needs both open */
     if (fd == to)
         return __WASI_ERRNO_SUCCESS;
+    /* wasi-libc renumbers only to put a newly opened host file in an old one's place. */
+    if (files[slot[fd] - 1].real == VIRTUAL_RANDOM && files[slot[to] - 1].real != VIRTUAL_RANDOM)
+        return __WASI_ERRNO_INVAL;
     (void)release((int)to);
     slot[to] = slot[fd];
     cloexec[to] = cloexec[fd];
