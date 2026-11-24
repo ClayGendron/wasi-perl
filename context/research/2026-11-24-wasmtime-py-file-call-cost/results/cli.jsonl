@@ -1,0 +1,7 @@
+{"kind": "read", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.326, "us_per_call_min": 0.323, "us_per_call_max": 0.336}
+{"kind": "eof", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.28, "us_per_call_min": 0.268, "us_per_call_max": 0.285}
+{"kind": "fstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.589, "us_per_call_min": 0.582, "us_per_call_max": 0.859}
+{"kind": "fdstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.424, "us_per_call_min": 0.405, "us_per_call_max": 0.537}
+{"kind": "pstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.94, "us_per_call_min": 0.915, "us_per_call_max": 1.643}
+{"kind": "open", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 1.225, "us_per_call_min": 1.221, "us_per_call_max": 1.31}
+{"kind": "clock", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.106, "us_per_call_min": 0.1, "us_per_call_max": 0.17}

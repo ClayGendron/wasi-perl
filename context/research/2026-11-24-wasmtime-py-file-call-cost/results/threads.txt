@@ -1,0 +1,14 @@
+# Threads in the process after the runs (cost.py --threads), three runs per arm, 2026-11-24.
+# <python> is the worktree's .venv python with the project's wasmtime-py; <probe>, <data> as in run_all.sh.
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads 
+threads 19
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads 
+threads 16
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads 
+threads 15
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads --lib <patched lib dir> --blocking
+threads 9
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads --lib <patched lib dir> --blocking
+threads 9
+$ <python> cost.py <probe> <data> 20000 7 /dev/null --threads --lib <patched lib dir> --blocking
+threads 9

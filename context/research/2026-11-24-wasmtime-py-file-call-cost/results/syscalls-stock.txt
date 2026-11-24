@@ -1,0 +1,15 @@
+py read per WASI call: futex 8.04, pread64 1.00
+py fstat per WASI call: futex 18.43, statx 2.00
+py fdstat per WASI call: futex 15.14, statx 1.00, fcntl 1.00
+py pstat per WASI call: futex 17.21, statx 2.00
+py open per WASI call: futex 4.92, statx 1.00, openat2 1.00, close 1.00
+cli read per WASI call: pread64 1.00
+cli fstat per WASI call: statx 2.00
+cli fdstat per WASI call: statx 1.00, fcntl 1.00
+cli pstat per WASI call: statx 2.00
+cli open per WASI call: statx 1.00, openat2 1.00, close 1.00
+cli-timeout read per WASI call: futex 8.45, pread64 1.00
+cli-timeout fstat per WASI call: futex 16.01, statx 2.00
+cli-timeout fdstat per WASI call: futex 15.90, statx 1.00, fcntl 1.00
+cli-timeout pstat per WASI call: futex 18.61, statx 2.00
+cli-timeout open per WASI call: futex 4.40, statx 1.00, openat2 1.00, close 1.00

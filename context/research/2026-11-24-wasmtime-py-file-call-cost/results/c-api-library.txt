@@ -1,0 +1,14 @@
+# The patched C API library against the shipped one, 2026-11-24.
+# <built> is /home/user/wasi-perl-downloads/target-c-api/release/libwasmtime.so; <shipped> is wasmtime-py's _libwasmtime.so in the venv.
+$ sha256sum <built> <shipped>
+a604ff298233ea9db449a32dfef877a7aa4edffa753ec0d8e6b9474f5e3c9162  <built>
+e3b6f82a76730979875b0c336e573583e1bd9deb052ac44be771e19b1dc51e00  <shipped>
+$ stat -c %s <built>; strip -o stripped.so <built>; stat -c %s stripped.so <shipped>
+44148600
+30103480
+29652264
+$ nm -D --defined-only <file> | awk '$2 == "T"' | wc -l   (stripped built, then shipped)
+784
+783
+$ comm -13 <(shipped names) <(built names)
+wasi_config_allow_blocking_current_thread
