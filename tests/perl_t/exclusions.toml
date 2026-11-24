@@ -23,10 +23,10 @@
 #                      a gap to close, not a design choice.
 #
 # Each entry: "dir/file.t" = { reason = "...", note = "...", ok_at_least = N }; note is
-# required for platform and bug, and says what was seen for the others. A subprocess, signals
-# or refused file must show "is not available in the wasi-perl sandbox" in its output; one that
-# catches the refusal and never prints it names, in shows, a pattern its output does show, and
-# its note says where it is refused.
+# required for platform and bug, and says what was seen for the others. Each entry's failure
+# has a signature its output must show (stdout, stderr, or "trapped: <why>"): for subprocess,
+# signals and refused, "is not available in the wasi-perl sandbox"; for any other reason, and
+# for a refusal the file catches and never prints, the pattern in shows.
 
 [files]
 
@@ -40,6 +40,7 @@
 "io/bom.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
 "io/crlf_through.t" = { reason = "subprocess", note = "does io/through.t, whose pipe open to a child perl is refused; do catches the refusal and the file dies \"no kid script\"", shows = "no kid script at io/crlf_through\\.t line 10", ok_at_least = 0 }
 "io/data.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
+"io/dup.t" = { reason = "subprocess", note = "sends STDOUT and STDERR to a file, then runs child perls through backticks, which is refused into that file; stdout shows only the plan and test 1", shows = "\\A1\\.\\.29\\nok 1\\n\\Z", ok_at_least = 1 }
 "io/errno.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
 "io/fflush.t" = { reason = "subprocess", note = "dies: system is not available in the wasi-perl sandbox (line 93)", ok_at_least = 1 }
 "io/fs.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (line 31)", ok_at_least = 0 }
@@ -47,6 +48,7 @@
 "io/iprefix.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
 "io/layers.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 49 }
 "io/open.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 1 }
+"io/perlio.t" = { reason = "subprocess", note = "with \">&\" handles working it runs 44 tests, then dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 44 }
 "io/tell.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 35 }
 "io/through.t" = { reason = "subprocess", note = "dies: pipe open is not available in the wasi-perl sandbox (line 132)", ok_at_least = 0 }
 "japh/abigail.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 49 }
@@ -130,6 +132,7 @@
 "op/utftaint.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 86 }
 "op/warn.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 18 }
 "op/while.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 25 }
+"op/write.t" = { reason = "subprocess", note = "with \">&\" handles working it runs 477 of 636 tests, then dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 477 }
 "re/anyof.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
 "re/bigfuzzy_not_utf8.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 0 }
 "re/pat.t" = { reason = "subprocess", note = "dies: backticks is not available in the wasi-perl sandbox (runperl/fresh_perl in test.pl)", ok_at_least = 668 }
@@ -190,39 +193,31 @@
 "op/waitpid.t" = { reason = "refused", note = "starts no child: it checks that waitpid(0, WNOHANG) returns, and dies: waitpid is not available in the wasi-perl sandbox (line 23)", ok_at_least = 0 }
 
 # porting
-"porting/bench_selftest.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: system is not available in the wasi-perl sandbox", ok_at_least = 0 }
-"porting/cpphdrcheck.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
-"porting/globvar.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
-"porting/perlfunc.t" = { reason = "porting", note = "plans \"1..0 # Not all files are available during cross-compilation\", a skip without the word skip", ok_at_least = 0 }
-"porting/podcheck.t" = { reason = "porting", note = "plans \"1..0 # ...\" without the word skip (cross-compiled tree)", ok_at_least = 0 }
-"porting/test_testlist.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", ok_at_least = 0 }
+"porting/bench_selftest.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: system is not available in the wasi-perl sandbox", shows = "system\\ is\\ not\\ available\\ in\\ the\\ wasi\\-perl\\ sandbox", ok_at_least = 0 }
+"porting/cpphdrcheck.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", shows = "backticks\\ is\\ not\\ available\\ in\\ the\\ wasi\\-perl\\ sandbox", ok_at_least = 0 }
+"porting/globvar.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", shows = "backticks\\ is\\ not\\ available\\ in\\ the\\ wasi\\-perl\\ sandbox", ok_at_least = 0 }
+"porting/perlfunc.t" = { reason = "porting", note = "plans \"1..0 # Not all files are available during cross-compilation\", a skip without the word skip", shows = "^1\\.\\.0 # Not all files are available during cross-compilation$", ok_at_least = 0 }
+"porting/podcheck.t" = { reason = "porting", note = "plans \"1..0 # ...\" without the word skip (cross-compiled tree)", shows = "^1\\.\\.0 # ", ok_at_least = 0 }
+"porting/test_testlist.t" = { reason = "porting", note = "checks the source tree or git; under the guest it dies: backticks is not available in the wasi-perl sandbox", shows = "backticks\\ is\\ not\\ available\\ in\\ the\\ wasi\\-perl\\ sandbox", ok_at_least = 0 }
 
 # platform
-"bigmem/regexp.t" = { reason = "platform", note = "wasm32 is a 32-bit target: the pattern at line 38 is compiled before the PERL_TEST_MEMORY skip and is \"Regexp out of space\" with 32-bit sizes", ok_at_least = 0 }
-"op/coreamp.t" = { reason = "platform", note = "no sockets in WASI preview1: &CORE::bind dies \"Unsupported socket function\" (line 353)", ok_at_least = 21 }
-"op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set", ok_at_least = 5 }
-"op/require_37033.t" = { reason = "platform", note = "WASI does not reuse the lowest free descriptor: after STDIN is closed a new file gets 8, not 0 (test 7)", ok_at_least = 9 }
-"op/stat.t" = { reason = "platform", note = "chmod is not implemented under WASI (tests 6, 18, 22, 25) and a hard link keeps its ctime (test 9); then backticks is refused at line 277", ok_at_least = 30 }
-"op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)", ok_at_least = 71 }
+"bigmem/regexp.t" = { reason = "platform", note = "wasm32 is a 32-bit target: the pattern at line 38 is compiled before the PERL_TEST_MEMORY skip and is \"Regexp out of space\" with 32-bit sizes", shows = "Regexp out of space in regex", ok_at_least = 0 }
+"op/coreamp.t" = { reason = "platform", note = "no sockets in WASI preview1: &CORE::bind dies \"Unsupported socket function\" (line 353)", shows = "Unsupported socket function \"bind\" called at op/coreamp\\.t line 353", ok_at_least = 21 }
+"op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set", shows = "chmod 0555, '\\S+' failed: Function not implemented at op/filetest\\.t line 34", ok_at_least = 5 }
+"op/sselect.t" = { reason = "platform", note = "polling STDOUT for reading fails \"Bad file descriptor\" (tests 17-18): EXECUTED, select with STDOUT's bit in the read set gives -1 under the guest and 0 natively; INFERRED, the host's stdout takes no read subscription", shows = "Failed test 17 - select\\(\\) read on non-utf8-flagged mask", ok_at_least = 21 }
+"op/stat.t" = { reason = "platform", note = "chmod is not implemented under WASI (tests 6, 18, 22, 25) and a hard link keeps its ctime (test 9); then backticks is refused at line 277", shows = "Failed test 6 - chmoded tmp testfile", ok_at_least = 30 }
+"op/tie_fetch_count.t" = { reason = "platform", note = "chown is not implemented under WASI (wasi-libc has none), so chown on a tied glob dies before it FETCHes (tests 170-171)", shows = "Failed test 170 - FETCH called just once using 'chown 0,0,\\$tied_glob'", ok_at_least = 341 }
+"op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)", shows = "Failed test 7 - changes to \\$ENV\\{TZ\\} respected", ok_at_least = 71 }
 
 # not-this-platform
-"win32/crypt.t" = { reason = "not-this-platform", note = "Windows only: checks Windows crypt salts and errno", ok_at_least = 7 }
-"win32/fs.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", ok_at_least = 0 }
-"win32/runenv.t" = { reason = "not-this-platform", note = "Windows only: requires Win32.pm", ok_at_least = 0 }
-"win32/seekdir.t" = { reason = "not-this-platform", note = "Windows only: checks Windows telldir past the end (tests 181, 184)", ok_at_least = 190 }
-"win32/stat.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", ok_at_least = 0 }
-"win32/symlink.t" = { reason = "not-this-platform", note = "Windows only: requires Win32API::File", ok_at_least = 0 }
+"win32/crypt.t" = { reason = "not-this-platform", note = "Windows only: checks Windows crypt salts and errno", shows = "Failed test 1 - bad salt \\(zero-length\\)", ok_at_least = 7 }
+"win32/fs.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", shows = "Undefined subroutine &Win32::FsType called", ok_at_least = 0 }
+"win32/runenv.t" = { reason = "not-this-platform", note = "Windows only: requires Win32.pm", shows = "Can't locate Win32\\.pm in @INC", ok_at_least = 0 }
+"win32/seekdir.t" = { reason = "not-this-platform", note = "Windows only: checks Windows telldir past the end (tests 181, 184)", shows = "Failed test \\d+ - telldir\\(\\) now equal to -1", ok_at_least = 190 }
+"win32/stat.t" = { reason = "not-this-platform", note = "Windows only: calls Win32::FsType", shows = "Undefined subroutine &Win32::FsType called", ok_at_least = 0 }
+"win32/symlink.t" = { reason = "not-this-platform", note = "Windows only: requires Win32API::File", shows = "Can't locate Win32API/File\\.pm in @INC", ok_at_least = 0 }
 
 # bug
-"bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", ok_at_least = 0 }
-"bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", ok_at_least = 0 }
-"io/dup.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open(STDERR, \">&STDOUT\") fails at line 23", ok_at_least = 1 }
-"io/perlio.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: \"cannot dup STDOUT: Not supported\"", ok_at_least = 28 }
-"lib/deprecate.t" = { reason = "bug", note = "all 10 tests pass, then exits 2: an END block's File::Path cannot load Carp after the test chdirs away from the relative @INC; unexplained why natively it can", ok_at_least = 10 }
-"op/fh.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open of \">&STDOUT\" fails (tests 6, 8)", ok_at_least = 6 }
-"op/hash-clear-placeholders.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: Devel::Peek's dump capture dies \"Can't dup STDERR\"", ok_at_least = 0 }
-"op/hash-rt85026.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: Devel::Peek's dump capture dies \"Can't dup STDERR\"", ok_at_least = 0 }
-"op/numify_chkflags.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: bails out \"Can't save STDERR: Not supported\"", ok_at_least = 0 }
-"op/tie_fetch_count.t" = { reason = "bug", note = "traps \"memory out of bounds\" at line 274: four-argument select with a non-empty bit vector (EXECUTED: perl -e '$v=\"\\xff\"; select $v,undef,undef,0' traps the same way); also chown on a tied glob does not FETCH (tests 170-171)", ok_at_least = 185 }
-"op/write.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: open(LEX, \">&STDOUT\") or die at line 315 stops the format suite (636 tests)", ok_at_least = 6 }
-"test_pl/can_isa_ok.t" = { reason = "bug", note = "no dup for \">&\" handles in this build: dies \"Can't dup fileno 1: Not supported\"", ok_at_least = 0 }
+"bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", shows = "Can't locate XS/APItest\\.pm in @INC", ok_at_least = 0 }
+"bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest, which the build does not link (test-only extension)", shows = "Can't locate XS/APItest\\.pm in @INC", ok_at_least = 0 }
+"lib/deprecate.t" = { reason = "bug", note = "all 10 tests pass, then exits 2: an END block's File::Path cannot load Carp after the test chdirs away from the relative @INC; unexplained why natively it can", shows = "Can't locate Carp\\.pm in @INC .* at \\.\\./lib/File/Path\\.pm", ok_at_least = 10 }
