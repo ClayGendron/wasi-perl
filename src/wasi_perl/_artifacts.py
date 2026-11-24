@@ -100,6 +100,8 @@ _OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY
 _lock = threading.Lock()
 _digests: dict[tuple[str, int, int, int, int, int], str] = {}
 _trees: set[tuple[str, int, int, int, int, int]] = set()  # SHA256SUMS stamps whose tree passed
+# SHA256SUMS parsed, by its stamp; callers only read it
+_sums: dict[tuple[str, int, int, int, int, int], dict[str, str]] = {}
 
 
 def forget() -> None:
@@ -107,6 +109,7 @@ def forget() -> None:
     with _lock:
         _digests.clear()
         _trees.clear()
+        _sums.clear()
 
 
 def _stamp(path: Path) -> tuple[str, int, int, int, int, int]:
@@ -141,6 +144,32 @@ def digest(path: Path) -> str:
 
 
 def _read_sums(found: Artifacts) -> dict[str, str]:
+    """SHA256SUMS parsed, kept per stamp of the file as `digest` keeps a hash: it is parsed again
+    when its inode, size, mtime or ctime changes. A parse is kept only when the file's stamp is
+    the same after the read as before it, so a file replaced or written meanwhile is not kept
+    under a stamp it does not have."""
+    try:
+        before = _stamp(found.sums)
+    except OSError:
+        before = None  # the read below says why
+    if before is not None:
+        with _lock:
+            kept = _sums.get(before)
+        if kept is not None:
+            return kept
+    sums = _parse_sums(found)
+    try:
+        after = _stamp(found.sums)
+    except OSError:
+        after = None
+    if before is not None and after == before:
+        with _lock:
+            _sums.clear()  # one list kept at a time
+            _sums[before] = sums
+    return sums
+
+
+def _parse_sums(found: Artifacts) -> dict[str, str]:
     try:
         text = found.sums.read_text(encoding="ascii")
     except (OSError, UnicodeDecodeError) as e:
