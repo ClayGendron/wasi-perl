@@ -766,12 +766,17 @@ def test_refused_writes_are_recorded_on_exit_0(perl) -> None:
         RefusedWrite(w, "write", ("/denied.txt",), Errno.EACCES, "close", "refused"),
         RefusedWrite(w, "write", ("/create.txt",), Errno.EACCES, "open", "refused"),
         RefusedWrite(w, "mkdir", ("/nomk",), Errno.EACCES, "call", "refused"),
-        # The guest's rename retries once after closing a held file (spec 010); it holds none
-        # here, so the retry is a second refusal of the same call.
-        *[RefusedWrite(w, "rename", ("/a.txt", "/z.txt"), Errno.EACCES, "call", "refused")]
-        * (len(done.files.refused) - 3),
+        RefusedWrite(w, "rename", ("/a.txt", "/z.txt"), Errno.EACCES, "call", "refused"),
     )
-    assert done.files.refused_total == len(done.files.refused)
+    assert done.files.refused_total == 4
+    # A refused rename over a file the guest holds open is tried again, once, after the guest
+    # closes and reopens it: a second rename, and a second refusal.
+    provider = MemoryProvider({"/a.txt": b"a", "/z.txt": b"z"})
+    provider.answers[("rename", "/a.txt")] = Errno.EACCES
+    code = 'open my $h, "<", "/work/z.txt" or die; rename("/work/a.txt", "/work/z.txt") and die'
+    done = go(perl, code, provider, writable=True)
+    assert done.exit_code == 0 and provider.calls["rename"] == 2
+    assert [r.method for r in done.files.refused] == ["rename", "rename"]
 
 
 def test_open_files_follow_the_guests_renames_and_removals(perl) -> None:
