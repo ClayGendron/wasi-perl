@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from _build_helpers import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
+from _build_helpers import BUILD, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
 
 HELLO = 'print "hello, WebAssembly\\n"'
 DIE_IN_EVAL = 'eval { die "boom\\n" }; print "caught: $@"; print "after\\n"'
@@ -195,8 +195,12 @@ def _imports(wasm: bytes) -> list[tuple[str, str]]:
 
 
 def test_no_wasm_opt(perl_wasm: Path):
-    # The module is what wasm-ld wrote: binaryen's wasm-opt never ran on it.
-    assert b"binaryen" not in perl_wasm.read_bytes()
+    # The linked module is what wasm-ld wrote: binaryen's wasm-opt never ran on it, so clang ran
+    # none of its own at the link. The shipped module is the build's own pass over this one.
+    linked = BUILD / "link" / "perl.wasm"
+    if not linked.exists():
+        pytest.skip("build/link/perl.wasm is missing; run scripts/build.sh")
+    assert b"binaryen" not in linked.read_bytes()
 
 
 def test_imports(perl_wasm: Path):
