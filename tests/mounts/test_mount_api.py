@@ -29,6 +29,7 @@ from wasi_perl import (
     Grant,
     Mount,
     Stat,
+    _artifacts,
     _cache,
     _engines,
     _fs_table,
@@ -129,9 +130,12 @@ class NoStat:
 
 @pytest.fixture
 def no_work(monkeypatch: pytest.MonkeyPatch):
-    """Fails the check if a refused call reaches the module."""
+    """Fails the check if a refused call does any work: finds the artifact set, which reads its
+    files, lists the module caches, or reaches the module. So an argument check that slips
+    behind the set fails on every machine, with a set built or without one."""
     calls: list = []
-    monkeypatch.setattr(_engines, "module", lambda *a, **k: calls.append(a) or 1 / 0)
+    for owner, name in ((_artifacts, "checked"), (_cache, "every"), (_engines, "module")):
+        monkeypatch.setattr(owner, name, lambda *a, n=name, **k: calls.append(n) or 1 / 0)
     yield
     assert calls == []
 
@@ -176,6 +180,14 @@ BAD = [
     ({"max_file_calls": -1}, ValueError, "max_file_calls"),
     ({"max_file_calls": 2**63}, ValueError, "max_file_calls"),
     ({"cwd": "/elsewhere", "mounts": [Mount(MemoryProvider(), "/w")]}, ValueError, "mount"),
+    # A cwd in the runtime's own folders, which no grant may hold, though a mount at / or /usr
+    # lies above them: the guest would stand in the library or /dev, not in the mount.
+    *[
+        ({"cwd": cwd, "mounts": [Mount(MemoryProvider(), top)]}, ValueError, "runtime's own")
+        for top in ("/", "/usr")
+        for cwd in ("/usr/local/lib/perl5", "/usr/local/lib/perl5/5.42", "/dev", "/dev/x")
+        if cwd.startswith(top)
+    ],
 ]
 
 

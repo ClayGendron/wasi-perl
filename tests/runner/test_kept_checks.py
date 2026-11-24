@@ -411,7 +411,7 @@ import json, os, sys, time
 site, set_dir, grant, argv = sys.argv[1], sys.argv[2], sys.argv[3], json.loads(sys.argv[4])
 import wasmtime
 assert wasmtime.__file__.startswith(site), wasmtime.__file__
-from wasi_perl import Artifacts, Grant, _grants, run, runner
+from wasi_perl import Artifacts, Errno, Grant, Mount, Stat, _grants, run, runner
 lib = os.path.abspath(os.path.join(set_dir, "lib", "perl5"))
 listed = []
 sys.addaudithook(
@@ -425,13 +425,24 @@ found = Artifacts.at(set_dir)
 size = len(runner._runtime_files(found).files)
 for i in range(size + 100):
     open(os.path.join(grant, f"f{i}"), "w").close()
-def call():
+class Empty:  # a provider with nothing in it
+    def stat(self, path):
+        return Stat("dir") if path == "/" else Errno.ENOENT
+    def list(self, path):
+        return []
+    def read(self, path):
+        return Errno.EISDIR if path == "/" else Errno.ENOENT
+def call(mounted=False):
     try:
-        done = run(argv, grants=[Grant(grant, "/w", writable=True)], artifacts=found)
+        mounts = [Mount(Empty(), "/m")] if mounted else []
+        done = run(argv, grants=[Grant(grant, "/w", writable=True)], mounts=mounts,
+                   artifacts=found)
         return done.stdout.decode()
     except ValueError as e:
         return "refused: " + str(e)
-before = [call() for _ in range(3)]
+# The second and third calls have a mount: the mount table's first import must not make the
+# next call scan the runtime again.
+before = [call(mounted=i in (1, 2)) for i in range(4)]
 linked = sorted(runner._runtime_files(found).linked_now().values())
 target = None
 for dirpath, _, names in os.walk(os.path.dirname(wasmtime.__file__)):
@@ -484,7 +495,7 @@ def test_in_a_copy_mode_install_a_link_made_after_the_scan_is_still_refused(
     got = json.loads(out.stdout)
     if got["after"].startswith("no link: "):
         pytest.skip(f"no hard link to wasmtime's library here: {got['after']}")
-    assert got["before"] == ["hello\n"] * 3
+    assert got["before"] == ["hello\n"] * 4
     assert got["linked"] == []  # the scan was made with no second name anywhere
     assert got["after"].startswith("refused: ") and "hard link" in got["after"], got["after"]
     if getattr(_grants, "SCANS_KEPT", True):

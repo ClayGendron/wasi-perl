@@ -207,12 +207,15 @@ def _siphash13(data: bytes) -> int:
 
 def check_cwd(cwd: Any, grants: Sequence[Grant] = (), mounts: Sequence[Any] = ()) -> str | None:
     """`cwd` as a guest path inside one of the grants or mounts, judged by its text alone, so it
-    is refused before any work; `judge` checks a grant's host folder later."""
+    is refused before any work; `judge` checks a grant's host folder later. It is never at or
+    under the runtime's own folders, which no grant may hold: a mount at / or /usr lies above
+    them, but the guest would stand in the library or /dev, not in the mount."""
     if cwd is None:
         return None
     path = guest_path("cwd", cwd)
     if not any(_under(path, place.guest) for place in (*grants, *mounts)):
         raise ValueError(_NOT_INSIDE.format(cwd=path))
+    _runtime_own("cwd", path)  # reached only through a mount above the runtime's folders
     return path
 
 

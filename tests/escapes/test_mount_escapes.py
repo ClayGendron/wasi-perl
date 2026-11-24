@@ -192,43 +192,84 @@ def test_a_writable_mount_writes_no_host_file(perl, tmp_path, monkeypatch, at) -
     assert runtime_hashes(perl) == library
 
 
-def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch) -> None:
-    """A guest with a writable grant over the placeholder's parent renames the call's folder and
-    makes a file of its name in its place: the call returns normally, and both are still there,
-    since the clean-up is two `rmdir`s, never a tree removal.
+# What the guest does with the call's folder, `/t/$name`, through its writable grant over the
+# temporary folder: rename the folder away to `/t/moved` and put something of its name in its
+# place, or write into the folder or into the placeholder itself.
+MOVE = 'rename("/t/$name", "/t/moved") or die "rename: $!";'
+PUT = 'sub put { open(my $f, ">", $_[0]) or die "make: $!"; print $f "guest"; close $f }'
+CHANGES = {
+    "a file in its place": MOVE + ' put("/t/$name");',
+    "a folder holding files in its place": MOVE
+    + ' mkdir("/t/$name") or die; mkdir("/t/$name/mount") or die;'
+    ' put("/t/$name/kept"); put("/t/$name/mount/kept");',
+    "a link out of the grant in its place": MOVE
+    + ' symlink("../victim", "/t/$name") or die "link: $!";',
+    "a file in the moved placeholder, an empty folder in its place": MOVE
+    + ' put("/t/moved/mount/kept"); mkdir("/t/$name") or die;',
+    "a file beside the placeholder": 'put("/t/$name/kept");',
+}
+# Windows will not rename a folder below which a handle is open, and the call's store holds the
+# placeholder open as each mount's preopen (wasmtime opens a Windows grant's folders and files
+# without FILE_SHARE_DELETE, as it refuses a rename over a held file: wasi-perl's `CHANGELOG.md`
+# 0.1.0, and wasi-python's `tests/harness/files.py` at f9bf678). So there a move is refused.
+# Seen on windows-2025 in CI run 45462992471, job 138692425791.
+MOVE_BY_SYSTEM = {
+    "linux": "ok",
+    "darwin": "ok",
+    "win32": "refused rename: Permission denied",
+}
 
-    On Windows the guest cannot make the swap: the call's store holds the placeholder open as
-    each mount's preopen, wasmtime opens it without FILE_SHARE_DELETE, and Windows refuses to
-    rename a folder below which a handle is open (as it refuses a rename over a held file:
-    wasi-perl's `CHANGELOG.md` 0.1.0, and wasi-python's `tests/harness/files.py` at f9bf678).
-    There the rename is EACCES, and the clean-up removes the empty placeholder and its folder.
-    Seen on windows-2025 in CI run 45462992471, job 138692425791."""
-    temp = tmp_path / "temp"
+
+@pytest.mark.parametrize("change", list(CHANGES))
+def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch, change) -> None:
+    """A guest with a writable grant over the placeholder's parent changes the call's folder.
+    The call returns normally. The runner removes its own placeholder, wherever the guest moved
+    it, once it is empty, and its own folder while its name still gives that folder, once it is
+    empty; nothing else: not the guest's file or folder or what they hold, and not a folder a
+    link points to outside every grant. The clean-up holds the folder by its descriptor, never by
+    its name, and every removal is an `rmdir`. On Windows a move is refused (`MOVE_BY_SYSTEM`)."""
+    temp, victim = tmp_path / "temp", tmp_path / "victim"
     temp.mkdir()
+    (victim / "mount").mkdir(parents=True)
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    code = (
+        PUT + ' t("change", sub {'
+        ' opendir(my $d, "/t") or die; my ($name) = grep { /^wasi-perl-/ } readdir $d;'
+        ' $name or die "no folder"; ' + CHANGES[change] + " 1 });"
+    )
     done = guest(
-        """
-        t("swap", sub {
-            opendir(my $d, "/t") or die; my ($name) = grep { /^wasi-perl-/ } readdir $d;
-            $name or die "no folder";
-            rename("/t/$name", "/t/moved") or die "rename: $!";
-            open(my $f, ">", "/t/$name") or die "make: $!"; print $f "guest"; close $f;
-        });
-        """,
+        code,
         grants=[Grant(temp, "/t", writable=True)],
         mounts=[Mount(MemoryProvider({}), "/m")],
         artifacts=perl,
     )
-    if sys.platform == "win32":
-        assert lines(done)["swap"] == "refused rename: Permission denied at -e line 24."
-        assert list(temp.iterdir()) == []
+    answer = lines(done)["change"].split(" at -e line ")[0]
+    assert (victim / "mount").is_dir()  # outside every grant: never touched
+    moves = CHANGES[change].startswith(MOVE)
+    if moves and sys.platform == "win32":
+        assert answer == MOVE_BY_SYSTEM["win32"]
+        assert list(temp.iterdir()) == []  # no move: the placeholder and its folder are gone
         return
-    assert lines(done)["swap"] == "ok"
+    assert answer == (MOVE_BY_SYSTEM[sys.platform] if moves else "ok")
     names = sorted(p.name for p in temp.iterdir())
-    assert len(names) == 2 and "moved" in names
     (made,) = [n for n in names if n != "moved"]
-    assert made.startswith("wasi-perl-") and (temp / made).read_bytes() == b"guest"
-    assert sorted(os.listdir(temp / "moved")) == ["mount"]
+    assert made.startswith("wasi-perl-") and len(names) == (2 if moves else 1)
+    if change == "a file beside the placeholder":
+        assert os.listdir(temp / made) == ["kept"]  # the empty placeholder alone is removed
+        assert (temp / made / "kept").read_bytes() == b"guest"
+        return
+    if change == "a file in the moved placeholder, an empty folder in its place":
+        assert os.listdir(temp / "moved" / "mount") == ["kept"]
+        assert os.listdir(temp / made) == []  # the guest's folder: not the runner's own
+        return
+    assert os.listdir(temp / "moved") == []  # the runner's own placeholder, removed by descriptor
+    if change == "a file in its place":
+        assert (temp / made).read_bytes() == b"guest"
+    elif change == "a folder holding files in its place":
+        assert (temp / made / "kept").read_bytes() == b"guest"
+        assert (temp / made / "mount" / "kept").read_bytes() == b"guest"
+    else:
+        assert os.readlink(temp / made) == "../victim"
 
 
 def test_a_writable_root_mount_keeps_the_runtime_and_other_grants(perl, tmp_path) -> None:

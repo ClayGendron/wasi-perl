@@ -68,7 +68,13 @@ def wasmtime() -> Any:
             "wasi_perl.run needs wasmtime-py (wasmtime>=51,<52), which installs with wasi-perl; "
             "reinstall it or install wasmtime directly"
         ) from e
-    from wasi_perl import _wasmtime_ffi  # noqa: F401  (its own ImportError names what moved)
+    # The mount table's modules, imported with the seam: a first call with a mount that imported
+    # them would leave new files in this package's folder after the runtime's kept scan, which
+    # the next call would then make again.
+    from wasi_perl import (
+        _fs_table,  # noqa: F401
+        _wasmtime_ffi,  # noqa: F401  (its own ImportError names what moved)
+    )
 
     return wt
 
@@ -151,13 +157,15 @@ def counts() -> dict[str, int]:
 
 
 def forget() -> None:
-    """Drop this process's compiled modules and their linkings, so the next call goes to the
-    disk cache and links afresh."""
+    """Drop this process's compiled modules, their linkings, the linkers and the mounts'
+    trampolines, so the next call goes to the disk cache and links afresh."""
     with _lock:
         _modules.clear()
         _linked.clear()
         _mount_linked.clear()
         _linkers.clear()
+        _mount_linkers.clear()
+        _trampolines.clear()
 
 
 def linker(eng: Any) -> Any:

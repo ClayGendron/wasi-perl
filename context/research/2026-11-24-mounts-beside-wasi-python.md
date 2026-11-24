@@ -101,6 +101,7 @@ These are adaptations, not copies: wasi-python's live in modules wasi-perl does 
 | `_grants.check_mounts` | `_places._check_mounts` | the same order. The guest path is wasi-perl's grant rule (no `\`); the reserved folders are `/usr/local/lib/perl5` and `/dev`, at or under; there is no `root=` rule |
 | `_grants._siphash13` | `_places._siphash13` | the same function |
 | `_grants._judge_cwd` | none | `cwd` may lie in a mount, by its text (Decision 7) |
+| `runner._Placeholder` | `_private_dirs._Private`, `_call.py:492-497` | wasi-python puts the placeholder under a private folder that its grant rules keep out of every grant. wasi-perl has no such folder or rule: a writable grant may hold the temporary folder. So the call's folder is held by a descriptor (`O_DIRECTORY \| O_NOFOLLOW`), checked to be the one `mkdtemp` made, and `mount` is made and removed through it with `dir_fd=`. The folder is removed by name only while its name still gives that identity. Each removal is an `rmdir`. On Windows, which has neither `O_NOFOLLOW` nor `dir_fd`, a held placeholder's folder cannot be renamed, and the identity is checked by name. wasi-python could adopt the descriptor unchanged; it adds a guard and needs no grant rule |
 | `_stop` | `_call._epoch_answer` | the callback learns a recorded stop and a named end; `"out of file calls"` is a third word |
 
 ## 3. Every difference a provider or a caller can see

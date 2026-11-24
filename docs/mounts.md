@@ -95,7 +95,7 @@ Each path your provider gets is `/` and then components joined by `/`. A compone
 
 Mounts and grants nest either way, and no two share a guest path. A path spelled through an outer mount into an inner grant or mount is `EPERM`, with no provider call.
 
-`cwd` may name a guest path in a mount. The runner checks it by its text and calls no provider before the guest runs. The guest's start-up then asks your `stat`. If you do not answer a folder, the guest starts at `/`, and relative paths fail.
+`cwd` may name a guest path in a mount. The runner checks it by its text and calls no provider before the guest runs. The guest's start-up then asks your `stat`. If you do not answer a folder, the guest starts at `/`, and relative paths fail. `PWD` keeps the text you gave either way. A `cwd` at or under `/usr/local/lib/perl5` or `/dev` is refused, though a mount at `/` or `/usr` lies above them: the guest would stand in the runtime's own folder, not in the mount.
 
 ## Know the limits
 

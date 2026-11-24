@@ -1381,3 +1381,31 @@ def test_set_times_on_a_file_named_as_a_folder_answers_enotdir(placeholder) -> N
     }
     assert rows == {"a file as a folder": 54, "a folder as a folder": 0}, rows
     assert provider.paths == [("stat", "/a.txt"), ("stat", "/d")]
+
+
+def test_a_shadow_serves_only_its_own_calls_store(placeholder) -> None:
+    """The shared function serves the call on top of the thread's stack only when the caller's
+    store is that call's: a shadow called from another store while a call is on the stack
+    answers EBADF, and the call's provider is never asked. In today's call shapes a nested
+    call's guest runs only while the outer guest waits, so this is the guard behind them."""
+    outer_provider, inner_provider = MemoryProvider(), MemoryProvider()
+    outer = Mounted(outer_provider, placeholder)
+    other = Mounted(inner_provider, placeholder)
+    ptr, size = other.raw.path("a.txt")
+    shadow = other.instance.exports(other.store)["path_filestat_get"]
+    with outer.entered():  # the outer call on top of the stack, the other store calling
+        answer = shadow(other.store, 3, 0, ptr, size, files.RESULT)
+    assert answer == EBADF
+    assert outer_provider.total() == inner_provider.total() == 0
+    with other.entered():  # the control: on its own call, the same shadow is served
+        assert shadow(other.store, 3, 0, ptr, size, files.RESULT) == 0
+    assert inner_provider.calls["stat"] == 1
+
+
+def test_forget_drops_every_linker_and_trampoline() -> None:
+    engine = _engines.engine(False)
+    _engines.mount_linker(engine)
+    _engines.trampoline(engine)
+    _engines.linker(engine)
+    _engines.forget()
+    assert (_engines._linkers, _engines._mount_linkers, _engines._trampolines) == ({}, {}, {})

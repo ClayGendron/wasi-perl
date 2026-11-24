@@ -392,38 +392,86 @@ def _set_up(
     store.set_wasi(wasi)
 
 
-def _placeholder() -> str:
-    """The call's placeholder: an empty folder `mount`, read-only, in a fresh folder of this
+# The placeholder's folder is held by a descriptor where the system can: made, entered and
+# removed through it, so no name a guest replaced is followed. Windows has neither O_NOFOLLOW nor
+# dir_fd; there the folder cannot be renamed while the call's store holds the placeholder open,
+# and its identity is checked by name before each removal.
+_BY_DESCRIPTOR = (
+    os.mkdir in os.supports_dir_fd
+    and os.rmdir in os.supports_dir_fd
+    and hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_DIRECTORY")
+)
+
+
+class _Placeholder:
+    """The call's placeholder: an empty, read-only folder `mount` in a fresh folder of this
     user's own (0700) in the system's temporary folder. Every mount's preopen is made on it, so
     wasi-libc's preopen scan and the guest's own table find a mount as they find a grant; every
-    path call on such a preopen is the table's, so nothing reads its entries."""
-    folder = tempfile.mkdtemp(prefix="wasi-perl-")
-    try:
-        placeholder = os.path.join(folder, "mount")
-        os.mkdir(placeholder, 0o700)
-        os.chmod(placeholder, 0o500)
-    except BaseException:
-        _remove_placeholder(folder)
-        raise
-    return folder
+    path call on such a preopen is the table's, so nothing reads its entries.
 
+    The temporary folder may be inside a writable grant, so a guest may rename the call's folder
+    away and put a file, a folder or a link of its name in its place. So the folder is opened
+    once, without following a link, and checked to be the one `mkdtemp` made; `mount` is made
+    and removed through that descriptor. The folder itself is removed only while its name still
+    gives that identity. Every removal is an `rmdir`, never a tree removal: it removes only an
+    empty folder, and one that cannot be removed is left, with the call's result unchanged."""
 
-def _remove_placeholder(folder: str) -> None:
-    """The placeholder, then its folder, each by `rmdir`, never a tree removal: the folder lies
-    in the temporary folder, which a writable grant may hold, so a guest may have renamed it or
-    put entries where it was, and an `rmdir` removes only an empty folder. Either one that
-    cannot be removed is left, and the call's result is unchanged."""
-    placeholder = os.path.join(folder, "mount")
-    if os.name == "nt":  # a read-only folder cannot be removed there
+    def __init__(self) -> None:
+        self.folder = tempfile.mkdtemp(prefix="wasi-perl-")
+        self.path = os.path.join(self.folder, "mount")
+        self.fd: int | None = None
+        self.identity: tuple[int, int] | None = None
         try:
-            os.chmod(placeholder, stat.S_IWRITE)
-        except OSError:
-            pass
-    for path in (placeholder, folder):
+            st = os.lstat(self.folder)
+            self.identity = (st.st_dev, st.st_ino)
+            if _BY_DESCRIPTOR:
+                self.fd = os.open(self.folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                held = os.fstat(self.fd)
+                if (held.st_dev, held.st_ino) != self.identity:
+                    raise OSError(f"{self.folder} was replaced before the runner could hold it")
+                os.mkdir("mount", 0o500, dir_fd=self.fd)
+            else:
+                os.mkdir(self.path, 0o700)
+                os.chmod(self.path, 0o500)
+        except BaseException:
+            self.remove()
+            raise
+
+    def _ours(self) -> bool:
+        """Whether the folder's name still gives the folder `mkdtemp` made, not a link."""
         try:
-            os.rmdir(path)
+            st = os.lstat(self.folder)
         except OSError:
-            return
+            return False
+        return stat.S_ISDIR(st.st_mode) and (st.st_dev, st.st_ino) == self.identity
+
+    def remove(self) -> None:
+        try:
+            if self.fd is not None:
+                try:
+                    os.rmdir("mount", dir_fd=self.fd)  # the runner's own, wherever it is now
+                except OSError:
+                    pass
+            elif self._ours():
+                if os.name == "nt":  # a read-only folder cannot be removed there
+                    try:
+                        os.chmod(self.path, stat.S_IWRITE)
+                    except OSError:
+                        pass
+                try:
+                    os.rmdir(self.path)
+                except OSError:
+                    pass
+            if self._ours():
+                try:
+                    os.rmdir(self.folder)
+                except OSError:
+                    pass
+        finally:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
 
 
 def _call(
@@ -443,7 +491,7 @@ def _call(
     err = _Stream("stderr", limits.output_bytes)
     stop = _stop.Stop(None if limits.deadline_s is None else _limits.ticks(limits.deadline_s))
     store = wt.Store(engine)
-    folder: str | None = None
+    placeholder: _Placeholder | None = None
     table: _Files | None = None
     call: _Call | None = None
     files: FileRecord | None = None
@@ -452,12 +500,10 @@ def _call(
             store.set_fuel(UNMETERED)
         if limits.memory_bytes is not None:
             store.set_limits(memory_size=limits.memory_bytes)
-        placeholder = None
         if mounts:
             from wasi_perl._fs_table import _Files
 
-            folder = _placeholder()
-            placeholder = os.path.join(folder, "mount")
+            placeholder = _Placeholder()
             staging = STAGING_CEILING if limits.memory_bytes is None else limits.memory_bytes
             # The library, /dev and the grants are wasmtime's preopens from 3; the mounts' come
             # after every other.
@@ -468,7 +514,8 @@ def _call(
             table = _Files(numbers, others, file_calls, staging, metered, engine, context=context)
             call = _Call(store, table, stop)
         try:
-            _set_up(wt, store, found, placed, inputs, guest_env, out, err, mounts, placeholder)
+            where = None if placeholder is None else placeholder.path
+            _set_up(wt, store, found, placed, inputs, guest_env, out, err, mounts, where)
         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
             files = None if table is None else table.record()
             return Completed(None, b"", b"", _error_words(str(e)), None, (), files)
@@ -490,8 +537,8 @@ def _call(
         if table is not None:  # the rest dropped now
             table.release()
             table.context.leave()  # type: ignore[attr-defined]
-        if folder is not None:
-            _remove_placeholder(folder)
+        if placeholder is not None:
+            placeholder.remove()
     if stop.interrupted:
         raise KeyboardInterrupt  # Ctrl-C ended the guest; the store is closed
     truncated = tuple(s.name for s in (out, err) if s.dropped)
