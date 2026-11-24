@@ -1,6 +1,6 @@
 # 014 — The runner's fixed cost
 
-- **Status:** a draft by the orchestrator, 2026-11-24, for the owner to agree. The owner chose specifications 013 to 016 to come first (2026-11-24).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (M5, L1, L2, L3).
 - **Owner:** Clay Gendron
 - **Kind:** `src/wasi_perl/` (`_engines.py`, `_artifacts.py`, `_cache.py`, `_grants.py`, `runner.py`), checks in `tests/runner/`.
 - **Depends on:** 004, 012.
@@ -8,7 +8,7 @@
 
 ## Intent
 
-A bare call in a warm process costs 3.5–4.4 ms, and Perl's own share of it is about 0.2 ms. The rest is Python work that does not need to happen on every call. After this specification, a bare call costs about 1.3–1.5 ms, and a fresh process's first call about 40 ms. Every rule of specs 004 and 012 holds unchanged.
+A bare call in a warm process costs 3.5–4.4 ms, and Perl's own share of it is about 0.2 ms. The rest is Python work that does not need to happen on every call. After this specification, a bare call costs about 1.3–1.5 ms (EXECUTED in study A, `results/calls.jsonl`, levers L1–L4 and L7–L8), and a fresh process's first call about 100 ms, against 138–153 ms (INFERRED: study A's base, less L7's 22–28 ms and L8's 8 ms). The library check, 80–88 ms of that first call, stays until specification 015. Every rule of specs 004 and 012 holds unchanged.
 
 The two levers that keep a rule by a new argument, L5 and L6, are specification 015.
 
@@ -30,7 +30,7 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
    - `_cache` keeps its checks on the open descriptor: owner, mode, one name, a private folder.
    - It then gives `Module.deserialize_file` that descriptor's own name, after checking that the name opens the same inode:
      - `/proc/self/fd/N` on Linux;
-     - `/dev/fd/N` on macOS, as wasi-python does.
+     - `/dev/fd/N` on macOS, as wasi-python does (READ: `wasi_python/_platform_posix.py`, `_FD_NAMES`). Study A measured Linux only, so macOS has its own check, run in CI.
    - Elsewhere, Windows included, the bytes are read through the descriptor as today.
    - The runner never writes a `.cwasm` in place: `_cache.write` renames a new file over the name. So the mapped inode is the checked one for the module's whole life.
    - A first call saves 22–28 ms and 33 MiB of peak memory.
@@ -57,7 +57,8 @@ The two levers that keep a rule by a new argument, L5 and L6, are specification 
    - On Linux, the module is loaded by `deserialize_file` with a `/proc/self/fd/` name.
    - A `.cwasm` swapped at its path between the check and the load still loads the checked inode: a probe renames another file over the path from a patched hook.
    - With `/proc` unavailable (patched), the bytes are read as today.
-6. **The engine.** A fake `Config` records the eight settings `engine()` makes, the four new ones included.
+   - On macOS, in CI, the module is loaded by `deserialize_file` with a `/dev/fd/` name.
+6. **The engine.** A fake `Config` records the seven settings `engine()` makes, the four new ones included.
 
 ## Acceptance
 
