@@ -323,22 +323,36 @@ def test_the_relink_runs_only_the_link(perl_wasm):
     assert str(BUILD / "index" / "lib-index.o") in words, commands[0]
 
 
-def _stamp_of(*paths: Path) -> str:
-    return hashlib.sha256(b"".join(p.read_bytes() for p in paths)).hexdigest()
+def _link_stamp_of(root: Path) -> str:
+    """The link step's stamp in the checkout at root: its own inputs and the library's stamp,
+    then each line that names the pass's tool and flags: the tool's folder and tarball, the
+    tarball's pinned SHA-256, the pass, and the features it names."""
+    scripts = root / "scripts"
+    files = (scripts / "40_link.sh", scripts / "lib_index.sh", scripts / "lib.sh")
+    lib = (scripts / "lib.sh").read_text()
+    name = re.search(r"^BINARYEN_NAME=(\S+)$", lib, re.M).group(1)
+    tarball = re.search(r"^BINARYEN_TARBALL=(\S+)$", lib, re.M).group(1)
+    pins = [
+        ln.split()[0]
+        for ln in (root / "downloads" / "SHA256SUMS").read_text().splitlines()
+        if ln.split()[1:2] == [tarball]
+    ]
+    assert len(pins) == 1, pins
+    link = (scripts / "40_link.sh").read_text()
+    flags = [
+        re.search(rf"^{v}='([^']*)'$", link, re.M).group(1).split() for v in ("PASS", "FEATURES")
+    ]
+    lines = [name, tarball, pins[0], *flags[0], *flags[1]]
+    data = b"".join(p.read_bytes() for p in (*files, root / "build" / ".library.stamp"))
+    return hashlib.sha256(data + "".join(f"{ln}\n" for ln in lines).encode()).hexdigest()
 
 
-def test_the_link_step_is_stamped_by_its_own_inputs_and_the_library(perl_wasm):
+def test_the_link_step_is_stamped_by_its_own_inputs_the_library_and_the_pass(perl_wasm):
     stamp = BUILD / ".link.stamp"
     if not stamp.exists():
         pytest.skip("build/.link.stamp is missing; run scripts/build.sh")
     scripts = ROOT / "scripts"
-    want = _stamp_of(
-        scripts / "40_link.sh",
-        scripts / "lib_index.sh",
-        scripts / "lib.sh",
-        BUILD / ".library.stamp",
-    )
-    assert stamp.read_text().strip() == want
+    assert stamp.read_text().strip() == _link_stamp_of(ROOT)
     # So a change to the library's step relinks, and a change to the index's generator reaches
     # no step before the link: neither earlier step reads it.
     for earlier in ("20_target.sh", "30_library.sh"):
@@ -353,6 +367,8 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
     root = tmp_path / "checkout"
     shutil.copytree(ROOT / "scripts", root / "scripts")
     shutil.copytree(ROOT / "recipes", root / "recipes")
+    (root / "downloads").mkdir()
+    shutil.copy(ROOT / "downloads" / "SHA256SUMS", root / "downloads" / "SHA256SUMS")
     build = root / "build"
     art = build / "artifacts"
     (art / "lib" / "perl5" / "5.42").mkdir(parents=True)
@@ -364,10 +380,7 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
     (build / "target" / "config.sh").write_text("libs='-lm'\n")
     (build / ".library.stamp").write_text("stand-in\n")
     scripts = root / "scripts"
-    stamp = _stamp_of(
-        scripts / "40_link.sh", scripts / "lib_index.sh", scripts / "lib.sh", build / ".library.stamp"
-    )
-    (build / ".link.stamp").write_text(stamp + "\n")
+    (build / ".link.stamp").write_text(_link_stamp_of(root) + "\n")
 
     def step() -> subprocess.CompletedProcess:
         return subprocess.run(
