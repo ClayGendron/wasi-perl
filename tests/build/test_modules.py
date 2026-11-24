@@ -21,6 +21,7 @@ STATIC_EXT = sorted(
         "Compress/Raw/Zlib",
         "Cwd",
         "Data/Dumper",
+        "Devel/PPPort",
         "Devel/Peek",
         "Digest/MD5",
         "Digest/SHA",
@@ -74,7 +75,6 @@ LEFT_OUT = sorted(
         "NDBM_File",
         "ODBM_File",
         "PerlIO/mmap",
-        "Devel/PPPort",
         "XS/APItest",
         "XS/Typemap",
         "Thread/Queue",
@@ -128,6 +128,7 @@ MODULES = [
     "B",
     "B::Deparse",
     "Devel::Peek",
+    "Devel::PPPort",
     "Filter::Util::Call",
     "SDBM_File",
     "Sys::Hostname",
@@ -226,20 +227,9 @@ def test_every_listed_extension_loads_as_natively(guest, native):
             assert (g.code, g.stdout) == (0, b"ok\n"), (ext, g.stderr)
 
 
-@pytest.mark.parametrize(
-    "module",
-    [
-        "threads",
-        "threads::shared",
-        "Thread::Queue",
-        "IPC::SysV",
-        "Sys::Syslog",
-        "DB_File",
-        "PerlIO::mmap",
-    ],
-)
-def test_left_out_module_does_not_load(guest, module):
-    r = guest(f"-M{module}", "-e", "1")
+@pytest.mark.parametrize("ext", LEFT_OUT)
+def test_left_out_module_does_not_load(guest, ext):
+    r = guest(f"-M{ext.replace('/', '::')}", "-e", "1")
     assert r.code != 0 and r.stdout == b""
     assert b"Can't locate" in r.stderr
 
@@ -264,6 +254,9 @@ SAME_AS_NATIVE = {
         'print floor(-2.5), " ", ceil(2.1), " ", fmod(10, 3), " ", INT_MAX, " ", EXIT_FAILURE, "\\n";'
         'print strftime("%Y-%m-%d %H:%M:%S %a %b %j", gmtime(1700000000)), "\\n";'
         'print POSIX::isatty(0) ? "tty" : "notty", " ", POSIX::WEXITSTATUS(3 << 8), "\\n";'
+        'for my $s (0, 0x100, 0x0f, 0x8f, 0x7f, 0xff, 0x17f, 0xffff) { print join(",", $s,'
+        "  POSIX::WIFEXITED($s), POSIX::WIFSIGNALED($s), POSIX::WIFSTOPPED($s),"
+        '  POSIX::WEXITSTATUS($s), POSIX::WTERMSIG($s), POSIX::WSTOPSIG($s)), " " } print "\\n";'
         'my @t = POSIX::strtol("0x1f", 16); print "@t\\n";'
     ),
     "posix-strtol-junk": (
@@ -404,6 +397,19 @@ SAME_AS_NATIVE = {
         "use Socket qw(AF_INET SOCK_STREAM inet_aton inet_ntoa pack_sockaddr_in unpack_sockaddr_in);"
         'print inet_ntoa(inet_aton("127.0.0.1")), " ", length(inet_aton("10.1.2.3")), "\\n";'
     ),
+    "time-hires-clocks": (
+        "use Time::HiRes qw(clock_gettime clock_getres clock_nanosleep CLOCK_REALTIME"
+        " CLOCK_MONOTONIC CLOCK_PROCESS_CPUTIME_ID CLOCK_THREAD_CPUTIME_ID);"
+        'print join(" ", CLOCK_REALTIME, CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID), "\\n";'
+        "for my $c (-1, 0 .. 3, 99, 2**31) {"
+        '  $! = 0; my $t = clock_gettime($c); my $te = $! + 0 ? "$!" : "-";'
+        '  $! = 0; my $r = clock_getres($c); my $re = $! + 0 ? "$!" : "-";'
+        '  print "$c ", ($t > 0 ? "time" : $t), " $te ", ($r > 0 && $r < 1 ? "res" : $r), " $re\\n" }'
+        "my @m = map { clock_gettime(CLOCK_MONOTONIC) } 1 .. 20;"
+        'print((grep { $m[$_] < $m[$_ - 1] } 1 .. $#m) ? "went back\\n" : "monotonic\\n");'
+        'print clock_nanosleep(CLOCK_MONOTONIC, 1000) > 0 ? "slept\\n" : "no sleep\\n";'
+        'print clock_nanosleep(-1, 1000), " ", clock_nanosleep(99, 1000), "\\n";'
+    ),
     "time-hires": (
         "use Time::HiRes qw(time sleep usleep gettimeofday tv_interval);"
         "my @t = map { time } 1 .. 50; my $up = 1; $up &&= $t[$_] >= $t[$_ - 1] for 1 .. $#t;"
@@ -421,6 +427,20 @@ def test_same_as_native(guest, native, name):
     g, n = guest("-e", prog), native("-e", prog)
     assert n.code == 0, n.stderr
     assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
+
+
+def test_posix_signal_sets_hold_signals_one_to_eight(guest):
+    # wasi-libc's sigset_t is one byte. A larger signal is refused, and is never a member.
+    prog = (
+        "use POSIX qw(SIGINT SIGTERM);"
+        'my $s = POSIX::SigSet->new(SIGINT); print $s->ismember(SIGINT), $s->ismember(1), " ";'
+        'print $s->ismember(SIGTERM), " ", defined $s->addset(SIGTERM) ? "added" : "refused: $!", " ";'
+        'my $f = POSIX::SigSet->new; $f->fillset; print join("", map { $f->ismember($_) } 1 .. 9), " ";'
+        'print eval { POSIX::SigSet->new(SIGTERM); 1 } ? "made\\n" : "dies: $@";'
+    )
+    r = guest("-e", prog)
+    assert (r.code, r.stderr) == (0, b"")
+    assert r.stdout.startswith(b"10 0 refused: Invalid argument 111111110 dies: ")
 
 
 @pytest.mark.parametrize("code", [0, 3, 42])
@@ -488,8 +508,17 @@ def test_library_holds_no_build_only_files():
     unwanted = [
         p
         for p in lib.rglob("*")
-        if p.name in ("CORE", "pod", ".packlist", "extralibs.ld", "extralibs.all")
-        or p.suffix in (".pod", ".a", ".bs")
+        if p.name
+        in (
+            "CORE",
+            "pod",
+            ".packlist",
+            "extralibs.ld",
+            "extralibs.all",
+            "xsubpp",
+            "typemap",
+        )
+        or p.suffix in (".pod", ".a", ".bs", ".h", ".e2x")
         or "/man/" in str(p)
     ]
     assert unwanted == []

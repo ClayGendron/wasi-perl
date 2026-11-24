@@ -18,6 +18,6 @@
 #define WSTOPSIG(s) WEXITSTATUS(s)
 #define WIFEXITED(s) (WTERMSIG(s) == 0)
 #define WIFSTOPPED(s) (((s) & 0xff) == 0x7f)
-#define WIFSIGNALED(s) (WTERMSIG(s) != 0 && !WIFSTOPPED(s))
+#define WIFSIGNALED(s) (WTERMSIG(s) != 0 && WTERMSIG(s) != 0x7f)
 
 #endif

@@ -1,0 +1,12 @@
+# Cases whose guest result differs from native perl 5.42.3 for a reason we know.
+#
+# Each entry names the case, the fields that may differ (exit_code, stdout, stderr,
+# files, trapped), a kind and a reason:
+#   kind = "accepted"  a platform difference the project accepts and documents;
+#   kind = "gap"       a difference agents would hit, kept as a failing-but-expected case
+#                      until the build closes it.
+# A listed case is reported as an expected failure, never as a pass. A listed case that
+# starts to match is an error until its entry is removed. A difference in a field that is
+# not listed is a plain failure.
+#
+# Entries are added from an observed guest run, each in its own commit.

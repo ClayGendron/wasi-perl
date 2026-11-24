@@ -17,7 +17,7 @@
 # lists them for a static Encode. Left out: threads and threads/shared (no threads), IPC/SysV
 # (no System V IPC), Sys/Syslog (no syslog), DB_File, GDBM_File, NDBM_File and ODBM_File
 # (their C libraries are not built), PerlIO/mmap (wasi-libc's mmap only copies a file into
-# memory), and Devel/PPPort, XS/APItest and XS/Typemap (test scaffolding perl never installs).
+# memory), and XS/APItest and XS/Typemap (test scaffolding perl never installs).
 # The pure-Perl Thread/Queue and Thread/Semaphore are left out of nonxs_ext with threads: both
 # load threads::shared.
 #
@@ -26,8 +26,9 @@
 # cppsymbols is what the pinned clang predefines for wasm32-wasip1 with the -D flags every
 # compile gets (clang -dM -E of an empty file, as NAME=value, spaces escaped, sorted).
 # i_sysun is undefined because wasi-libc's struct sockaddr_un has no sun_path.
-# -Wno-error=int-conversion: wasi-libc's clockid_t is a pointer, and the constants code
-# Time::HiRes generates stores CLOCK_REALTIME and its kin in an IV.
+# -Werror=int-conversion: a pointer used as an integer, or the reverse, traps on wasm32 when it
+# goes wrong, so it never builds. (wasi-libc's clockid_t is a pointer; Time::HiRes gets integer
+# clock ids from include/wasi-perl-posix.h instead.)
 #
 # Package name      : perl5
 # Source directory  : .
@@ -85,7 +86,7 @@ cat='cat'
 cc='@ROOT@/recipes/wasi-cc'
 cccdlflags=''
 ccdlflags=''
-ccflags='-D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Wno-error=int-conversion -fwrapv -fno-strict-aliasing'
+ccflags='-D_GNU_SOURCE -DNO_ENV_ARRAY_IN_MAIN -Werror=int-conversion -fwrapv -fno-strict-aliasing'
 ccflags_uselargefiles=''
 ccname='clang'
 ccsymbols=''
@@ -724,7 +725,7 @@ endservent_r_proto='0'
 eunicefix=':'
 exe_ext=''
 expr='expr'
-extensions='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Archive/Tar Attribute/Handlers AutoLoader CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Config/Perl/V Devel/SelfStubber Digest Dumpvalue Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS File/Fetch File/Find File/Path File/Temp FileCache Filter/Simple FindBin Getopt/Long HTTP/Tiny I18N/Collate I18N/LangTags IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 JSON/PP Locale/Maketext Locale/Maketext/Simple Math/BigInt Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NEXT Net/Ping Params/Check Perl/OSType PerlIO/scalar PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage Safe Search/Dict SelfLoader Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/Local XSLoader autodie autouse base bignum constant encoding/warnings experimental if lib libnet parent perlfaq podlators version'
+extensions='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode Archive/Tar Attribute/Handlers AutoLoader CPAN CPAN/Meta CPAN/Meta/Requirements CPAN/Meta/YAML Carp Config/Perl/V Devel/SelfStubber Digest Dumpvalue Env Errno Exporter ExtUtils/CBuilder ExtUtils/Constant ExtUtils/Install ExtUtils/MakeMaker ExtUtils/Manifest ExtUtils/Miniperl ExtUtils/PL2Bat ExtUtils/ParseXS File/Fetch File/Find File/Path File/Temp FileCache Filter/Simple FindBin Getopt/Long HTTP/Tiny I18N/Collate I18N/LangTags IO/Compress IO/Socket/IP IO/Zlib IPC/Cmd IPC/Open3 JSON/PP Locale/Maketext Locale/Maketext/Simple Math/BigInt Math/Complex Memoize Module/CoreList Module/Load Module/Load/Conditional Module/Loaded Module/Metadata NEXT Net/Ping Params/Check Perl/OSType PerlIO/scalar PerlIO/via/QuotedPrint Pod/Checker Pod/Escapes Pod/Functions Pod/Html Pod/Perldoc Pod/Simple Pod/Usage Safe Search/Dict SelfLoader Term/ANSIColor Term/Cap Term/Complete Term/ReadLine Term/Table Test Test/Harness Test/Simple Text/Abbrev Text/Balanced Text/ParseWords Text/Tabs Tie/File Tie/Hash/NamedCapture Tie/Memoize Tie/RefHash Time/Local XSLoader autodie autouse base bignum constant encoding/warnings experimental if lib libnet parent perlfaq podlators version'
 extern_C='extern'
 extras=''
 fflushNULL='define'
@@ -1142,7 +1143,7 @@ st_ino_sign='1'
 st_ino_size='8'
 startperl='#!/usr/local/bin/perl'
 startsh='#!/bin/sh'
-static_ext='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode'
+static_ext='B Compress/Raw/Bzip2 Compress/Raw/Zlib Cwd Data/Dumper Devel/PPPort Devel/Peek Digest/MD5 Digest/SHA Encode Fcntl File/DosGlob File/Glob Filter/Util/Call Hash/Util Hash/Util/FieldHash I18N/Langinfo IO List/Util MIME/Base64 Math/BigInt/FastCalc Opcode POSIX PerlIO/encoding PerlIO/via SDBM_File Socket Storable Sys/Hostname Time/HiRes Time/Piece Unicode/Collate Unicode/Normalize attributes mro re Encode/Byte Encode/CN Encode/EBCDIC Encode/JP Encode/KR Encode/Symbol Encode/TW Encode/Unicode'
 stdchar='char'
 stdio_base='((fp)->_base)'
 stdio_bufsiz='((fp)->_cnt + (fp)->_ptr - (fp)->_base)'
