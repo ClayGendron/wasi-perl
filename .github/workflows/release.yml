@@ -87,14 +87,14 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           ls release-assets
           for want in "wasi_perl-$version-py3-none-any.whl" "wasi_perl-$version.tar.gz" \
-            perl.wasm MANIFEST SHA256SUMS; do
+            perl.wasm perl-reactor.wasm MANIFEST SHA256SUMS; do
             if [ ! -f "release-assets/$want" ]; then
               echo "release-assets/ has no $want: the tag $GITHUB_REF_NAME and the build disagree"
               exit 1
             fi
           done
-          if [ "$(find release-assets -mindepth 1 | wc -l)" -ne 5 ]; then
-            echo "release-assets/ holds other files than the five release assets"
+          if [ "$(find release-assets -mindepth 1 | wc -l)" -ne 6 ]; then
+            echo "release-assets/ holds other files than the six release assets"
             exit 1
           fi
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
