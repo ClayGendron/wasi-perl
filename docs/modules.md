@@ -26,6 +26,18 @@ Five distributions that are not in Perl's own tarball are built in, each from a 
 - Hostile input ends in an error the program can catch: JSON nested deeper than 512 levels, truncated, or with trailing garbage; CSV with a broken quote.
 - **Keep Cpanel::JSON::XS's `max_depth` at its default of 512.** Its decoder and its encoder recurse in C once per level. Raised, they run out of the guest's stack at about 1,700 and 1,900 levels, and the call ends as trapped. A trap ends only that call; the next one runs as usual. Native perl gets further: its decoder crashes at 100,000.
 
+## Adding Perl code
+
+The library is fixed. `perl.wasm` holds an index of the library it was built with, and answers "no such file" itself for any other name under `/usr/local/lib/perl5`. So a file added to the library folder is not found, even in a set passed with `run(artifacts=...)`.
+
+To add Perl code, grant it in a folder of its own and name that folder with `-I` or `PERL5LIB`:
+
+```python
+run(["-I/code", "-MMy::Tool", "-e", "My::Tool::main()"], grants=[Grant("my-code", "/code")])
+```
+
+`@INC` is as Perl configures it, and a `.pmc` beside a `.pm` is still preferred. A library name in the wrong case, such as `Strict.pm`, is not found, as on Linux, even on a host whose file names ignore case.
+
 ## Left out
 
 | Module | Why |

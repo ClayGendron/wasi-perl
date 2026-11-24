@@ -46,6 +46,11 @@ class Artifacts:
     """The artifact set's paths, made by `artifacts()`, by `Artifacts.at(folder)`, or by you for
     `run(artifacts=...)`, which uses a set you pass as you give it, unchecked.
 
+    A set's perl.wasm serves only the library it was built with: it holds an index of that
+    library's files and folders, and answers "no such file" itself for any other name there. So a
+    file added to a set's library is not found. To add Perl code, grant it in a folder of its own
+    and name that folder with `-I` or `PERL5LIB`.
+
     Attributes:
         perl: perl.wasm, the one static WebAssembly command.
         lib: The library folder, lib/perl5, which every guest sees read-only at
