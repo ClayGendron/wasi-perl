@@ -85,6 +85,7 @@
 "op/stash.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
 "op/stash_parse_gv.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
 "op/substr.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/tie.t" = { reason = "subprocess", note = "its programs run through run_multiple_progs, each a child perl" }
 "op/tr_latin1.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
 "op/undef.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
 "op/utf8cache.t" = { reason = "subprocess", note = "test 1 reads Devel::Peek output from a child perl" }
@@ -283,7 +284,6 @@
 "op/sub_lval.t" = { reason = "bug", note = "needs Hash::Util (spec 002)" }
 "op/svflags.t" = { reason = "bug", note = "needs B (spec 002)" }
 "op/taint.t" = { reason = "bug", note = "needs re (spec 002)" }
-"op/tie.t" = { reason = "bug", note = "needs FOO (spec 002)" }
 "op/tie_fetch_count.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
 "op/tr.t" = { reason = "bug", note = "needs re (spec 002)" }
 "op/universal.t" = { reason = "bug", note = "dies with no message after test 112 (near line 212, inside a $SIG{__WARN__} that dies); unexplained" }
