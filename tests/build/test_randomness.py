@@ -255,6 +255,57 @@ def test_a_close_of_the_device_makes_no_host_call(guest_engine, tmp_path):
     assert both[4] == alone[4]
 
 
+# An open with no access mode is a read, as on Linux, where O_RDONLY is 0; O_WRONLY and O_RDWR
+# are as before. Each line is the same in the guest as natively.
+NO_MODE = r"""
+use Fcntl qw(O_WRONLY O_RDWR O_CREAT);
+sub show { my ($name, $ok) = @_; print "$name ", ($ok ? "ok" : "$!"), "\n" }
+my ($u, $w, $rw, $m, $b, $t);
+show("urandom", sysopen($u, "/dev/urandom", 0) && sysread($u, $b, 16) == 16);
+show("file", sysopen(F, "f.txt", 0) && sysread(F, $t, 100) == 6 && $t eq "plain\n");
+show("file-write", defined syswrite(F, "x"));
+show("wronly", sysopen($w, "w.txt", O_WRONLY | O_CREAT) && syswrite($w, "w\n") == 2);
+show("wronly-read", defined sysread($w, $t, 1));
+show("rdwr", sysopen($rw, "f.txt", O_RDWR) && sysread($rw, $t, 2) == 2 && syswrite($rw, "X") == 1);
+show("missing", sysopen($m, "nope", 0));
+"""
+
+
+def test_an_open_with_no_access_mode_reads(guest, tmp_path):
+    outs = []
+    for where in ("guest", "native"):
+        folder = _dir(tmp_path, where)
+        (folder / "f.txt").write_bytes(b"plain\n")
+        if where == "guest":
+            grants = [*default_grants(), (folder, "/work", True)]
+            r = guest("-e", NO_MODE, env={"PWD": "/work"}, grants=grants)
+            outs.append((r.code, r.stdout, r.stderr))
+        else:
+            p = subprocess.run(
+                [str(NATIVE_PERL), "-e", NO_MODE], cwd=folder, env={}, capture_output=True
+            )
+            outs.append((p.returncode, p.stdout, p.stderr))
+        outs.append({f.name: f.read_bytes() for f in sorted(folder.iterdir())})
+    assert outs[0] == outs[2]
+    assert outs[1] == outs[3] == {"f.txt": b"plXin\n", "w.txt": b"w\n"}
+    assert outs[0][1].decode().splitlines() == [
+        "urandom ok",
+        "file ok",
+        "file-write Bad file descriptor",
+        "wronly ok",
+        "wronly-read Bad file descriptor",
+        "rdwr ok",
+        "missing No such file or directory",
+    ]
+
+
+def test_perls_seed_reaches_the_device(guest_engine, tmp_path):
+    # The seed opens /dev/urandom with flags 0: under the probe, random_get is called.
+    r = _probe(guest_engine, _dir(tmp_path, "p"), ["-e", "1"])
+    assert (r[0], r[2]) == (0, b""), r
+    assert r[3] > 0, "Perl's seed did not read random_get"
+
+
 def test_without_a_dev_grant_there_is_no_device(guest, tmp_path):
     # perl -e reads /dev/null, so the program is a file in a grant of its own.
     folder = _dir(tmp_path, "s")
