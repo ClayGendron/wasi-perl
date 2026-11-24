@@ -17,8 +17,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from conftest import NATIVE_PERL, assert_exit_refused, default_grants
+from _build_helpers import NATIVE_PERL, assert_exit_refused, default_grants
 
 
 def _both(guest, code: str, tmp: Path, *, ulimit: int | None = None, w2: bool = False):
