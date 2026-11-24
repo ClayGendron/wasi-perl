@@ -66,7 +66,8 @@ dist_of() {
 # unpack_pinned <name> <dest> <log>: unpacks downloads/<name> as the new folder <dest>. Nothing
 # is made before the tarball matches its pin, and the bytes unpacked are a copy checked again,
 # so what is checked is what is unpacked. A tarball must hold exactly one top folder, and <dest>
-# must not exist; either is refused rather than merged.
+# must not exist; either is refused rather than merged. Only files and folders are taken: a
+# link left in place would be followed by whatever reads the tree later, out of it.
 unpack_pinned() {
     check_pinned "$1"
     [ ! -e "$2" ] && [ ! -L "$2" ] || fail "$2 already exists; $1 would replace it"
@@ -78,7 +79,14 @@ unpack_pinned() {
         rm -rf "$_work"
         fail "$1 does not match its SHA-256 in downloads/SHA256SUMS"
     fi
-    run "$3" tar -C "$_work/top" --no-same-owner --no-same-permissions -xzf "$_work/tarball"
+    if ! tar -C "$_work/top" --no-same-owner --no-same-permissions -xzf "$_work/tarball" >>"$3" 2>&1; then
+        rm -rf "$_work"
+        fail "tar could not unpack $1 (see $3)"
+    fi
+    if [ -n "$(find "$_work/top" ! -type f ! -type d)" ]; then
+        rm -rf "$_work"
+        fail "$1 holds an entry that is neither a file nor a folder"
+    fi
     _top=$(ls -A "$_work/top")
     if [ "$(printf '%s\n' "$_top" | wc -l)" -ne 1 ] || [ -L "$_work/top/$_top" ] \
         || [ ! -d "$_work/top/$_top" ]; then
