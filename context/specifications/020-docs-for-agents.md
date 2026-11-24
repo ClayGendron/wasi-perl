@@ -1,6 +1,6 @@
 # 020 — Docs for agents: the fast way to write common programs
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 8. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. Its choices are the page's six items and the 20% margin on each ratio. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M6; round 2: N6).
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 8. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. Its choices are the page's six items and the 20% margin on each ratio. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (M6; round 2: N6; round 3: R3-1, R3-2).
 - **Owner:** Clay Gendron
 - **Kind:** `docs/` (a new `docs/fast-perl.md`, linked from the README and `docs/modules.md`), with its examples run as checks in `tests/oneliners/`.
 - **Depends on:** 018, whose modules it names.
@@ -22,7 +22,10 @@ Agents write the Perl they have seen. Some common forms cost 4–6× more than a
 2. **Numbers are counts.** The page quotes instruction ratios (fuel), not milliseconds, so it holds on any machine.
 3. **Every example is a check.** Each one is a case in `tests/oneliners/`, compared byte for byte with native perl, as spec 006's cases are.
    - **The module cases.** The JSON and CSV examples use spec 018's modules, which 018 installs for native perl in `build/native-cpan`, outside the oracle's own perl. So these cases form their own group, and the oracle runs native perl for them with `PERL5LIB=build/native-cpan/lib/perl5`, as 018's check 1 does. Every other case runs as today, with no `PERL5LIB`.
-   - **Another oracle.** An oracle named by `WASI_PERL_ORACLE` must have the same five distributions at 018's versions, on its own `@INC` or through `PERL5LIB`. The group first asks the oracle for the five `$VERSION`s, and skips with that reason when one differs or is missing. It never passes against a different version. Each instruction ratio the page claims is a check, with a margin of 20%. It counts fuel, never time.
+   - **The versions are part of the oracle.** Before the group runs, the oracle is asked for the five distributions' `$VERSION`s (with the group's `PERL5LIB`). A version that differs from 018's, or a module that is missing, refuses the oracle with `OracleRefused`, and the group fails, as a refused perl does today (`tests/oneliners/oneliner_oracle.py:268`, `test_a_refused_perl_is_not_skipped`). This holds for the default oracle, where a missing module means `10_native.sh` broke, and for one named by `WASI_PERL_ORACLE`. The group is skipped only when there is no oracle at all, as every case is today.
+   - **A recorded oracle.** `record_oracle.py` runs the group with the same `PERL5LIB`, and records the five versions beside the outputs. A recording whose versions differ from 018's fails as stale, as `test_a_stale_recording_fails_rather_than_skips` already requires of a recording made for other cases.
+   - **Its check, written first.** `test_oracle_logic.py` gains two checks: an oracle missing one of the five fails rather than skips, and so does one with another version. A third check makes a recording with another version stale.
+4. **Each instruction ratio the page claims is a check,** with a margin of 20%. It counts fuel, never time.
 
 ## Acceptance
 
