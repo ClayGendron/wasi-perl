@@ -29,4 +29,83 @@ Two places where the guest's C library and the host disagree about what a call m
 
 ## Landing notes
 
-(Written when built.)
+Built 2026-11-24 on branch `spec/010-special-files-and-select`, from 009's head plus the spec commit, then merged with origin/spec/009-fd-table at f5199bd (009's review round and dev's 003 amendment, 7afccfb). Nothing was rebased.
+
+### Commands and the artifact
+
+    WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=3 scripts/build.sh
+    # 20_target: ok / 30_library: ok (1453 files)                                              EXECUTED
+    sha256sum build/artifacts/perl.wasm; stat -c %s build/artifacts/perl.wasm
+    # 7d8c48a71a499da90665467382eec87987abe1160472c7ada7f721a5a9387491, 9258122 bytes            EXECUTED
+
+    uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q             EXECUTED
+    377 passed in 14.26s
+    WASI_PERL_ARTIFACTS=$PWD/build/artifacts WASI_PERL_ORACLE=$PWD/build/native-install/bin/perl \
+        uv run pytest -q tests/escapes tests/runner tests/oneliners                              EXECUTED
+    2 failed, 617 passed, 1 skipped
+
+The two failures are the `from conftest import` collisions in `tests/runner` that are already on dev and that 009's notes record. `tests/escapes` alone: 13 passed in 3.99 s, the FIFO check included. EXECUTED.
+
+### Decision 1: special files refused at open
+
+`__wrap___wasi_path_open` calls `look()` after translating the directory and before the host open. `look()` asks the real `__wasi_path_filestat_get` with the open's directory, lookup flags and path. It answers ENXIO for anything but a directory, a regular file or a symbolic link, and ENOTDIR when the open has `O_DIRECTORY`. A failed look (the name does not exist, or the host will not describe it) is passed to the open unchanged, so `O_CREAT` works and every other error stays the host's. `O_CREAT|O_EXCL` skips the look, because the host refuses an existing name before it opens anything. This is the same rule as wasi-python's `_look` and `_refusal` (READ), less the memory juggling: the guest calls `path_filestat_get` with its own buffer. The race with a host process that swaps the name between the look and the open remains, and is documented in the code.
+
+- `tests/build/test_special_files.py`, 10 checks, each guest in a child under the wasmtime CLI with a 20 s fail-safe:
+  - The FIFO opens: `<`, `>`, `>>`, `+<`, `<:raw`, absolute, and `/g/./pipe`. Each gives "No such device or address".
+  - A guest-made `symlink` to the FIFO is refused too, and `readlink` still reads it.
+  - `open … or die "$!\n"` ends with status 6 (Linux ENXIO, through 003's errno table).
+  - `-e`, `opendir` of the FIFO (ENOTDIR, as natively), `readdir`, create, append, read and `unlink` beside a FIFO all match native. All EXECUTED.
+- **Two things found while writing them** (EXECUTED). `-p` is false for a FIFO in the guest: WASI has no file type for one, so `stat` cannot say so. The check uses `-e` instead, and `docs/sandbox.md` says so. Also, `sysopen($f, $name, 0)` gives EINVAL in the guest, because WASI's `O_RDONLY` is not 0. That one is not this specification's, and is recorded here only.
+- `tests/escapes/test_escapes.py::test_a_fifo_in_a_grant_is_refused` was 005's strict xfail. It is now a check through `run()` with a 2,000,000,000 fuel cap and a 5 s deadline. A regular-file control opens every way. Then the FIFO's read, write and append opens and a link to it are each refused with ENXIO, `fuel_used` is reported (so the call ended inside the fuel limit, not at the deadline), and the call returns. EXECUTED.
+
+### Decision 3: select over Perl's bit vectors
+
+`llvm-nm -A -u` over every object of the link (`build/target/*.o` and every extension's objects) finds one reference to `select`, in `pp_sys.o` (`pp_sselect`), and no reference to `pselect` (EXECUTED). Nothing else in the link calls `select` with a real `fd_set`, so `select` itself is wrapped (`--wrap=select` in `recipes/wasi-cc`). `pp_sselect` passes `nfds = maxlen * 8` and buffers padded past `nfds / 8` bytes (READ, `pp_sys.c`).
+
+`__wrap_select` reads the bits below `min(nfds, 1024)` into three static wasi-libc `fd_set`s, calls wasi-libc's `select`, and on success writes back exactly those bits. It leaves bits at or past 1,024 as they were, which is what Linux does past its descriptor table (native `vec($r, 2000, 1)` comes back set, EXECUTED). On an error the vectors are left as they were, as POSIX says.
+
+Two host behaviours had to be answered in `poll_oneoff` for `select` to match native, and they serve `IO::Poll` too (READ, wasmtime 51 `crates/wasi/src/p1.rs`, `poll_oneoff`):
+
+- **A regular file is ready only once a background read is done.** wasmtime answers a file subscription through `read_via_stream`, so a zero timeout can return first (`_poll(0, …)` on a file gave 0, EXECUTED). The guest answers a regular file's subscription itself, as always ready, which is what POSIX says.
+- **A read subscription on STDOUT, or a write subscription on STDIN, fails the whole call with EBADF.** wasmtime reads only from Stdin and files, and writes only to Stdout, Stderr and files. The guest drops a subscription whose descriptor lacks `FD_READ` (or `FD_WRITE`), so that entry is never ready, as natively.
+
+With either kind answered locally, a caller's clock is replaced by a zero timeout, so the call does not wait. That is the same rule as 009's closed-number events.
+
+- `tests/build/test_select.py`, 13 checks against native:
+  - Read select on STDIN and on a file; write select on a file; one descriptor in all three sets (`6`, `110` per handle).
+  - Unset bits stay clear; a UTF-8-flagged mask; a closed number (-1, EBADF, vector kept); a bit past the table (0, bit kept).
+  - Empty and undef masks; the timeout-only form; `IO::Select` `can_read`, `can_write` and `select`; a read select on a copy of STDOUT (0, while the write select is 1); the default output handle after a select.
+  - All EXECUTED.
+- **op/sselect.t passes** under 007's harness, copied unchanged from 007's worktree and run as in 009's notes. It failed tests 19 and 20 with 009, and tests 17 and 18 before the rights rule above. EXECUTED.
+
+### Decision 5: a rename over a held file
+
+- **Recorded at open.** `__wrap___wasi_path_open` stores each file's `oflags`, `fdflags` and both rights. The host's own descriptors (stdio, grants) are not reopenable.
+- **The retry.** `__wrap___wasi_path_rename` passes the rename to the host. On EACCES or EPERM it runs `find_held()`. If the destination is a regular file and the program holds open files whose `(dev, ino)` equal it (wasmtime gives `dev: 1` and `ino` from one metadata hash in both `fd_filestat_get` and `path_filestat_get`, READ), the guest:
+  - records each one's offset with `fd_tell` and closes its real descriptor (marked `UINT32_MAX` meanwhile);
+  - retries the rename once;
+  - reopens each held file at the rename's destination with its recorded open arguments, less `CREAT`, `EXCL` and `TRUNC`;
+  - seeks to the saved offset, clamped to the new size.
+
+  The virtual numbers are untouched. If the retry fails, the reopen finds the old file at the destination, and the first error is returned. If a reopen fails, that file reads EBADF from then on.
+- **The test build.** With `-DWASI_PERL_TEST_HELD_RENAME`, the host rename is `host_rename()`, which refuses a held destination with EACCES, as Windows does. Only `tests/build/test_rename_over_open.py` compiles that flag. Its session fixture compiles a test copy of the table into its temporary folder and relinks perl from `build/target`'s objects with that copy first: perl's link variables come from the Makefile through `make -f Makefile -f -`, and wasi-cc's own archive then supplies nothing. The shipped module is never built with the flag. So no seam exists that a guest could reach. EXECUTED (the link takes about a second).
+- **`tests/build/test_rename_over_open.py`**, 8 checks:
+  - `-pi`, two files, `-pi.bak`, `-lani`, `-0777 -pi` to a shorter file, and `-ni` with `eof` across two files. Stdout, stderr, status and files match native.
+  - A held file renamed over: it keeps its number and, with `sysread`, reads `w file` (the new file from offset 2) where native reads `d file`. The shipped module reads `d file`, as natively, which shows the retry runs only where the host refuses.
+  - A held destination in the read-only library grant: the retry fails too, `$!` is "Permission denied", and the handle reads on (`package| strict`).
+
+  All EXECUTED.
+- **Seen failing (EXECUTED):** with the retry disabled in the test copy (`n = 0`), 7 of 8 fail. `-pi` ends with exit 13 and "Cannot complete in-place edit", as on the Windows CI leg. The eighth, the retry-also-fails case, passes either way, as it should.
+- **Not proved here:** that wasmtime on Windows reports the refusal as EACCES and that the reopen succeeds there. The mapping is READ from wasmtime 51's `from_raw_os_error` (`ERROR_ACCESS_DENIED` and `ERROR_SHARING_VIOLATION` give `Access`, which is EACCES). The proof is the Windows leg of 008's CI.
+
+### Seen failing first (EXECUTED)
+
+On 009's module, before any of this: 18 of the 22 select and special-file checks failed. Each FIFO check hit its 20 s fail-safe. The 4 that passed were the select checks that need no descriptor mask: past the table, empty masks, timeout only, and the default handle. The escape check timed out at its fail-safe.
+
+### Found while building
+
+- **op/tie_fetch_count.t** trapped "memory out of bounds" with no table (the no-table baseline), with 009 and with 009's merged review round. With dev's 003 amendment it runs to its end and fails only tests 170 and 171 (`chown 0,0,$tied_glob`, FETCH count 0). Neither result is from the table: it trapped before there was one. EXECUTED.
+
+### Patches
+
+None. EXECUTED (`ls recipes/patches` finds nothing).

@@ -329,8 +329,10 @@ __wasi_errno_t __wrap___wasi_path_symlink(const char *old_path, __wasi_fd_t fd,
  * userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively; the
  * host would fail the whole call. A regular file is always ready to read and to write, as
  * POSIX says of select and poll; the host would report it only once a read it starts in the
- * background is done, which a zero timeout can outrun. The host's events follow these in
- * `out`. */
+ * background is done, which a zero timeout can outrun. A third kind is not sent at all: a
+ * read on a descriptor without the right to read, or a write on one without the right to
+ * write (a copy of STDOUT asked whether it is readable). The host fails the whole call for
+ * those; natively that entry is simply never ready. The host's events follow these in `out`. */
 __typeof__(__wasi_poll_oneoff) __real___wasi_poll_oneoff, __wrap___wasi_poll_oneoff;
 __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi_event_t *out,
                                          __wasi_size_t nsubscriptions, __wasi_size_t *nevents)
@@ -350,10 +352,15 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
         /* fd_read and fd_write have the same layout. */
         __wasi_fd_t fd = in[i].u.u.fd_read.file_descriptor;
         __wasi_fdstat_t st;
+        int known = in[i].u.tag != __WASI_EVENTTYPE_CLOCK && is_open((int)fd) &&
+                    __real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0;
+        if (known && st.fs_filetype != __WASI_FILETYPE_REGULAR_FILE &&
+            !(st.fs_rights_base & (in[i].u.tag == __WASI_EVENTTYPE_FD_READ
+                                       ? __WASI_RIGHTS_FD_READ
+                                       : __WASI_RIGHTS_FD_WRITE)))
+            continue;
         if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK &&
-            (!is_open((int)fd) ||
-             (__real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0 &&
-              st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
+            (!is_open((int)fd) || (known && st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
             memset(&out[nlocal], 0, sizeof out[nlocal]);
             out[nlocal].userdata = in[i].userdata;
             out[nlocal].error = is_open((int)fd) ? __WASI_ERRNO_SUCCESS : __WASI_ERRNO_BADF;

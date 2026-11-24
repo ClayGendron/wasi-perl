@@ -67,6 +67,12 @@ SAME_AS_NATIVE = {
     "empty-and-undef-masks": (
         'print select("", "", "", 0), " ", select(undef, undef, undef, 0), "\\n"'
     ),
+    # A descriptor that cannot be read is never ready to read, and the call goes on.
+    "read-on-a-copy-of-stdout": (
+        "use POSIX (); my $d = POSIX::dup(1); my $v = ''; vec($v, $d, 1) = 1; "
+        "my $n = select(my $r = $v, undef, undef, 0); my $m = select(undef, my $w = $v, undef, 0); "
+        'print STDERR "$n $m ", vec($w, $d, 1), "\\n"'
+    ),
     "timeout-only": 'print scalar(select(undef, undef, undef, 0.01)), "\\n"',
     "io-select": (
         SETUP + "use IO::Select; my $s = IO::Select->new($f, \\*STDIN); "
