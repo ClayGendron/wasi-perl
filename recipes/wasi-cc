@@ -13,8 +13,11 @@
 #
 # The compiler is always the pinned wasi-sdk under build/tools, whatever the environment says:
 # an ambient WASI_SDK, which wasi developers often export, is not read.
+# Its folder name is read from scripts/lib.sh, the one place the pin is written.
 here=$(cd "$(dirname "$0")" && pwd)
-sdk="$here/../build/tools/wasi-sdk-34.0-x86_64-linux"
+sdk_name=$(sed -n 's/^WASI_SDK_NAME=//p' "$here/../scripts/lib.sh")
+[ -n "$sdk_name" ] || { echo "wasi-cc: no WASI_SDK_NAME in scripts/lib.sh" >&2; exit 1; }
+sdk="$here/../build/tools/$sdk_name"
 sysroot="$sdk/share/wasi-sysroot"
 PATH="$sdk/bin:/usr/bin:/bin"
 export PATH
@@ -39,7 +42,7 @@ refusals="$here/../build/stubs/libwasi-perl-refusals.a"
 wraps=
 for s in Perl_pp_fork Perl_pp_wait Perl_pp_waitpid Perl_pp_alarm Perl_pp_pipe_op Perl_pp_getppid \
     Perl_do_exec3 Perl_do_aexec5 Perl_my_popen Perl_my_popen_list Perl_apply Perl_magic_setsig \
-    Perl_my_failure_exit; do
+    Perl_my_failure_exit Perl_my_unexec; do
     wraps="$wraps,--wrap=$s"
 done
 # The guest numbers its own descriptors (wasi-fd-table.c): every wasi-libc function that hands a

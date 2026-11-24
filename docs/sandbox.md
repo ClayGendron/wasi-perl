@@ -26,6 +26,7 @@ Every refusal dies with one message:
 | `waitpid` | `waitpid` |
 | `kill` | `kill` |
 | `alarm` | `alarm` |
+| `CORE::dump` | `dump` |
 | a store into `%SIG` for a signal, e.g. `$SIG{INT} = 'IGNORE'` | `signal handler for SIGINT` |
 
 About `%SIG`:
@@ -33,6 +34,7 @@ About `%SIG`:
 - A store of any value for a real signal dies, `'IGNORE'`, `'DEFAULT'` and `undef` included. A script that relies on a handler must not run on believing it has one.
 - `local $SIG{ALRM}` dies where it is written. When its scope ends, the old value is put back quietly.
 - Reading `%SIG` works, and so do names that are not signals (Perl warns about those, as natively).
+- `delete $SIG{INT}` works: it puts back the default, which installs nothing.
 - `$SIG{__WARN__}` and `$SIG{__DIE__}` are hooks, not signals. They work exactly as natively.
 
 `system("true") == 0 or die` dies with the `system` refusal: `system` never returns a status to compare.
@@ -54,6 +56,7 @@ The exit status is the one native perl on Linux gives.
 - A `die` takes its status from `$!`, then from `$? >> 8`, then 255, as natively. The `$!` part uses Linux's errno numbers: `open my $f, '<', 'nope' or die "$!\n"` ends with 2 (ENOENT), as on Linux.
 - `$!` as a number stays WASI's own. `$! + 0` after a missing file is 44, not 2. `$!` as text is the usual message ("No such file or directory").
 - WASI's ENOTCAPABLE ("the sandbox did not grant this") has no Linux number. Its exit status is 13 (EACCES).
+- A number the script puts into `$!` is read as a WASI errno too: `$! = 2; die` ends with 13, because WASI's 2 is EACCES. Natively it ends with 2.
 
 wasmtime refuses an exit status of 126 or more and reports an error instead. The module keeps the real status in its `wasi_perl_exit_status` export, which the runner reads.
 
