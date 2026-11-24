@@ -194,7 +194,7 @@ The review `../reviews/015-the-runners-checks-kept-across-calls-pr-2026-11-24.md
   - Without `$WASI_PERL_ARTIFACTS` and without wasi-sdk, the 15 guest checks skip and the 7 others run (READ: the fixtures). With perf-base's or 016's set, all 22 pass; with the stand-in alone, all 22 pass (EXECUTED).
   - **A roadmap follow-up, not fixed here:** spec 014's `tests/runner/test_fixed_cost.py` has the same gap. Its stand-in checks skip in CI. It is recorded in `../roadmap.md`.
 - **M1, a scan that could not list a runtime folder was kept.** Now any error in a scan other than `ENOENT` or `ENOTDIR` makes it unsettled, so it serves its own call only. That covers a listing, a folder's stamp, and a file's `lstat`. `fresh()` also answers no when a stamp cannot be read.
-  - Check, written first and seen failing ("DID NOT RAISE"): `test_a_scan_that_could_not_list_a_runtime_folder_serves_one_call`. One call scans with the library's `5.42` folder refused with `EACCES`. Then a file of that folder is linked into the grant. The next call scans again and refuses it.
+  - Check, written first and seen failing ("DID NOT RAISE"): `test_a_scan_that_could_not_read_a_runtime_folder_or_file_serves_one_call` (then named `…_could_not_list_a_runtime_folder_…`). One call scans with the library's `5.42` folder refused with `EACCES`. Then a file of that folder is linked into the grant. The next call scans again and refuses it.
   - The review's `probe_rights.py` now gives `kept_scan_reused_as_root: false, refused_with_kept_scan: true` (EXECUTED).
 - **M2, two parts of the argument had no check.** Both new checks pass on the code (EXECUTED).
   - `test_a_rename_with_the_folders_mtime_set_back_is_seen_by_its_ctime` replaces `strict.pm` by rename and sets the folder's atime and mtime back with `os.utime(ns=…)`. It asserts that the mtime is back and the ctime moved, then links the file into the grant: refused.
@@ -234,4 +234,22 @@ uv run ruff check; uv run ruff format --check               All checks passed!; 
 ```
 
 `tests/runner/test_kept_checks.py` passed five runs in a row with 016's set, and once with the stand-in alone (EXECUTED).
+
+### After the review (round 2)
+
+Round 2 of the review lands, and CI ran the checks on every system (as relayed by the orchestrator). Its one remaining finding was R2-L1, and R2-L2 is left as a follow-up.
+
+- **R2-L1, the `lstat` half of M1 had no check.** M1 also makes a scan unsettled when a runtime file's `lstat` fails, as in a folder that can be listed but not entered. No check covered it: with `failed(e)` removed from `note()`, every check passed (the reviewer's `probe_rights_rx.py` showed the stale scan used again).
+  - The M1 check is now `test_a_scan_that_could_not_read_a_runtime_folder_or_file_serves_one_call`, with two cases, "a folder's listing" and "a file's lstat".
+  - The new case refuses `os.lstat` of `strict.pm` with `EACCES` for one call. Then `strict.pm` is linked into the grant, and the next call must scan again and refuse the link.
+  - With `failed(e)` removed from `note()` in a copy of `src/`, run as `PYTHONPATH=<copy>/src uv run pytest tests/runner/test_kept_checks.py`, the new case failed: 1 failed, 22 passed. With the real code, 23 passed (both EXECUTED, with 016's set).
+- **R2-L2, one total floor in the gate: a follow-up, not done here.** The wheel job's gate on skipped checks requires one floor for all its checks together: the corpus cases, the escape tests and the kept-scan checks. So a shortfall in one group can be hidden by a surplus in another. A floor per group would close that. The reviewer calls it optional.
+
+**Runs after round 2** (EXECUTED, under the machine lock, with `WASI_PERL_ARTIFACTS=/home/user/wasi-perl-wt/016-the-guests-reads-and-writes/build/artifacts` and perf-base's native perl as `WASI_PERL_ORACLE`): 
+
+```
+uv run pytest tests/runner/test_kept_checks.py -q -p no:cacheprovider    23 passed
+uv run pytest -m "not slow" -q -p no:cacheprovider                       495 passed, 3 skipped, 245 deselected
+uv run ruff check; uv run ruff format --check                            All checks passed!; 40 files already formatted
+```
 

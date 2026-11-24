@@ -200,22 +200,26 @@ def test_a_folder_changed_within_two_seconds_of_its_stamp_is_scanned_again(
 
 
 @KEPT
-def test_a_scan_that_could_not_list_a_runtime_folder_serves_one_call(
-    the_set, set_dir, tmp_path, scans, settled, calls, monkeypatch
+@pytest.mark.parametrize("what", ["a folder's listing", "a file's lstat"])
+def test_a_scan_that_could_not_read_a_runtime_folder_or_file_serves_one_call(
+    the_set, set_dir, tmp_path, scans, settled, calls, monkeypatch, what
 ):
-    # As when the process's rights to a folder grow after the scan: nothing in the folder moves.
-    folder = os.path.abspath(set_dir / "lib" / "perl5" / "5.42")
-    real = os.scandir
+    # As when the process's rights grow after the scan: nothing in the folder moves. A folder that
+    # can be listed but not entered gives a listing whose files cannot be stat'ed.
+    strict = set_dir / "lib" / "perl5" / "5.42" / "strict.pm"
+    name, shut = ("scandir", strict.parent) if what == "a folder's listing" else ("lstat", strict)
+    shut = os.path.abspath(shut)
+    real = getattr(os, name)
 
-    def shut(path="."):
-        if isinstance(path, (str, os.PathLike)) and os.path.abspath(os.fspath(path)) == folder:
+    def refused(path=".", *args, **kwargs):
+        if isinstance(path, (str, os.PathLike)) and os.path.abspath(os.fspath(path)) == shut:
             raise PermissionError(errno.EACCES, "Permission denied", os.fspath(path))
-        return real(path)
+        return real(path, *args, **kwargs)
 
-    monkeypatch.setattr(os, "scandir", shut)
+    monkeypatch.setattr(os, name, refused)
     calls(the_set, tmp_path, 1)
-    monkeypatch.setattr(os, "scandir", real)
-    os.link(set_dir / "lib" / "perl5" / "5.42" / "strict.pm", tmp_path / "strict.pm")
+    monkeypatch.setattr(os, name, real)
+    os.link(strict, tmp_path / "strict.pm")
     with pytest.raises(ValueError, match="hard link"):
         calls(the_set, tmp_path, 1)
     assert scans() == 2
