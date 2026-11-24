@@ -20,13 +20,19 @@
  * program started (stdio and the preopened folders, numbered from 0 with no gap, as wasi-libc
  * assumes when it looks for preopens) gets the same virtual number. Nothing runs before
  * that, so the order of constructors does not matter. The host sees the same real
- * descriptors as before, and the module imports nothing new. */
+ * descriptors as before, and the module imports nothing new.
+ *
+ * Three more answers are the guest's own, each where the host's would differ from a POSIX
+ * system's: an open of a special file is refused before the host could wait in it
+ * (path_open), select reads Perl's bit vectors (select), and a rename over a file the
+ * program holds open succeeds where the host refuses it (path_rename). */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <unistd.h>
 #include <wasi/api.h>
 
@@ -34,9 +40,18 @@
  * own descriptors, the grants among them, count against it. */
 #define FD_LIMIT 1024
 
+/* The real number of an open file whose host descriptor is gone: a reopen after a rename over
+ * it failed. Every call through it answers EBADF, as the host would; its close succeeds. */
+#define GONE ((__wasi_fd_t)-1)
+
 struct file {
     __wasi_fd_t real;
     uint32_t refs; /* 0: this entry is free */
+    /* How path_open opened it, to open it again after a rename over it (path_rename). */
+    __wasi_oflags_t oflags;
+    __wasi_fdflags_t fdflags;
+    __wasi_rights_t base, inheriting;
+    uint8_t reopenable;
 };
 
 /* Each open file has at least one virtual number, so there are never more files than numbers.
@@ -56,6 +71,10 @@ static int started;
 __typeof__(__wasi_fd_fdstat_get) __real___wasi_fd_fdstat_get;
 __typeof__(__wasi_fd_prestat_get) __real___wasi_fd_prestat_get;
 __typeof__(__wasi_fd_close) __real___wasi_fd_close;
+__typeof__(__wasi_path_open) __real___wasi_path_open;
+__typeof__(__wasi_path_rename) __real___wasi_path_rename;
+static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
+                           __wasi_oflags_t oflags);
 
 static void bind(int v, int file, int close_on_exec)
 {
@@ -69,6 +88,7 @@ static int new_file(__wasi_fd_t real)
     for (int i = 0; i < FD_LIMIT; i++) {
         if (files[i].refs == 0) {
             files[i].real = real;
+            files[i].reopenable = 0;
             return i;
         }
     }
@@ -116,7 +136,7 @@ static __wasi_errno_t release(int v)
     struct file *f = &files[slot[v] - 1];
     slot[v] = 0;
     cloexec[v] = 0;
-    if (--f->refs != 0)
+    if (--f->refs != 0 || f->real == GONE)
         return __WASI_ERRNO_SUCCESS;
     return __real___wasi_fd_close(f->real);
 }
@@ -172,10 +192,6 @@ PASS_FD(fd_write, (__wasi_fd_t fd, const __wasi_ciovec_t *iovs, size_t iovs_len,
 PASS_FD(path_create_directory, (__wasi_fd_t fd, const char *path), (fd, path))
 PASS_FD(path_filestat_get, (__wasi_fd_t fd, __wasi_lookupflags_t flags, const char *path,
                             __wasi_filestat_t *buf), (fd, flags, path, buf))
-PASS_FD(path_filestat_set_times, (__wasi_fd_t fd, __wasi_lookupflags_t flags, const char *path,
-                                  __wasi_timestamp_t atim, __wasi_timestamp_t mtim,
-                                  __wasi_fstflags_t fst_flags),
-        (fd, flags, path, atim, mtim, fst_flags))
 PASS_FD(path_readlink, (__wasi_fd_t fd, const char *path, uint8_t *buf, __wasi_size_t buf_len,
                         __wasi_size_t *used), (fd, path, buf, buf_len, used))
 PASS_FD(path_remove_directory, (__wasi_fd_t fd, const char *path), (fd, path))
@@ -196,6 +212,38 @@ __wasi_errno_t __wrap___wasi_fd_fdstat_get(__wasi_fd_t fd, __wasi_fdstat_t *buf)
     return __real___wasi_fd_fdstat_get(fd, buf);
 }
 
+/* Setting a file's times through a link it follows makes wasmtime open the file to call
+ * futimens on it, for writing and then for reading, and a FIFO's open waits for the other
+ * end, past every limit (the reason open looks first). Without following, wasmtime sets the
+ * times on the name through its parent folder (utimensat with AT_SYMLINK_NOFOLLOW) and opens
+ * nothing. So a following call is looked at first. A folder or a regular file goes on as it
+ * is. A special file that is the name itself, not a link, goes on without following, which
+ * sets the same times without opening it, as natively. A link to a special file is refused
+ * with ENXIO, as an open of it is. Every other host call that takes a path was checked in
+ * wasmtime 51 to open nothing at the name: stat and the lookups use O_PATH or fstatat;
+ * readlink, link, rename, unlink, mkdir, rmdir and symlink act through the parent folder; a
+ * component in the middle of a path is opened as a folder, which a FIFO refuses at once. */
+__typeof__(__wasi_path_filestat_set_times) __real___wasi_path_filestat_set_times,
+    __wrap___wasi_path_filestat_set_times;
+__wasi_errno_t __wrap___wasi_path_filestat_set_times(__wasi_fd_t fd, __wasi_lookupflags_t flags,
+                                                     const char *path, __wasi_timestamp_t atim,
+                                                     __wasi_timestamp_t mtim,
+                                                     __wasi_fstflags_t fst_flags)
+{
+    __wasi_filestat_t target, name;
+    TO_REAL(fd);
+    if ((flags & __WASI_LOOKUPFLAGS_SYMLINK_FOLLOW) &&
+        __real___wasi_path_filestat_get(fd, flags, path, &target) == __WASI_ERRNO_SUCCESS &&
+        target.filetype != __WASI_FILETYPE_DIRECTORY &&
+        target.filetype != __WASI_FILETYPE_REGULAR_FILE) {
+        if (__real___wasi_path_filestat_get(fd, 0, path, &name) != __WASI_ERRNO_SUCCESS ||
+            name.filetype == __WASI_FILETYPE_SYMBOLIC_LINK)
+            return __WASI_ERRNO_NXIO;
+        flags &= ~__WASI_LOOKUPFLAGS_SYMLINK_FOLLOW;
+    }
+    return __real___wasi_path_filestat_set_times(fd, flags, path, atim, mtim, fst_flags);
+}
+
 __typeof__(__wasi_path_link) __real___wasi_path_link, __wrap___wasi_path_link;
 __wasi_errno_t __wrap___wasi_path_link(__wasi_fd_t fd, __wasi_lookupflags_t old_flags,
                                        const char *old_path, __wasi_fd_t new_fd,
@@ -206,13 +254,127 @@ __wasi_errno_t __wrap___wasi_path_link(__wasi_fd_t fd, __wasi_lookupflags_t old_
     return __real___wasi_path_link(fd, old_flags, old_path, new_fd, new_path);
 }
 
+/* Perl's in-place edit (-i) renames its work file over the file it is reading, which ARGV
+ * still holds open. Linux and macOS allow that. Windows refuses to replace a file any process
+ * holds open, and wasmtime reports its ERROR_ACCESS_DENIED and ERROR_SHARING_VIOLATION as
+ * EACCES (EPERM for a refusal it cannot name). So when a rename fails with either, and the
+ * program holds the destination open, the guest closes the real descriptors on it, renames
+ * once more, and opens the destination again in each one's place, as it was opened (without
+ * creating or truncating), at the same offset or the new file's end if that is shorter. The
+ * virtual numbers do not change. Where the first rename succeeds, as on Linux and macOS,
+ * nothing here runs. The one difference from POSIX on Windows: after such a rename, a read
+ * through the old handle reads the new file, not the old one. If the retry fails, the old
+ * file is opened again where it can be and the first error is returned. */
+#ifdef WASI_PERL_TEST_HELD_RENAME
+/* A test build only, never the shipped module: the host refuses, as Windows does, a rename
+ * over a file the program holds open (tests/build/test_rename_over_open.py). */
+static int holds(__wasi_fd_t realdir, const char *path);
+static __wasi_errno_t host_rename(__wasi_fd_t fd, const char *old_path, __wasi_fd_t new_fd,
+                                  const char *new_path)
+{
+    if (holds(new_fd, new_path))
+        return __WASI_ERRNO_ACCES;
+    return __real___wasi_path_rename(fd, old_path, new_fd, new_path);
+}
+#else
+#define host_rename __real___wasi_path_rename
+#endif
+
+/* The open files the program holds on the regular file at this name, by device and inode. */
+static int held[FD_LIMIT];
+static __wasi_filesize_t held_at[FD_LIMIT];
+
+static int find_held(__wasi_fd_t realdir, const char *path)
+{
+    __wasi_filestat_t target, st;
+    int n = 0;
+    if (__real___wasi_path_filestat_get(realdir, 0, path, &target) != __WASI_ERRNO_SUCCESS ||
+        target.filetype != __WASI_FILETYPE_REGULAR_FILE)
+        return 0;
+    for (int i = 0; i < FD_LIMIT; i++) {
+        if (files[i].refs == 0 || !files[i].reopenable)
+            continue;
+        if (__real___wasi_fd_filestat_get(files[i].real, &st) == __WASI_ERRNO_SUCCESS &&
+            st.filetype == __WASI_FILETYPE_REGULAR_FILE && st.dev == target.dev &&
+            st.ino == target.ino)
+            held[n++] = i;
+    }
+    return n;
+}
+
+#ifdef WASI_PERL_TEST_HELD_RENAME
+static int holds(__wasi_fd_t realdir, const char *path)
+{
+    return find_held(realdir, path) > 0;
+}
+#endif
+
 __typeof__(__wasi_path_rename) __real___wasi_path_rename, __wrap___wasi_path_rename;
 __wasi_errno_t __wrap___wasi_path_rename(__wasi_fd_t fd, const char *old_path, __wasi_fd_t new_fd,
                                          const char *new_path)
 {
+    __wasi_errno_t error, retry;
+    int n;
     TO_REAL(fd);
     TO_REAL(new_fd);
-    return __real___wasi_path_rename(fd, old_path, new_fd, new_path);
+    error = host_rename(fd, old_path, new_fd, new_path);
+    if (error != __WASI_ERRNO_ACCES && error != __WASI_ERRNO_PERM)
+        return error;
+    n = find_held(new_fd, new_path);
+    if (n == 0)
+        return error;
+    /* Each held file is opened again at the destination, so first make sure it can be: with
+     * the flags it has now (fcntl may have changed them since the open) and rights no wider
+     * than it has. A file that cannot be opened again is left alone, and so is the rename. */
+    for (int k = 0; k < n; k++) {
+        struct file *f = &files[held[k]];
+        __wasi_fdstat_t now;
+        __wasi_fd_t probe;
+        if (__real___wasi_fd_fdstat_get(f->real, &now) != __WASI_ERRNO_SUCCESS)
+            return error;
+        f->fdflags = now.fs_flags;
+        f->base &= now.fs_rights_base;
+        f->inheriting &= now.fs_rights_inheriting;
+        __wasi_oflags_t oflags =
+            f->oflags & ~(__WASI_OFLAGS_CREAT | __WASI_OFLAGS_EXCL | __WASI_OFLAGS_TRUNC);
+        if (__real___wasi_path_open(new_fd, 0, new_path, oflags, f->base, f->inheriting,
+                                    f->fdflags, &probe) != __WASI_ERRNO_SUCCESS)
+            return error;
+        (void)__real___wasi_fd_close(probe);
+    }
+    for (int k = 0; k < n; k++) {
+        struct file *f = &files[held[k]];
+        if (__real___wasi_fd_tell(f->real, &held_at[k]) != __WASI_ERRNO_SUCCESS)
+            held_at[k] = 0;
+        (void)__real___wasi_fd_close(f->real);
+        f->real = GONE;
+    }
+    retry = host_rename(fd, old_path, new_fd, new_path);
+    /* Between the rename and the reopen another process on the host could put something else
+     * at the name: the same race the look before an open leaves. So the reopen is looked at
+     * first, as every open is, and what it opened must be a regular file; anything else is
+     * closed again and the number answers EBADF. */
+    for (int k = 0; k < n; k++) {
+        struct file *f = &files[held[k]];
+        __wasi_filestat_t st;
+        __wasi_filesize_t pos;
+        __wasi_fd_t real;
+        __wasi_oflags_t oflags =
+            f->oflags & ~(__WASI_OFLAGS_CREAT | __WASI_OFLAGS_EXCL | __WASI_OFLAGS_TRUNC);
+        if (look(new_fd, 0, new_path, oflags) != __WASI_ERRNO_SUCCESS ||
+            __real___wasi_path_open(new_fd, 0, new_path, oflags, f->base, f->inheriting,
+                                    f->fdflags, &real) != __WASI_ERRNO_SUCCESS)
+            continue;
+        if (__real___wasi_fd_filestat_get(real, &st) != __WASI_ERRNO_SUCCESS ||
+            st.filetype != __WASI_FILETYPE_REGULAR_FILE) {
+            (void)__real___wasi_fd_close(real);
+            continue;
+        }
+        f->real = real;
+        pos = held_at[k] > st.size ? st.size : held_at[k];
+        (void)__real___wasi_fd_seek(real, (__wasi_filedelta_t)pos, __WASI_WHENCE_SET, &pos);
+    }
+    return retry == __WASI_ERRNO_SUCCESS ? retry : error;
 }
 
 __typeof__(__wasi_path_symlink) __real___wasi_path_symlink, __wrap___wasi_path_symlink;
@@ -223,17 +385,22 @@ __wasi_errno_t __wrap___wasi_path_symlink(const char *old_path, __wasi_fd_t fd,
     return __real___wasi_path_symlink(old_path, fd, new_path);
 }
 
-/* poll_oneoff names descriptors inside its subscriptions. A subscription on a closed number is
- * not sent to the host, which would fail the whole call; it gets its own event, EBADF with
- * its userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively.
- * The host's events follow it in `out`. */
+/* poll_oneoff names descriptors inside its subscriptions. Two kinds are answered here and not
+ * sent to the host. A subscription on a closed number gets its own event, EBADF with its
+ * userdata, which wasi-libc's poll turns into POLLNVAL for that entry alone, as natively; the
+ * host would fail the whole call. A regular file is always ready to read and to write, as
+ * POSIX says of select and poll; the host would report it only once a read it starts in the
+ * background is done, which a zero timeout can outrun. A third kind is not sent at all: a
+ * read on a descriptor without the right to read, or a write on one without the right to
+ * write (a copy of STDOUT asked whether it is readable). The host fails the whole call for
+ * those; natively that entry is simply never ready. The host's events follow these in `out`. */
 __typeof__(__wasi_poll_oneoff) __real___wasi_poll_oneoff, __wrap___wasi_poll_oneoff;
 __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi_event_t *out,
                                          __wasi_size_t nsubscriptions, __wasi_size_t *nevents)
 {
     __wasi_subscription_t *copy;
     __wasi_errno_t error = __WASI_ERRNO_SUCCESS;
-    __wasi_size_t nbad = 0, nsent = 0, nhost = 0;
+    __wasi_size_t nlocal = 0, nsent = 0, nhost = 0;
     int has_fd = 0;
     for (__wasi_size_t i = 0; i < nsubscriptions; i++)
         has_fd |= in[i].u.tag != __WASI_EVENTTYPE_CLOCK;
@@ -245,12 +412,23 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
     for (__wasi_size_t i = 0; i < nsubscriptions; i++) {
         /* fd_read and fd_write have the same layout. */
         __wasi_fd_t fd = in[i].u.u.fd_read.file_descriptor;
-        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK && !is_open((int)fd)) {
-            memset(&out[nbad], 0, sizeof out[nbad]);
-            out[nbad].userdata = in[i].userdata;
-            out[nbad].error = __WASI_ERRNO_BADF;
-            out[nbad].type = in[i].u.tag;
-            nbad++;
+        __wasi_fdstat_t st;
+        int open = in[i].u.tag != __WASI_EVENTTYPE_CLOCK && is_open((int)fd) &&
+                   files[slot[fd] - 1].real != GONE;
+        int known = open && __real___wasi_fd_fdstat_get(files[slot[fd] - 1].real, &st) == 0;
+        if (known && st.fs_filetype != __WASI_FILETYPE_REGULAR_FILE &&
+            !(st.fs_rights_base & (in[i].u.tag == __WASI_EVENTTYPE_FD_READ
+                                       ? __WASI_RIGHTS_FD_READ
+                                       : __WASI_RIGHTS_FD_WRITE)))
+            continue;
+        if (in[i].u.tag != __WASI_EVENTTYPE_CLOCK &&
+            (!open || (known && st.fs_filetype == __WASI_FILETYPE_REGULAR_FILE))) {
+            memset(&out[nlocal], 0, sizeof out[nlocal]);
+            out[nlocal].userdata = in[i].userdata;
+            out[nlocal].error = open ? __WASI_ERRNO_SUCCESS : __WASI_ERRNO_BADF;
+            out[nlocal].type = in[i].u.tag;
+            out[nlocal].fd_readwrite.nbytes = 1;
+            nlocal++;
             continue;
         }
         copy[nsent] = in[i];
@@ -258,10 +436,10 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
             copy[nsent].u.u.fd_read.file_descriptor = files[slot[fd] - 1].real;
         nsent++;
     }
-    /* With a closed number there is something to report already, so the host is asked
+    /* With an event answered here there is something to report already, so the host is asked
      * whether anything else is ready without waiting: a clock subscription would make it
-     * wait, and a refused one is answered at once. */
-    if (nbad > 0) {
+     * wait. */
+    if (nlocal > 0) {
         __wasi_size_t keep = 0;
         for (__wasi_size_t i = 0; i < nsent; i++) {
             if (copy[i].u.tag != __WASI_EVENTTYPE_CLOCK)
@@ -276,22 +454,60 @@ __wasi_errno_t __wrap___wasi_poll_oneoff(const __wasi_subscription_t *in, __wasi
             now->u.u.clock.id = __WASI_CLOCKID_MONOTONIC;
         }
     }
-    if (nsent > 0)
-        error = __real___wasi_poll_oneoff(copy, out + nbad, nsent, &nhost);
+    /* The host writes into a buffer of its own, one event per subscription it is sent, which
+     * may be one more than the caller's buffer has left (the zero clock above). At most that
+     * many of its events, the zero clock's dropped, are copied after the local ones. */
+    if (nsent > 0) {
+        __wasi_event_t *ev = malloc(nsent * sizeof *ev);
+        __wasi_size_t got = 0;
+        if (ev == NULL) {
+            free(copy);
+            return __WASI_ERRNO_NOMEM;
+        }
+        error = __real___wasi_poll_oneoff(copy, ev, nsent, &got);
+        for (__wasi_size_t k = 0; error == __WASI_ERRNO_SUCCESS && k < got && k < nsent; k++) {
+            if (nlocal > 0 && ev[k].userdata == UINT64_MAX && ev[k].type == __WASI_EVENTTYPE_CLOCK)
+                continue;
+            if (nlocal + nhost < nsubscriptions)
+                out[nlocal + nhost++] = ev[k];
+        }
+        free(ev);
+    }
     free(copy);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
-    /* The zero clock added above is not the caller's; its event is dropped. */
-    if (nbad > 0) {
-        __wasi_size_t keep = nbad;
-        for (__wasi_size_t i = nbad; i < nbad + nhost; i++) {
-            if (out[i].userdata != UINT64_MAX || out[i].type != __WASI_EVENTTYPE_CLOCK)
-                out[keep++] = out[i];
-        }
-        nhost = keep - nbad;
-    }
-    *nevents = nbad + nhost;
+    *nevents = nlocal + nhost;
     return __WASI_ERRNO_SUCCESS;
+}
+
+/* A host's open of a FIFO waits in the kernel for the other end, where neither the runner's
+ * deadline nor its fuel can stop it: they stop WebAssembly code only. So before the host is
+ * asked to open a name, the guest asks what the name is, with the same directory, lookup flags
+ * and path, so it resolves as the open will (following links exactly when the open does).
+ * Anything but a folder, a regular file, or a link the open will not follow is refused:
+ * ENOTDIR when the open must find a folder (what the host answers for any other non-folder),
+ * ENXIO otherwise (what a host gives for a device it will not open). A name that does not
+ * exist, or that the host will not describe, is left to the open, so creating files works
+ * and every other answer stays the host's. An exclusive create needs no look: the host refuses
+ * an existing name before it opens anything. The guest's only code is Perl, which cannot call
+ * a WASI import directly, so no program can skip the look. What it cannot close is another
+ * process on the host swapping the name between the look and the open. */
+static __wasi_errno_t look(__wasi_fd_t realdir, __wasi_lookupflags_t dirflags, const char *path,
+                           __wasi_oflags_t oflags)
+{
+    __wasi_filestat_t st;
+    if ((oflags & __WASI_OFLAGS_CREAT) && (oflags & __WASI_OFLAGS_EXCL))
+        return __WASI_ERRNO_SUCCESS;
+    if (__real___wasi_path_filestat_get(realdir, dirflags, path, &st) != __WASI_ERRNO_SUCCESS)
+        return __WASI_ERRNO_SUCCESS;
+    switch (st.filetype) {
+    case __WASI_FILETYPE_DIRECTORY:
+    case __WASI_FILETYPE_REGULAR_FILE:
+    case __WASI_FILETYPE_SYMBOLIC_LINK:
+        return __WASI_ERRNO_SUCCESS;
+    default:
+        return (oflags & __WASI_OFLAGS_DIRECTORY) ? __WASI_ERRNO_NOTDIR : __WASI_ERRNO_NXIO;
+    }
 }
 
 /* The calls that make a new descriptor. A free number is found first, so a full table refuses
@@ -304,15 +520,24 @@ __wasi_errno_t __wrap___wasi_path_open(__wasi_fd_t fd, __wasi_lookupflags_t dirf
 {
     __wasi_fd_t real;
     __wasi_errno_t error;
-    int v;
+    int v, f;
     TO_REAL(fd);
     v = lowest_free(0);
     if (v < 0)
         return __WASI_ERRNO_MFILE;
+    error = look(fd, dirflags, path, oflags);
+    if (error != __WASI_ERRNO_SUCCESS)
+        return error;
     error = __real___wasi_path_open(fd, dirflags, path, oflags, base, inheriting, fdflags, &real);
     if (error != __WASI_ERRNO_SUCCESS)
         return error;
-    bind(v, new_file(real), 0);
+    f = new_file(real);
+    files[f].oflags = oflags;
+    files[f].fdflags = fdflags;
+    files[f].base = base;
+    files[f].inheriting = inheriting;
+    files[f].reopenable = 1;
+    bind(v, f, 0);
     *opened = (__wasi_fd_t)v;
     return __WASI_ERRNO_SUCCESS;
 }
@@ -459,4 +684,55 @@ int __wrap_fcntl(int fd, int cmd, ...)
     default:
         return __real_fcntl(fd, cmd);
     }
+}
+
+/* Four-argument select. Perl hands select the strings vec() builds, one bit per descriptor, as
+ * its fd_set buffers (pp_sselect, the only caller of select in the link), and pads each to
+ * whole words past nfds / 8 bytes. wasi-libc's fd_set is a count and a list of descriptors. So
+ * the bits are read into wasi-libc's sets, its select runs, and the descriptors it reports are
+ * written back as bits. As on Linux, which reads no further than its descriptor table, bits at
+ * or past the table's size are not looked at and are left as they were. On an error the
+ * vectors are left as they were, as POSIX says. */
+__typeof__(select) __real_select, __wrap_select;
+int __wrap_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
+                  fd_set *restrict errorfds, struct timeval *restrict timeout)
+{
+    static fd_set sets[3];
+    unsigned char *bits[3] = {(unsigned char *)readfds, (unsigned char *)writefds,
+                              (unsigned char *)errorfds};
+    fd_set *args[3];
+    int n, found;
+    if (nfds < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    n = nfds < FD_LIMIT ? nfds : FD_LIMIT;
+    /* No descriptor here has an exceptional condition to report, and wasi-libc answers
+     * ENOSYS for an error set with nothing else to watch, so the error set is never passed:
+     * on success its bits come back clear, as natively. */
+    for (int k = 0; k < 3; k++) {
+        args[k] = NULL;
+        if (bits[k] == NULL || k == 2)
+            continue;
+        args[k] = &sets[k];
+        FD_ZERO(args[k]);
+        for (int fd = 0; fd < n; fd++) {
+            if (bits[k][fd / 8] & (1u << (fd % 8)))
+                FD_SET(fd, args[k]);
+        }
+    }
+    found = __real_select(n, args[0], args[1], args[2], timeout);
+    if (found < 0)
+        return found;
+    for (int k = 0; k < 3; k++) {
+        if (bits[k] == NULL)
+            continue;
+        for (int fd = 0; fd < n; fd++) {
+            if (args[k] != NULL && FD_ISSET(fd, args[k]))
+                bits[k][fd / 8] |= (unsigned char)(1u << (fd % 8));
+            else
+                bits[k][fd / 8] &= (unsigned char)~(1u << (fd % 8));
+        }
+    }
+    return found;
 }
