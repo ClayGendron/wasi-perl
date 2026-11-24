@@ -200,12 +200,8 @@ DISTRIBUTION_MODULE = {
 }
 
 # Modules of the library that load natively and not in the sandbox, each with its reason.
-FAILS_IN_THE_SANDBOX = {
-    # CPAN sets $SIG{WINCH} in a BEGIN block, before it copies a descriptor, and the sandbox
-    # refuses a store into %SIG for a real signal.
-    "CPAN": b"signal handler for SIGWINCH is not available in the wasi-perl sandbox",
-    # Math::Complex sets local $SIG{FPE} while it looks for infinity, at load time.
-    "Math/Complex": b"signal handler for SIGFPE is not available in the wasi-perl sandbox",
+FAILS_IN_THE_SANDBOX: dict[str, bytes] = {
+    # None at present: every module that loads natively loads in the sandbox.
 }
 
 
@@ -551,9 +547,7 @@ def test_manifest_lists_every_library_file():
     # Sorted by path component, as Python sorts paths, so the runner's writer gives the same bytes.
     assert list(entries) == sorted(entries, key=lambda n: n.split("/"))
     for name, digest in entries.items():
-        assert hashlib.sha256((ARTIFACTS / name).read_bytes()).hexdigest() == digest, (
-            name
-        )
+        assert hashlib.sha256((ARTIFACTS / name).read_bytes()).hexdigest() == digest, name
 
 
 def test_sha256sums_covers_every_file_of_the_set():
@@ -562,14 +556,10 @@ def test_sha256sums_covers_every_file_of_the_set():
         pytest.skip("build/artifacts/SHA256SUMS is missing; run scripts/build.sh")
     entries = _sums(sums)
     every_file = sorted(
-        str(p.relative_to(ARTIFACTS))
-        for p in ARTIFACTS.rglob("*")
-        if p.is_file() and p != sums
+        str(p.relative_to(ARTIFACTS)) for p in ARTIFACTS.rglob("*") if p.is_file() and p != sums
     )
     assert "perl.wasm" in entries and "MANIFEST" in entries
     assert sorted(entries) == every_file
     assert list(entries) == sorted(entries, key=lambda n: n.split("/"))
     for name, digest in entries.items():
-        assert hashlib.sha256((ARTIFACTS / name).read_bytes()).hexdigest() == digest, (
-            name
-        )
+        assert hashlib.sha256((ARTIFACTS / name).read_bytes()).hexdigest() == digest, name

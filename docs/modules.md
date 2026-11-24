@@ -32,6 +32,5 @@ B, Compress::Raw::Bzip2, Compress::Raw::Zlib, Cwd, Data::Dumper, Devel::Peek, De
 - **Time zones.** There are no zone tables: local time is UTC, `POSIX::tzset` does nothing, and `POSIX::tzname` gives two empty names (natively `GMT`).
 - **Terminals and special files.** `POSIX::ttyname` returns undef; `POSIX::mkfifo` fails with "Function not implemented".
 - **Host name.** `Sys::Hostname::hostname` returns `(none)`.
-- **CPAN and Math::Complex do not load.** Each stores into `%SIG` for a real signal when it loads (`$SIG{WINCH}`, `local $SIG{FPE}`), which the sandbox refuses. Math::Trig uses Math::Complex.
 - **`use diagnostics`** fails: it reads `perldiag.pod`, and the library ships no pod.
 - **`umask`** is not implemented; Archive::Tar warns about it when it loads, and works.
