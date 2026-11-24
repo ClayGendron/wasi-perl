@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from wasi_perl import Grant, run
@@ -31,7 +33,7 @@ def test_the_library_is_read(perl):
 
 
 def test_a_one_liner_over_a_grant(perl, tmp_path):
-    (tmp_path / "f.txt").write_text("apple\nbanana\ncherry\n")
+    (tmp_path / "f.txt").write_bytes(b"apple\nbanana\ncherry\n")
     done = run(
         ["-ne", "print if /an/", "/data/f.txt"], grants=[Grant(tmp_path, "/data")], artifacts=perl
     )
@@ -48,7 +50,7 @@ def test_a_write_to_a_read_only_grant_is_refused(perl, tmp_path):
 
 
 def test_cwd(perl, tmp_path):
-    (tmp_path / "f.txt").write_text("x\n")
+    (tmp_path / "f.txt").write_bytes(b"x\n")
     g = [Grant(tmp_path, "/data", writable=True)]
     done = run(
         ["-e", 'open(my $f, "<", "f.txt") or die "$!\\n"; print <$f>'],
@@ -79,12 +81,20 @@ def test_a_guest_made_backslash_name_never_redirects_a_grant(perl, tmp_path):
     rw = tmp_path / "rw"
     rw.mkdir()
     (tmp_path / "secret").mkdir()
-    (tmp_path / "secret" / "s.txt").write_text("SECRET")
+    (tmp_path / "secret" / "s.txt").write_bytes(b"SECRET")
     made = run(
         ["-e", 'mkdir "/out/..\\\\secret" or die "$!\\n"'],
         grants=[Grant(rw, "/out", writable=True)],
         artifacts=perl,
     )
+    if os.name == "nt":
+        # On a Windows host a backslash is a separator, so the name cannot be made at all:
+        # the guest is refused and nothing changes beside or above the grant.
+        assert made.exit_code != 0 and made.stderr == b"Operation not permitted\n", made
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["rw", "secret"]
+        assert list(rw.iterdir()) == []
+        assert sorted(p.name for p in (tmp_path / "secret").iterdir()) == ["s.txt"]
+        return
     assert made.exit_code == 0, made
     assert (rw / "..\\secret").is_dir()
     code = 'print open(my $f, "<", "/in/s.txt") ? "READ\\n" : "no\\n"; open(my $g, ">", "/in/p")'

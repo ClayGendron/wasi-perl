@@ -10,7 +10,7 @@ wasi-perl is Perl 5.42 compiled to WebAssembly (`wasm32-wasip1`) as one static b
 
 Run it from Python, from the command line, or load the same `perl.wasm` into any WebAssembly host that supports exception handling.
 
-> **Status.** 0.1.0 is being built. The outputs below were run with the first `perl.wasm` (before the core XS modules are linked in).
+Every release is tested on Linux (x86-64 and arm64), macOS (arm64) and Windows (x86-64): Perl's own `t/` suite, a set of agent-style one-liners compared byte for byte with native perl 5.42.3, and sandbox escape tests. [Modules](https://github.com/ClayGendron/wasi-perl/blob/main/docs/modules.md) lists what is linked in and what is left out. [The sandbox](https://github.com/ClayGendron/wasi-perl/blob/main/docs/sandbox.md) lists what a guest cannot do: `fork`, `exec`, `system`, backticks, pipe opens and signal handlers die with "… is not available in the wasi-perl sandbox".
 
 # Installation and quick start
 
@@ -120,11 +120,9 @@ The command exits 0 when the call returned (the JSON says how the program ended)
 
 # Not protected
 
-- A FIFO (named pipe) inside a grant: a guest that opens one waits inside the host's own `open`, beyond the deadline's reach, until something writes to it. Grant folders that hold no FIFO.
 - Symbolic links a guest leaves in a writable grant. The guest cannot follow one out of the grant, but your own program, reading the folder afterwards, can.
 - A host folder swapped by another writer between the runner's check and wasmtime's own open of it. Within one process the runner keeps a registry of the grants of the calls running now, and refuses a grant at, inside or above another live call's writable grant (and a writable grant over another live call's grant), so no guest of this process can do it; another process, or another guest of another process, with write access to a folder on the way still could.
-- A guest `sleep` (and `select` with a timeout, `Time::HiRes::sleep`) waits inside the host, where the deadline cannot reach it, so a guest that sleeps longer than its deadline holds `run` until it wakes. This holds until the build whose guest cuts its waits into short slices (spec 011) is released.
-- Host descriptors. The runner raises the process's soft open-file limit toward its hard limit once, then counts each running call as 256 descriptors, the guest's own table's cap from spec 011's build. A call alone is never refused; a call beside others past half the soft limit (4,096 on Windows) raises `TooManyCalls` before it starts. A `perl.wasm` without that table can hold more than 256, and then another call's start can fail, as its trap ("failed to add preopen dir").
+- Host descriptors. The runner raises the process's soft open-file limit toward its hard limit once, then counts each running call as 256 descriptors, the most the guest's own descriptor table holds. A call alone is never refused; a call beside others past half the soft limit (4,096 on Windows) raises `TooManyCalls` before it starts.
 - On Windows, the module cache is trusted by its kind (a folder, a file with one name, no link) and the folder's access list, not by its owner: keep `cache_dir` in a folder only you can write, as `%LOCALAPPDATA%` is.
 - `SHA256SUMS` proves the set is whole, not who made it, and the library is hashed once per process: a library file changed while a process runs is seen by the next process.
 - Disk use inside a writable grant, and anything a writable grant holds that a later call reads.

@@ -7,7 +7,7 @@ from wasi_perl import Grant, run
 
 
 def test_a_read_only_grant_reads_and_refuses_a_write(tmp_path, standin):
-    (tmp_path / "f").write_text("data\n")
+    (tmp_path / "f").write_bytes(b"data\n")
     g = [Grant(tmp_path, "/d")]
     assert run(["cat", "/d/f"], grants=g, artifacts=standin).stdout == b"data\n"
     done = run(["write", "/d/f"], grants=g, artifacts=standin)
@@ -45,7 +45,7 @@ def test_the_runtime_folders_are_read_only(standin, standin_dir):
 def test_a_folder_outside_every_grant_is_not_found(tmp_path, standin):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
-    (tmp_path / "b" / "secret").write_text("s")
+    (tmp_path / "b" / "secret").write_bytes(b"s")
     done = run(["cat", "/a/../b/secret"], grants=[Grant(tmp_path / "a", "/a")], artifacts=standin)
     assert done.exit_code == 1
     assert done.stdout.startswith(b"open /a/../b/secret: ")
@@ -70,7 +70,7 @@ def test_without_cwd_a_relative_path_fails(tmp_path, standin):
 def test_grants_nest(tmp_path, standin):
     (tmp_path / "outer").mkdir()
     (tmp_path / "inner").mkdir()
-    (tmp_path / "inner" / "f").write_text("inner\n")
+    (tmp_path / "inner" / "f").write_bytes(b"inner\n")
     g = [Grant(tmp_path / "outer", "/o", writable=True), Grant(tmp_path / "inner", "/o/i")]
     assert run(["cat", "/o/i/f"], grants=g, artifacts=standin).stdout == b"inner\n"
     assert run(["write", "/o/i/g"], grants=g, artifacts=standin).exit_code == 1

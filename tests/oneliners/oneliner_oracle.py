@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -177,6 +178,19 @@ def load_corpus(text: str | None = None) -> list[Case]:
             )
         )
     return cases
+
+
+# The systems an entry's `hosts` may name, as Python's sys.platform spells them.
+HOSTS = {"linux", "darwin", "win32"}
+
+
+def known_here(entry: dict | None, platform: str = sys.platform) -> dict | None:
+    """The entry if it applies on this host: an entry with `hosts` is a difference of those
+    host systems alone (what their file systems or wasmtime's port to them report), and on any
+    other host the case must match."""
+    if entry is not None and "hosts" in entry and platform not in entry["hosts"]:
+        return None
+    return entry
 
 
 def load_known_differences() -> dict[str, dict]:

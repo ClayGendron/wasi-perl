@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ROOT
+from _build_helpers import ROOT
 
 HERE = Path(__file__).resolve().parent
 

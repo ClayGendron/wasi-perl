@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import NATIVE_PERL, assert_exit_refused, default_grants
+from _build_helpers import NATIVE_PERL, assert_exit_refused, default_grants
 
 SUFFIX = b" is not available in the wasi-perl sandbox at -e line 1.\n"
 
