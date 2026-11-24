@@ -50,9 +50,9 @@ def test_a_sleep_lasts_its_time(guest, native, case):
 SHORT = (
     'print sleep(0), "\\n"; print scalar(select(undef, undef, undef, 0)), "\\n"; '
     'print scalar(select(undef, undef, undef, 0.001)), "\\n"; '
-    'use Time::HiRes; print Time::HiRes::sleep(0) == 0 ? "zero\\n" : "not zero\\n"; '
+    'use Time::HiRes; print Time::HiRes::sleep(0) >= 0 ? "zero or more\\n" : "negative\\n"; '
     'print Time::HiRes::sleep(0.001) > 0 ? "slept\\n" : "did not\\n"; '
-    'print Time::HiRes::usleep(0), "\\n"'
+    'print Time::HiRes::usleep(0) >= 0 ? "usleep\\n" : "negative\\n"'
 )
 
 

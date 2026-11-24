@@ -19,7 +19,8 @@ import pytest
 
 from conftest import ARTIFACTS, ROOT
 
-LOOKS_LIKE_HOME = re.compile(rb"(?:/root/|/home/|/Users/)[^\s'\"<>()\\]*|[^\s'\"<>()\\]*\.claude\b")
+LOOKS_LIKE_HOME = re.compile(rb"(?:/root/|/home/|/Users/)[^\s'\"<>()\\]*")
+TOKEN = re.compile(rb"[^\s'\"<>()\\]*")
 TARBALL = "perl-5.42.3.tar.xz"
 
 
@@ -53,8 +54,16 @@ def test_the_checkout_path_does_not_ship():
 def test_every_home_path_in_the_set_is_upstreams():
     found: dict[bytes, str] = {}
     for p in _set_files():
-        for m in LOOKS_LIKE_HOME.finditer(p.read_bytes()):
+        data = p.read_bytes()
+        for m in LOOKS_LIKE_HOME.finditer(data):
             found.setdefault(m.group(0), str(p.relative_to(ARTIFACTS)))
+        at = data.find(b".claude")
+        while at >= 0:
+            start = at
+            while start > 0 and TOKEN.fullmatch(data[start - 1 : start]):
+                start -= 1
+            found.setdefault(TOKEN.match(data, start).group(0), str(p.relative_to(ARTIFACTS)))
+            at = data.find(b".claude", at + 1)
     assert found, "the library's documentation should hold some example paths"
     left = set(found)
     with tarfile.open(_tarball()) as tf:
