@@ -92,6 +92,35 @@ Against stand-ins of the runner, each one change made by text replacement and re
 - **wasmtime-py objects finalized at interpreter exit** printed `Exception ignored in: <function Managed.__del__ …> TypeError: 'NoneType' object is not callable` after `wasi-perl run`. Fixed in this branch: `_engines` frees its modules and engines in an `atexit` hook, as wasi-python's `release_at_exit` does (EXECUTED: the message is gone).
 - **The README's outputs** were run with this perl.wasm and replaced; one example changed: allocating `"x" x (512 * 1024 * 1024)` as a constant is folded at compile time and panics (`Out of memory in perl:util:safesysrealloc` then `panic: fold_constants JMPENV_PUSH returned 2`, exit 48); a run-time size gives exit 1 with Perl's own `Out of memory` line, which the README now shows. Whether the fold-time panic is right is spec 002's or 007's question.
 
+### Revised against the review
+
+The review (`../reviews/005-the-sandbox-escape-tests-pr-2026-11-24.md`, "Lands", four Mediums) is answered in one commit, after spec 004's review fix was merged in (`git merge origin/spec/004-runner`; README taken from 004's side, which is this branch's README plus that review's edits).
+
+```
+$ WASI_PERL_ARTIFACTS=<sealed copy> uv run pytest -q
+169 passed, 1 skipped, 3 xfailed, 4 warnings in 39.23s
+$ uv run pytest -q                       # no perl.wasm
+149 passed, 24 skipped, 4 warnings in 10.39s
+$ uv run ruff check && uv run ruff format --check
+All checks passed!
+23 files already formatted
+```
+
+The three expected failures are the FIFO check and spec 004's two exit-masking checks. The stronger checks still fail against stand-ins of the runner, each run with a freshly sealed copy (`build/logs/005-r1-mutations.txt`): grants always writable fails 2, the library writable fails 6, `/dev` writable fails 1.
+
+### Author's answers
+
+1. **M1, `tree()` left out the folder itself: fixed.** Its first row is now `"."` with the folder's own mode and modification time, so the `utime-dir` row rests on the host's state too. `_digest_tree` is built on `tree()`, so the library and `dev/` digests cover modes and times as well.
+2. **M2, errno texts: fixed.** Every row of every check names its text through `expect()`: check 1 "No such file or directory" on all seven rows (with the new `/..` row); check 6 "Operation not permitted" on every row but `chmod` ("Function not implemented") and `write-read-handle` ("Bad file descriptor"); the guest-made link rows each with the text the run gave. The plant rows through other spellings accept either text (`/usr/./local/…` answers ENOENT, the rest EPERM), since where the path stops decides which; both are the wall's refusal.
+3. **M3, host state: fixed.** The no-grant check compares the library's and `dev/`'s digests and the check's own folder before and after; the planted-code check compares the library's digest and `ro`'s tree, and `rw` holds exactly `Evil.pm` and `w.txt`; the `..` check compares `outside`'s and `ro`'s trees (bytes, modes, times) and the top-level listing.
+4. **M4, a guest that stops early: fixed.** `lines()` asserts `exit_code == 0` and `trapped is None`; `expect()` asserts the exact set of row names; the read-only check counts 22 rows, 23 with `Fcntl`.
+5. **L5, the FIFO xfail: fixed.** It is `xfail(raises=BlockedInHost, strict=True)`: only the child's timeout raises `BlockedInHost`, and a control run of the same child on a regular file at that name must print `opened` first, so a broken harness fails.
+6. **L6, other spellings and `/..`: fixed.** `/usr/./local/lib/perl5/5.42`, `//usr/local/lib/perl5/5.42` and `…/5.42/../5.42` are plant rows; `opendir("/..")` is a row of check 1.
+7. **L7, `-i` on the library and through a link: fixed.** The in-place check runs `-pi` and `-pi.bak` on `/ro/f.txt`, `-pi` on `strict.pm`, `-pi` on `../ro/f.txt` from `cwd=/rw`, and `-pi` through a link the guest makes from `rw` into `ro`; each says "Operation not permitted" on stderr, and `ro`'s tree and the library's digest are unchanged.
+8. **L8, the FIFO opened for writing: answered, not added.** Both directions are the same blocking host `open(2)` on a FIFO with no peer (INFERRED from `open(2)`'s rule, not run here); one check names the gap, and the fix (a `path_open` that checks the kind first) covers both.
+9. **L9, 1,625 lines: answered.** EXECUTED again: the sealed copy holds 1,626 files, which is 1,622 library files, `perl.wasm`, `dev/null`, the `MANIFEST` the copy was given, and `SHA256SUMS` itself. So its `SHA256SUMS` has 1,625 lines, and `sha256sum -c` passes. The review's copy gave 1,624, consistent with a copy sealed before its `MANIFEST` was written.
+10. **Specification numbers under `tests/`**: removed from this file's comments and xfail reason, as spec 004's review asked of that branch.
+
 ### Left over
 
 - The FIFO refusal (a `path_open` that checks the file's kind first), its own specification.
