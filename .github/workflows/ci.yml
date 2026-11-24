@@ -98,10 +98,11 @@ jobs:
         run: uv run pytest tests/build -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/build-junit.xml"
       # The checks of the CPAN modules need the build tree, the native install in build/native-cpan
       # and the pinned tarballs; the checks of the library index need the build tree, its stubs,
-      # its logs and the wasmtime command line. This job has all of them, so a skip here means one
-      # went missing, and it fails. Every test function of the four files must have run at least
-      # once.
-      - name: No check of the CPAN modules or the library index was skipped
+      # its logs and the wasmtime command line; the checks of wasm-opt need binaryen under
+      # build/tools and the linked module in build/link. This job has all of them, so a skip here
+      # means one went missing, and it fails. Every test function of the five files must have run
+      # at least once.
+      - name: No check of the CPAN modules, the library index or wasm-opt was skipped
         if: always()
         run: |
           if [ ! -f "$RUNNER_TEMP/build-junit.xml" ]; then
@@ -110,7 +111,8 @@ jobs:
           fi
           uv run --no-project python -I - "$RUNNER_TEMP/build-junit.xml" <<'PY'
           import ast, sys, xml.etree.ElementTree as ET
-          files = ("test_cpan_modules", "test_cpan_unpack", "test_lib_index", "test_library_lookups")
+          files = ("test_cpan_modules", "test_cpan_unpack", "test_lib_index", "test_library_lookups",
+                   "test_wasm_opt")
           floor = 0
           for f in files:
               tree = ast.parse(open(f"tests/build/{f}.py", encoding="utf-8").read())
@@ -129,7 +131,7 @@ jobs:
               if skip is not None:
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
-          print(f"{ran} checks of the CPAN modules and the library index (at least {floor}), {skipped} skipped")
+          print(f"{ran} checks of the CPAN modules, the library index and wasm-opt (at least {floor}), {skipped} skipped")
           sys.exit(1 if skipped or ran < floor else 0)
           PY
       - name: Keep the verified downloads for the next run
