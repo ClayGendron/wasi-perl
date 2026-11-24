@@ -98,6 +98,8 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 
 ## The artifact set is checked in every new process
 
-Before a process's first call, the runner hashes every file of the artifact set: `perl.wasm`, `MANIFEST` and each file of the library. Each must match `SHA256SUMS`, and no file may be missing or added. This happens in every new process, on every system.
+Before a process's first call with the set it finds, the runner hashes every file of that set: `perl.wasm`, `MANIFEST` and each file of the library. Each must match `SHA256SUMS`, and no file may be missing or added. This happens in every new process, on every system.
+
+A set passed as `run(artifacts=...)` is used as you give it. It is not hashed.
 
 The runner keeps no record of what it hashed across processes. Such a record would trust a file whose size and times had not moved. A write through a shared memory mapping can change a file's bytes without moving its times, so a changed library would be trusted.

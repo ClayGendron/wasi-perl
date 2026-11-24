@@ -9,6 +9,7 @@ by spelling, so `~/LIBRARY/CACHES` on a case-insensitive disk is `~/Library/Cach
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import sys
@@ -325,11 +326,18 @@ def _now_ns() -> int:
     return time.time_ns()
 
 
+_ABSENT = (errno.ENOENT, errno.ENOTDIR)  # the errors that mean a name leads to nothing
+
+
 def _folder_stamp(path: str, follow: bool) -> FolderStamp | None:
+    """The folder's stamp, or None when nothing is there. Any other error is raised: a folder
+    the process cannot read now may be one it can read later, with nothing in it moved."""
     try:
         st = os.stat(path) if follow else os.lstat(path)
-    except OSError:
-        return None
+    except OSError as e:
+        if e.errno in _ABSENT:
+            return None
+        raise
     return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
 
 
@@ -351,11 +359,29 @@ class RuntimeFiles:
         # out) is stamped and listed once.
         stamps: dict[str, tuple[bool, FolderStamp | None]] = {}
         files: dict[Identity, str] = {}
+        # Whether every folder and file could be read. A scan that met any other error than a
+        # name leading to nothing serves its own call only, as a scan did on every call before:
+        # the process's rights may grow (a capability, a group, a policy) with no stamp moving,
+        # and then the files it could not see would never be looked for.
+        complete = True
+
+        def failed(e: OSError) -> None:
+            nonlocal complete
+            if e.errno not in _ABSENT:
+                complete = False
+
+        def stamp(folder: str, follow: bool) -> FolderStamp | None:
+            try:
+                return _folder_stamp(folder, follow)
+            except OSError as e:
+                failed(e)
+                return None
 
         def note(path: str) -> None:
             try:
                 st = os.lstat(path)
-            except OSError:
+            except OSError as e:
+                failed(e)
                 return
             if stat.S_ISREG(st.st_mode):
                 files.setdefault((st.st_dev, st.st_ino), path)
@@ -365,12 +391,13 @@ class RuntimeFiles:
             folder, follow = pending.pop()
             if folder in stamps:
                 continue
-            stamps[folder] = (follow, _folder_stamp(folder, follow))  # None: not there
+            stamps[folder] = (follow, stamp(folder, follow))  # None: not there
             try:
                 with os.scandir(folder) as entries:
                     found = list(entries)
-            except OSError:
-                continue  # an unreadable folder: its files were never seen, as before
+            except OSError as e:
+                failed(e)
+                continue  # its files are not seen by this scan, as before
             for entry in found:
                 if entry.is_dir(follow_symlinks=False):
                     pending.append((entry.path, False))
@@ -379,21 +406,24 @@ class RuntimeFiles:
         for single in self.singles:
             parent = str(single.parent)
             if parent not in stamps:
-                stamps[parent] = (True, _folder_stamp(parent, True))
+                stamps[parent] = (True, stamp(parent, True))
             note(str(single))
         self.stamps = tuple(stamps.items())
         self.files = files
-        self.settled = all(
+        self.settled = complete and all(
             s is None or (s[2] < start - SETTLE_NS and s[3] < start - SETTLE_NS)
             for _, s in stamps.values()
         )
 
     def fresh(self) -> bool:
-        """Whether this scan may stand for a new one: every stamp settled when it was taken, and
-        every folder still as the scan found it."""
-        return self.settled and all(
-            _folder_stamp(path, follow) == st for path, (follow, st) in self.stamps
-        )
+        """Whether this scan may stand for a new one: everything read and every stamp settled
+        when it was taken, and every folder still as the scan found it."""
+        if not self.settled:
+            return False
+        try:
+            return all(_folder_stamp(path, follow) == st for path, (follow, st) in self.stamps)
+        except OSError:
+            return False
 
     def linked_now(self) -> dict[Identity, str]:
         """The runtime files that have more than one name now, read afresh."""

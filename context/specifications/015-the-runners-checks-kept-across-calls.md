@@ -2,7 +2,7 @@
 
 - **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H2, M3, M4, L10). Decision 3 was dropped while it was built, and the owner agreed on 2026-11-24 ("Drop decision 3 (Recommended)": every new process hashes the library, as today; a first call is about 73 ms).
 - **Owner:** Clay Gendron
-- **Kind:** `src/wasi_perl/` (`_grants.py`, `_artifacts.py`, `_cache.py`, `runner.py`), checks in `tests/runner/` and `tests/escapes/`.
+- **Kind:** `src/wasi_perl/` (`_grants.py`, `_artifacts.py`, `runner.py`), checks in `tests/runner/` and `tests/escapes/`, and CI's gate on skipped checks.
 - **Depends on:** 014.
 - **Research it stands on:** `../research/2026-11-24-perf-runner.md` (study A), its levers L5 and L6, its §4.1 and §4.2, and the patches in its evidence folder.
 
@@ -28,6 +28,8 @@ These levers keep a rule by a new argument. That is why they are a specification
      - A file is added, removed or replaced only through an entry of its folder, which moves that folder's mtime and ctime.
      - A write into an existing file keeps its inode, so its identity is still right.
      - Making a second name of a runtime file *inside a writable grant* changes no runtime folder. That is why decision 2 exists.
+     - The argument assumes that no mount changes under the runtime while a process runs. A mount over a runtime folder changes that folder's identity, so it is seen; a mount over a single file changes no folder, so it is not. Making one needs mount privilege, which can already replace any runtime file. The README says so under "Not protected".
+     - A scan that met any error but a name leading to nothing (a folder it could not list, a file or folder it could not stat) serves its own call only. The process's rights may grow later with no stamp moving, and the files it could not see would then never be looked for.
 2. **The writable grants are still walked on every call.**
    - Every file there with more than one name is looked up among the identities.
    - `MAX_WALK`, the refusal of an unreadable folder, and the shortcut when no runtime file has a second name all keep their meaning.
@@ -53,13 +55,15 @@ These levers keep a rule by a new argument. That is why they are a specification
 4. **The shortcut in a copy-mode install.** The check 2(a) is run again in a layout where no runtime file has a second name when the scan is made, such as an install with `UV_LINK_MODE=copy`. The link made later is still refused.
 5. **Coarse times.** A folder changed within 2 s of its stamp is scanned again. (The check of a file rewritten within the second of its recorded stamp went with decision 3.)
 6. **Windows.** On Windows every writable call scans. A patched platform check verifies it on any system, and CI runs it on Windows.
+
+The checks that run a guest use the `perl.wasm` of the set `$WASI_PERL_ARTIFACTS` names, so CI's wheel jobs run them on every system; the others call the scan and the walk directly. CI's gate on skipped checks counts them, and allows a skip only on Windows, for its reasons.
 7. Every check of spec 012 and every escape test passes unchanged.
 
 ## Acceptance
 
 1. The checks pass, and every existing suite stays green (EXECUTED).
 2. The memo of spec 014 is extended with the writable-call and first-call timings.
-3. `docs/sandbox.md` says that every new process hashes the library, as today, and why a kept record of hashed files was refused.
+3. `docs/sandbox.md` says that every new process hashes the library it finds, as today, that a set passed as `artifacts=` is not hashed, and why a kept record of hashed files was refused.
 4. `CHANGELOG.md` under "Unreleased".
 5. A fresh agent's review, which checks the arguments of decisions 1 and 3 against the code, lands.
 
@@ -143,7 +147,7 @@ So the record does not keep "exactly the guarantee they give today", as the inte
 | 3(a)–(e), 5(a), 6 records | dropped with decision 3 | — |
 | 7 | every check of 012 and every escape test, unchanged | — |
 
-On a system that does not keep scans, the kept-scan checks skip, and the patched checks run. CI's Windows wheel job runs `tests/runner`, so it runs them there. I did not see that run.
+On a system that does not keep scans, the kept-scan checks skip, and the patched checks run. As first built, these checks needed the stand-in guest, so CI skipped every one of them on every system; the review's H1 found it, and round 1 below fixes it.
 
 ```
 $ WASI_PERL_ARTIFACTS=/home/user/wasi-perl-wt/perf-base/build/artifacts \
@@ -176,3 +180,58 @@ The before figures are `dev` at `8b81f84`; see memo §8, session s4.
 - Decision 3 is dropped by the owner (above). The in-process per-stamp reuse is a follow-up for the owner.
 - The P1 of 014's review (`_cache.folder` and `_grants.hold` as separate steps) bears only on the record, which would be read through `_cache.folder`'s check. With no record, this change does not touch it. Had the record been built, P1 would leave it no weaker than a `.cwasm` (INFERRED): a concurrent guest could rewrite either in place, and a record without a tampered library gains nothing.
 - The 2 s window assumes the file system's clock is this machine's. A network file system whose server's clock lags by more than 2 s, with coarse times, could show a change made within one tick of a stamp as settled (INFERRED). That holds for decision 1's folder stamps. There, forging a folder's stamp needs write access to the runtime's own folders, so it grants no new reach.
+
+### After the review (round 1)
+
+The review `../reviews/015-the-runners-checks-kept-across-calls-pr-2026-11-24.md` said "Does not land". `dev` at `d8fd00c` (016) was merged first, keeping both sides of `CHANGELOG.md`. Each finding, with what was done:
+
+- **H1, CI ran none of the new checks.** They needed the stand-in guest, and no CI job that runs `tests/runner` has wasi-sdk (the review READ the CI logs of `5b8f47a`: `sssssssssssss.sss` on every job).
+  - The checks that run a guest now copy the `perl.wasm` of the set `$WASI_PERL_ARTIFACTS` names into a scratch set of their own, and run it with `-e 'print "hello\n"'`. The stand-in is used only when no set is built.
+  - The checks of the scan and the walk call `RuntimeFiles`, `runtime_scan` and `_refuse_second_names` directly, on a set around bytes no guest runs. They need no guest, so they run in the lint job too.
+  - The wasmtime-link check makes its grant in the environment's own folder (`sys.prefix`), on wasmtime-py's disk, which holds no runtime code itself.
+  - `.github/workflows/ci.yml`: the wheel job's gate on skipped checks now counts `tests.runner.test_kept_checks` and requires one run per test function. On Windows only, it allows "a scan is not kept on this system", "POSIX links" and "POSIX FIFOs".
+  - So check 6 runs on Windows CI, and the kept-scan checks run on Linux and macOS CI (INFERRED from the gate and the fixtures; not yet seen in a CI run).
+  - Without `$WASI_PERL_ARTIFACTS` and without wasi-sdk, the 15 guest checks skip and the 7 others run (READ: the fixtures). With perf-base's or 016's set, all 22 pass; with the stand-in alone, all 22 pass (EXECUTED).
+  - **A roadmap follow-up, not fixed here:** spec 014's `tests/runner/test_fixed_cost.py` has the same gap. Its stand-in checks skip in CI. It is recorded in `../roadmap.md`.
+- **M1, a scan that could not list a runtime folder was kept.** Now any error in a scan other than `ENOENT` or `ENOTDIR` makes it unsettled, so it serves its own call only. That covers a listing, a folder's stamp, and a file's `lstat`. `fresh()` also answers no when a stamp cannot be read.
+  - Check, written first and seen failing ("DID NOT RAISE"): `test_a_scan_that_could_not_list_a_runtime_folder_serves_one_call`. One call scans with the library's `5.42` folder refused with `EACCES`. Then a file of that folder is linked into the grant. The next call scans again and refuses it.
+  - The review's `probe_rights.py` now gives `kept_scan_reused_as_root: false, refused_with_kept_scan: true` (EXECUTED).
+- **M2, two parts of the argument had no check.** Both new checks pass on the code (EXECUTED).
+  - `test_a_rename_with_the_folders_mtime_set_back_is_seen_by_its_ctime` replaces `strict.pm` by rename and sets the folder's atime and mtime back with `os.utime(ns=…)`. It asserts that the mtime is back and the ctime moved, then links the file into the grant: refused.
+  - `test_perl_wasm_replaced_by_rename_after_a_kept_scan_then_linked_is_refused` does the same for a single file: replaced, linked, refused.
+- **L1, a mount over a runtime file is not seen.** Decision 1's argument now says that it assumes no mount changes under the runtime while a process runs, and why that is acceptable. The README's "Not protected" says so too.
+- **L2, the copy-mode check never reached its shortcut.** The child now fills the grant with more entries than the runtime has files before the calls. So each call reaches the shortcut that reads the runtime afresh, and after the link it walks on and refuses.
+- **L3, two choices had no check.**
+  - `test_a_stale_match_scans_again_and_is_refused` gives the scan's entry for `strict.pm`'s identity another path, then links `strict.pm` into the grant: refused. The former check is now `test_a_match_is_read_afresh`.
+  - `test_a_top_that_is_a_link_is_stamped_by_the_folder_it_names` takes a kept scan through a top that is a link, replaces a file in the folder it names, and links it into the grant: refused.
+- **L4.**
+  - `docs/sandbox.md` now says "with the set it finds", and that a set passed as `run(artifacts=...)` is not hashed.
+  - The Kind line no longer names `_cache.py`, and it names CI's gate.
+- **L5, the macOS ctime premise is unprobed.** It is still not run here: there is no macOS machine (INFERRED that `setattrlist`'s `ATTR_CMN_CHGTIME` could matter). The ctime check above runs on macOS CI once the gate holds. It shows whether a rename moves the folder's ctime there after its mtime is set back. A forged folder ctime would need write rights on the runtime's own folders, so it grants no new reach.
+- **L6, slow tests after the merge.** Re-run with 016's set, which holds 013's devices: all pass (below).
+
+**The mutations.** The review's `mutate.py` writes a copy of `src/` with one change to `_grants.py`. Each was run as `PYTHONPATH=<copy>/src uv run pytest tests/runner/test_kept_checks.py`, before the M1 fix, with perf-base's set (EXECUTED). The M1 check also failed under every one, because M1 was not yet fixed; it is left out below.
+
+| mutation | the new checks that fail |
+|---|---|
+| `no_ctime` (ctime dropped from a folder stamp) | `test_a_rename_with_the_folders_mtime_set_back_is_seen_by_its_ctime` |
+| `no_single_parent` (the singles' folders not stamped) | `test_perl_wasm_replaced_by_rename_after_a_kept_scan_then_linked_is_refused` |
+| `no_rescan` | `test_a_stale_match_scans_again_and_is_refused` |
+| `tops_lstat` | `test_a_top_that_is_a_link_is_stamped_by_the_folder_it_names` |
+| `shortcut_blind` | the copy-mode check, and `test_past_max_walk_…` |
+| `no_reread` | `test_a_match_is_read_afresh` |
+| `no_settle` | the 2 s check |
+| `unsearchable_lenient` | the unreadable-folder check |
+| `tops_only` | 12 checks |
+| `reuse_any_platform` | none: `_keep` alone still keeps nothing off Linux and macOS, as the review found |
+
+**Runs after round 1** (EXECUTED, under the machine lock, with `WASI_PERL_ARTIFACTS=/home/user/wasi-perl-wt/016-the-guests-reads-and-writes/build/artifacts` and perf-base's native perl as `WASI_PERL_ORACLE`):
+
+```
+uv run pytest -m "not slow" -q -p no:cacheprovider          494 passed, 3 skipped, 245 deselected
+uv run pytest -m slow -q -p no:cacheprovider tests/runner tests/escapes    35 passed, 219 deselected
+uv run ruff check; uv run ruff format --check               All checks passed!; 40 files already formatted
+```
+
+`tests/runner/test_kept_checks.py` passed five runs in a row with 016's set, and once with the stand-in alone (EXECUTED).
+
