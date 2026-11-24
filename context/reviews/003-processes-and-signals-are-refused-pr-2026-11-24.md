@@ -40,3 +40,18 @@
 ## Verdict
 
 Does not land: H1 is a regression introduced by decision 8. `open` with `&=`, which failed honestly on dev, now often reports success and takes the descriptor away from STDOUT or another handle, and later output is lost without an error. The fix is one check in `__wrap_dup2` (move only a descriptor with one PerlIO owner) plus four checks. With H1 fixed and M1 fixed or answered in writing, everything else here lands: every refusal in decision 1 behaves as specified in all the forms I tried, the errno table is exact, the exit mask is right, and 001's M1, M2 and M4 are fixed.
+
+## Round 2
+
+The answer to round 1 is fix commit 57bceaa. I checked it in a fresh worktree on a clean rebuild: `WASI_PERL_JOBS=2 scripts/build.sh` gave three steps ok, and `pytest tests/build -q` gave **169 passed**. EXECUTED.
+
+- **H1: fixed.** `__wrap_dup2` now moves a descriptor only when `PL_perlio_fd_refcnt[oldfd] == 1`, with a bounds check. Otherwise it fails with `ENOTSUP` (`recipes/sandbox-refusals.c:227-238`). READ. I re-ran my reproductions: `open STDERR, ">&=STDOUT"`, `open(STDERR, ">&=", \*STDOUT)`, `open(STDERR, ">&=", 1)`, `open STDOUT, ">&=", $h`, the 2-argument `">&=" . fileno($h)` and `open STDIN, "<&=", $h`. Each now fails with "Not supported", as on the 001 build. STDOUT, STDERR and `$h` all keep writing where they did, and nothing is lost: the file holds "via h". A plain reopen of a standard handle still matches native, `die` after a STDERR reopen included (status 25). EXECUTED. `test_fdopen_of_a_shared_descriptor_fails_cleanly` (4 cases) covers this, and decision 8 and the docs are corrected. READ.
+- **M1: fixed.** `Perl_my_unexec` is wrapped. `CORE::dump` now refuses with "dump is not available in the wasi-perl sandbox": uncaught, it ends with 255 and no trap, and in `eval` the message is in `$@` and the program goes on. EXECUTED. It is in `REFUSED` and in the docs table. READ.
+- **L1: fixed.** `delete $SIG{INT}` now matches native (`sv == NULL` goes through to Perl's own function). EXECUTED. It is checked in `HOOKS`, along with `delete @SIG{…}` and `delete local`. READ.
+- **L3: fixed.** The `%SIG` slice, list-assignment, `local %SIG` and `CORE::GLOBAL::readpipe` cases are in `REFUSED`. READ.
+- **L4: fixed.** `wasi-cc` reads `WASI_SDK_NAME` from `scripts/lib.sh` and fails if it is missing. The build that used it passed. EXECUTED.
+- **L2, L5: answered** in `docs/sandbox.md`. **L6: answered** in the landing notes. READ.
+
+No new findings.
+
+Lands: H1 and M1 are fixed and checked, every Low is fixed or answered, and all 169 checks pass on a fresh build.
