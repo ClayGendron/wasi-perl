@@ -63,6 +63,25 @@ def test_description_may_end_in_a_backslash():
     assert verdict("1..2\nok 1 - \\c\\\nok 2 - \\c]\n") is None
 
 
+def test_bail_out_is_case_insensitive():
+    assert verdict("1..2\nok 1\nbail out! gone\n") == "bail out: gone"
+
+
+def test_strict_tap_refuses_unexpected_output():
+    text = "1..1\nNot ok 1\nok 1\n"
+    assert parse_tap(text).verdict() is None
+    assert parse_tap(text, strict=True).verdict() == "unexpected output: 'Not ok 1'"
+    assert parse_tap("1..1\n\n# note\nok 1\n", strict=True).verdict() is None
+
+
+def test_strict_tap_is_for_core_tests_outside_lib():
+    assert run_suite.strict_tap("op/x.t") and not run_suite.strict_tap("lib/x.t")
+
+
+def test_skip_all_reason_after_skipped():
+    assert parse_tap("1..0 # Skipped: no fork\n").skip_all == "no fork"
+
+
 def test_too_few_results_fail():
     assert verdict("1..3\nok 1\nok 2\n") == "ran 2 of 3"
 
@@ -152,19 +171,31 @@ def test_bug_needs_a_note(tmp_path):
         load_exclusions(bad)
 
 
-def outcome(name: str, status: str) -> run_suite.Outcome:
-    return run_suite.Outcome(name, status, None, 0, None, 1, 1, [], 0, None, 0.0, [])
+def test_ok_at_least_is_required(tmp_path):
+    bad = tmp_path / "x.toml"
+    bad.write_text('[files]\n"op/x.t" = { reason = "porting", note = "n" }\n')
+    with pytest.raises(ValueError, match="ok_at_least"):
+        load_exclusions(bad)
+    bad.write_text('[files]\n"op/x.t" = { reason = "porting", ok_at_least = -1 }\n')
+    with pytest.raises(ValueError, match="ok_at_least"):
+        load_exclusions(bad)
+
+
+def outcome(name: str, status: str, oks: int = 1, refusal: bool = True) -> run_suite.Outcome:
+    return run_suite.Outcome(
+        name, status, None, 0, None, 1, 1, [], 0, None, 0.0, [], oks=oks, refusal_seen=refusal
+    )
 
 
 def test_scoreboard_sorts_every_file():
     exclusions = {
-        "op/x.t": run_suite.Exclusion("subprocess"),
+        "op/x.t": run_suite.Exclusion("subprocess", ok_at_least=3),
         "op/y.t": run_suite.Exclusion("bug", "broken"),
     }
     files = [
         outcome("op/a.t", "pass"),
         outcome("op/b.t", "fail"),
-        outcome("op/x.t", "fail"),
+        outcome("op/x.t", "fail", oks=3),
         outcome("op/y.t", "pass"),
     ]
     board = run_suite.scoreboard(files, exclusions)
@@ -172,9 +203,28 @@ def test_scoreboard_sorts_every_file():
     assert board["failed"] == ["op/b.t"]
     assert board["excluded"] == {"subprocess": ["op/x.t"]}
     assert board["stale_exclusions"] == ["op/y.t"]
+    assert board["regressed"] == {}
     assert run_suite.score_line(board) == (
-        "perl t/: 4 run, 1 passed, 1 excluded (subprocess 1), 1 failed, 1 stale exclusions"
+        "perl t/: 4 run, 1 passed, 1 excluded (subprocess 1), 1 failed, 1 stale exclusions, "
+        "0 regressed (3 guarded oks)"
     )
+
+
+def test_an_excluded_file_that_reaches_fewer_oks_has_regressed():
+    exclusions = {"op/x.t": run_suite.Exclusion("bug", "broken", ok_at_least=10)}
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", oks=9)], exclusions)
+    assert board["regressed"] == {"op/x.t": "9 ok, fewer than the 10 recorded"}
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", oks=11)], exclusions)
+    assert board["regressed"] == {}
+
+
+@pytest.mark.parametrize("reason", run_suite.REFUSAL_REASONS)
+def test_a_refusal_exclusion_must_show_the_refusal(reason):
+    exclusions = {"op/x.t": run_suite.Exclusion(reason, ok_at_least=1)}
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", refusal=False)], exclusions)
+    assert list(board["regressed"]) == ["op/x.t"]
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", refusal=True)], exclusions)
+    assert board["regressed"] == {}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -186,12 +236,16 @@ def test_perl_t_suite():
     """Every file not excluded passes, and every excluded file still fails."""
     pytest.importorskip("wasi_perl")
     if not (run_suite.built_lib() / "Config.pm").is_file():
-        pytest.skip("no built library: run scripts/build.sh or set WASI_PERL_TARGET")
+        message = "no built library: run scripts/build.sh or set WASI_PERL_TARGET"
+        if os.environ.get("CI"):
+            pytest.fail(message)  # in CI a missing build is an error, not a skip
+        pytest.skip(message)
     jobs = int(os.environ.get("PERL_T_JOBS", os.cpu_count() or 4))
     board, outcomes = run_suite.run_suite(jobs=jobs, progress=False)
     why = {o.file: o.why for o in outcomes}
     failed = [f"{f}: {why[f]}" for f in board["failed"]]
     stale = board["stale_exclusions"]
-    assert not failed and not stale, (
-        board["line"] + "\nfailed:\n  " + "\n  ".join(failed) + "\nstale:\n  " + "\n  ".join(stale)
+    regressed = [f"{f}: {w}" for f, w in board["regressed"].items()]
+    assert not failed and not stale and not regressed, "\n  ".join(
+        [board["line"], "failed:", *failed, "stale:", *stale, "regressed:", *regressed]
     )

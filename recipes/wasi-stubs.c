@@ -7,7 +7,9 @@
 #include <grp.h>
 #include <pwd.h>
 #include <stdlib.h>
+#include <sys/times.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <wasi/api.h>
 
@@ -79,4 +81,27 @@ _Noreturn void __wrap___wasi_proc_exit(__wasi_exitcode_t rval)
 __attribute__((export_name("wasi_perl_exit_status"))) int32_t wasi_perl_exit_status(void)
 {
     return wasi_perl_status;
+}
+
+/* times() in the clock tick sysconf reports.
+ *
+ * POSIX counts the clock_t values of times() in sysconf(_SC_CLK_TCK) ticks, and Perl divides
+ * them by that number to give seconds. wasi-libc's emulated times() counts nanoseconds
+ * (CLOCKS_PER_SEC) while its sysconf(_SC_CLK_TCK) answers 100, so Perl's times was ten million
+ * times too large. The link wraps times (-Wl,--wrap=times) and this converts every field, and
+ * the elapsed time it returns, to the ticks sysconf names, so the two agree for every caller. */
+clock_t __real_times(struct tms *buf);
+
+clock_t __wrap_times(struct tms *buf)
+{
+    clock_t elapsed = __real_times(buf);
+    long tick = sysconf(_SC_CLK_TCK);
+    clock_t per = (tick > 0 && tick <= CLOCKS_PER_SEC) ? CLOCKS_PER_SEC / tick : 1;
+    if (buf) {
+        buf->tms_utime /= per;
+        buf->tms_stime /= per;
+        buf->tms_cutime /= per;
+        buf->tms_cstime /= per;
+    }
+    return elapsed == (clock_t)-1 ? elapsed : elapsed / per;
 }

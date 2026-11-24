@@ -17,12 +17,17 @@ The owner's bar is that Perl's own suite passes, apart from a listed set of excl
 3. **Exclusions are a file, each with a reason.** `tests/perl_t/exclusions.toml` maps a test file to one of a few reasons, each written once at the top of the file:
    - `subprocess`: the file starts a child perl or a command (`runperl`, `fresh_perl`, `system`, pipes), which the sandbox refuses by design (003);
    - `signals`: it needs a signal or `alarm`;
+   - `refused`: it calls another operation the sandbox refuses that starts no process (`pipe`, `waitpid`) (added after review);
    - `threads`: it needs threads, which the build leaves out;
    - `porting`: it checks Perl's source tree or git (`t/porting/`), not the interpreter;
    - `dynamic-loading`: it needs `DynaLoader` to load a shared object;
    - `platform`: a WASI difference named in the entry's own `note` (for example, no users or groups, no `chmod` bits);
+   - `not-this-platform`: a test for another operating system, which t/TEST runs only there (`t/win32/`) (added after review);
    - `bug`: a defect of this build, with the entry's `note` saying what fails. A `bug` entry is a gap, not a design choice, and the landing notes count them.
    A file not in the list must pass. A listed file that passes is reported, so a stale exclusion is seen and removed. Partial exclusions are not used: a file is in or out.
+   **Partial runs count through a guard** (added after review). Each entry records `ok_at_least`, the number of `ok` results the file reaches when it is classified; a run in which an excluded file reaches fewer has regressed and fails like a failure. A `subprocess`, `signals` or `refused` file must also show "is not available in the wasi-perl sandbox" in its output; a file that catches the refusal and never prints it names, in `shows`, a pattern its output does show, with a note saying where it is refused. So the part of an excluded file that runs before its first refusal is guarded, though it is not a pass.
+6. **Small bugs the suite finds are fixed here, with a check** (added after review). A defect of the build that the suite exposes and that a few lines fix is fixed in this specification, at its root, with a check under `tests/build/` seen failing first; only a larger one is filed as `bug` for its own specification. The first: `times` was 10^7 too large (below).
+7. **The harness follows t/TEST's conventions** (added after review): t/TEST's switches per directory; strict TAP outside `lib/` (a line that is not TAP or a `#` comment is unexpected output); an empty stand-in `t/perl`, as `make test` has the built perl there, so `which_perl` finds it and a child perl is refused at its start rather than missing; and `t/benchmark/`, which asserts wall-clock speed ratios, runs only when `PERL_BENCHMARK` is set, as in t/TEST, since this project's checks count operations, not time.
 4. **The scoreboard.** The run writes `build/perl_t/results.json` and prints one line: files run, passed, excluded by reason, failed. `tests/perl_t/test_suite.py` (marked `slow`) fails if any non-excluded file fails or any excluded file passes.
 5. **Where it runs.** Locally on demand, and in CI on Linux x86-64 on every pull request into `dev` that changes the build or the runner (008).
 
@@ -34,62 +39,59 @@ The owner's bar is that Perl's own suite passes, apart from a listed set of excl
 
 ## Landing notes
 
-Built 2026-11-24 on `spec/007-perl-t`. The current run is against this worktree's own build of dev at `eee84ac` (001 to 006, with 002's XS modules and 003's refusals), built by `WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=3 scripts/build.sh`: `perl.wasm` SHA-256 `23dd4c6853b0ee08be2f27489e91b893f0580deb5b0e0ff704c09942c52a895f`, run by dev's own runner (`src/wasi_perl`).
+Built 2026-11-24 on `spec/007-perl-t`, merged with dev at `7afccfb` (001 to 006, 002's XS modules, 003's refusals and its `%SIG` amendment), built in this worktree by `WASI_PERL_DOWNLOAD_CACHE=/home/user/wasi-perl/downloads WASI_PERL_JOBS=3 scripts/build.sh` and run by dev's own runner. The review (`context/reviews/007-perls-own-test-suite-pr-2026-11-24.md`) is answered here.
 
 ### The scoreboard
 
-EXECUTED, 95 s wall on 4 cores:
+EXECUTED, about 95 s on 4 cores, and the same again inside `uv run pytest tests/build tests/perl_t` (348 passed):
 
 ```
-perl t/: 617 run, 433 passed, 184 excluded (subprocess 141, signals 11, porting 6, platform 14, bug 12), 0 failed, 0 stale exclusions
+perl t/: 616 run, 433 passed, 183 excluded (subprocess 140, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 12), 0 failed, 0 stale exclusions, 0 regressed (18424 guarded oks)
 ```
 
-Acceptance 1 (zero failures outside the exclusions) holds. 12 `bug` entries remain as gaps.
+616 rather than 617 because `t/benchmark/` runs only with `PERL_BENCHMARK` (decision 7). Its one file, `gh7094-speed-up-keys-on-empty-hash.t`, passed in one run with `times` fixed and failed in the next (EXECUTED: global vs lexical `keys` speeds 1.45e7/s and 1.89e7/s, a ratio of 0.30 against its bound of 0.25, with four guests sharing the cores). That is timing noise, not a defect, so it is neither excluded nor run by default.
 
-History (EXECUTED): the first run, against 001's minimum build before 002 and 003, was `617 run, 300 passed, 317 excluded (subprocess 92, signals 5, porting 17, platform 12, bug 191), 0 failed`, with 188 of the 191 bugs a missing 002 module. On dev, 142 of those exclusions passed and were removed in their own commit; nine files that passed before now die at their first refused child (003) and were added as subprocess or signals.
+History (EXECUTED): against 001's minimum build, `617 run, 300 passed, 317 excluded …, bug 191`; against dev at `eee84ac`, `617 run, 433 passed, 184 excluded …, bug 12`, after 142 stale exclusions left. The nine files added in the reclassification commit (`4886b90`, L7) were comp/colon.t, comp/hints.t, io/closepid.t, lib/overload_fallback.t, op/dbm.t, op/die.t, op/waitpid.t, porting/globvar.t and run/locale.t: each passed while a refused child returned undef, and dies at its first refusal since 003.
+
+### The `times` fix (H1)
+
+`pp_tms` divides `times()`'s `clock_t` values by `PL_clocktick`, which `perl.c` takes from `sysconf(_SC_CLK_TCK)` (READ, `perl.c` 422-426, `pp_sys.c` 4963). wasi-libc's emulated `times()` counts nanoseconds (`CLOCKS_PER_SEC` 1e9), while its `sysconf(_SC_CLK_TCK)` answers 100, so `times` was 10^7 too large and Benchmark.pm's numbers were noise. The fix is at the root: the link wraps `times` (`-Wl,--wrap=times` in `recipes/config.sh`'s `ldflags`) and `recipes/wasi-stubs.c` converts every field and the returned elapsed time to the ticks `sysconf` names, so every caller, `POSIX::times` included, agrees. The check, `tests/build/test_perl_wasm.py::test_times_agrees_with_cpu_clock`, compares `times`' CPU seconds with `Time::HiRes::clock`'s over a loop of 0.3 CPU seconds, as a ratio within 0.8 to 1.25. It failed before the fix with `3000024.25 / 0.300004` and passes after it (EXECUTED).
+
+### The other findings
+
+- **M1:** the `ok_at_least` and refusal guard (decision 3). 18424 `ok` results of excluded files are now guarded; 9 entries use `shows` (comp/colon.t, io/crlf_through.t, io/pvbm.t, op/die_exit.t, op/override.t, op/recurse.t, re/substT.t, re/subst_wamp.t, run/cloexec.t), each EXECUTED-checked where the refusal is hidden (`eval { pipe … }`, `eval q{qx:…:}` and `eval { waitpid(0,1) }` each give the sandbox message in `$@`).
+- **M2:** op/pack.t is `subprocess` (with `t/perl` it runs 4177 tests, all ok, then a runperl is refused); op/waitpid.t and io/pvbm.t are `refused`.
+- **M3:** the stand-in `t/perl`. The scoreboard did not change; op/pack.t now reaches 4177.
+- **L1:** the unpacked tree carries a stamp of the tarball's hash and is unpacked again when it is missing or different. **L2:** the tarball is found through `WASI_PERL_TARBALL`, `downloads/`, `WASI_PERL_DOWNLOAD_CACHE`, then `git rev-parse --git-common-dir`. **L3:** `Bail out!` is case-insensitive; strict TAP outside `lib/` (decision 7); no file changed outcome. **L4:** no specification numbers in `exclusions.toml`. **L5:** op/taint.t's note names `kill`. **L6:** `not-this-platform`. **L7:** above. **L8:** a skip reason is stripped of `skip`, `Skipped:` and kin. **L9:** the slow test fails, not skips, without a build when `CI` is set.
 
 ### Commands
 
 ```
 scripts/build.sh                                               # build/artifacts and build/target/lib
-uv run python tests/perl_t/run_suite.py --quiet --list-failures   # what CI runs; exit 1 on a failure or a stale exclusion
+uv run python tests/perl_t/run_suite.py --quiet --list-failures   # what CI runs; exit 1 on a failure, a stale or a regressed exclusion
 uv run pytest -q tests/perl_t                                  # the slow suite test and the fast ones
-uv run pytest -q -m "not slow" tests/perl_t                    # TAP parser, exclusion list, scoreboard
+uv run pytest -q tests/build -k times                          # the times check
 ```
 
-Defaults match CI's perl-t job (008's ci.yml, READ): the tarball in `downloads/` (verified against `downloads/SHA256SUMS`, then unpacked once at `build/perl-5.42.3/`), the artifact set at `build/artifacts/`, and the target library at `build/target/lib/`. `WASI_PERL_ARTIFACTS`, `WASI_PERL_TARGET` and `WASI_PERL_TARBALL` override them. A failing file's whole stdout and stderr are in `build/perl_t/logs/`, which CI uploads with `results.json`. `--only 'op/*'` writes `results-only.json`.
-
-### How the harness follows t/TEST (READ: `t/TEST` `_scan_test`, `TestInit.pm`)
-
-- Decision 1's argv is followed as t/TEST gives it: no switch for `base/`, `comp/` and `run/` (those files set `@INC` themselves), `-I.. -MTestInit` elsewhere (TestInit sets `@INC = ('../lib')` and `PERL_CORE`), and a `-t`/`-T` from the `#!` line. With TestInit, `@INC` is only `../lib`, so the tests see the built `lib/` of the target tree, never the artifact library: exactly what `make test` sees.
-- The copy is the whole pristine tree (tests read `../MANIFEST`, `../pod`, `../cpan`, ...), with the target tree's `lib/` files that the tarball lacks (Config.pm, the extensions' Perl halves, `lib/unicore` tables) and its `config.sh` laid over it. Files the tarball has are kept as shipped.
-- One copy per worker, not one shared copy: wasi-libc's emulated `getpid` gives every guest the same `$$`, so `test.pl`'s `tempfile()` names (built from `$$`) would collide between concurrent guests in one folder.
-- The env is t/TEST's additions (`PERL_DESTRUCT_LEVEL=2`, `PERL_DL_NONLAZY=1`) plus `HOME`, `TMPDIR=/tmp` (a second writable grant per worker), `PATH` and `LC_ALL=C`. Limits: 300 s per file, 2 GiB of memory, 8 MiB per output stream, no fuel.
-- All 617 `t/**/*.t` files run, `japh/`, `benchmark/`, `bigmem/` and `win32/` included, although t/TEST runs those only when asked or on Windows.
-- An uncaught `die` exits with the errno value, as natively (Linux numbers since 003).
-- The guest's `$^X` is `perl`, so `test.pl`'s `which_perl` looks for `./perl`, which the guest does not have; a file that makes warnings fatal then dies there, before its child would be refused.
+Defaults match CI's perl-t job (008's ci.yml, READ): the tarball in `downloads/`, the set at `build/artifacts/`, the target library at `build/target/lib/`; `WASI_PERL_ARTIFACTS`, `WASI_PERL_TARGET` and `WASI_PERL_TARBALL` override them. Failing files' whole output is in `build/perl_t/logs/`.
 
 ### Counts by reason (EXECUTED, the run above)
 
-| Reason | Files | How it was decided |
-|---|---|---|
-| subprocess | 141 | the file dies with "`<what>` is not available in the wasi-perl sandbox" from runperl/fresh_perl in `test.pl` or its own `system`, backticks or pipe open (129); finds no perl to run (9, op/override.t included); or is refused where the message is not seen (comp/colon.t's `qx`, io/pvbm.t's `pipe`, op/die_exit.t's `system` with STDERR in a file) |
-| signals | 11 | dies with "signal handler for SIG… is not available" or "kill is not available" |
-| threads | 0 | the thread tests skip themselves |
-| porting | 6 | `t/porting/` files that refuse a command or plan `1..0` without the word skip; 30 of `t/porting/` pass |
-| dynamic-loading | 0 | every extension is static |
-| platform | 14 | below |
-| bug | 12 | below |
+| Reason | Files |
+|---|---|
+| subprocess | 140 |
+| signals | 11 |
+| refused | 2 (op/waitpid.t, io/pvbm.t) |
+| threads | 0 |
+| porting | 6 (30 of 36 `t/porting/` pass) |
+| dynamic-loading | 0 |
+| platform | 6: chmod (op/filetest.t, op/stat.t), the time-zone database (op/time.t), descriptor reuse (op/require_37033.t), no sockets (op/coreamp.t), 32-bit regex sizes (bigmem/regexp.t) |
+| not-this-platform | 6 (`win32/`) |
+| bug | 12 |
 
-The classification is INFERRED from each file's output by a scratch script plus a hand reading of the rest; the refusal messages make it direct.
+### The `bug` entries, grouped by cause
 
-### The `bug` entries, grouped by cause (for the builders)
-
-- **No dup for `>&` handles (spec 009), 8 files:** op/write.t (stops at line 315, before the 636-test format suite), op/fh.t, io/dup.t, io/perlio.t, op/hash-clear-placeholders.t and op/hash-rt85026.t (Devel::Peek's capture of STDERR), op/numify_chkflags.t, test_pl/can_isa_ok.t.
-- **Four-argument `select` with a non-empty bit vector traps "memory out of bounds", 1 file:** op/tie_fetch_count.t line 274. EXECUTED: `perl -e '$v="\xff"; select $v,undef,undef,0'` traps, `"\x01"` does not. INFERRED cause: wasi-libc's `fd_set` is a count and an array of descriptors, not the bit mask Perl's `pp_sselect` writes into. A trap is the worst outcome; it belongs to 001/003.
+- **No dup for `>&` handles, 8 files:** op/write.t (stops at line 315, before 636 format tests), op/fh.t, io/dup.t, io/perlio.t, op/hash-clear-placeholders.t, op/hash-rt85026.t, op/numify_chkflags.t, test_pl/can_isa_ok.t.
+- **Four-argument `select` with a non-empty bit vector traps "memory out of bounds", 1 file:** op/tie_fetch_count.t line 274 (EXECUTED: `perl -e '$v="\xff"; select $v,undef,undef,0'` traps). INFERRED cause: wasi-libc's `fd_set` is a count and an array, not the bit mask `pp_sselect` writes. Larger than a few lines, so it is left for its own fix.
 - **XS::APItest is not built, 2 files:** bigmem/stack.t, bigmem/stack_over.t.
-- **Unexplained, 1 file:** lib/deprecate.t passes all 10 tests, then exits 2: its END block's `File::Path` cannot load Carp after the test has changed directory away from its relative `@INC`.
-
-### The `platform` entries
-
-chmod unimplemented: op/filetest.t, op/stat.t (also a hard link's ctime). No time-zone database: op/time.t. Descriptors are not lowest-free: op/require_37033.t. No sockets: op/coreamp.t (`&CORE::bind`). 32-bit sizes: bigmem/regexp.t. No perl executable file: op/pack.t. A wall-clock benchmark: benchmark/gh7094-speed-up-keys-on-empty-hash.t. Windows only: win32/crypt.t, fs.t, runenv.t, seekdir.t, stat.t, symlink.t.
+- **Unexplained, 1 file:** lib/deprecate.t passes its 10 tests, then its END block's File::Path cannot load Carp after the test leaves its relative `@INC`, and it exits 2.
