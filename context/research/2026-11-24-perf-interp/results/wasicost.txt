@@ -1,0 +1,18 @@
+# ns per call; wasicost.py proto/wasicost.wasm <set> DATA 5000, under the machine lock
+fd_prestat_get 57
+fd_fdstat_get(dir) 206
+fd_fdstat_get(file) 60520
+fd_fdstat_get(stdout) 188
+fd_tell 52
+fd_seek 181
+fd_filestat_get 57376
+path_filestat_get(hit) 61585
+path_filestat_get(miss) 30703
+fd_read(1 B) 29187
+fd_read(8 KiB) 31476
+fd_read(64 KiB) 45695
+fd_read(256 KiB) 83833
+fd_read(at EOF) 54783
+open+close 31765
+fd_write(stdout, 1 B) 557
+clock_time_get 107
