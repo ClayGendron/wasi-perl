@@ -6,7 +6,7 @@ thing exactly as native perl 5.42.3 does with the same five installed from the s
 tarballs (scripts/10_native.sh puts them in build/native-cpan, apart from the oracle's own
 library). Hostile input must end as it ends natively, in an error the program can catch or a
 result, never a trap. The parsers must add no import, and must earn their place: the JSON
-decode of study F's 1.4 MB file must take under a tenth of JSON::PP's instructions.
+decode of a 1.4 MB file of 20,000 rows must take under a tenth of JSON::PP's instructions.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ def test_the_selectors_pick_the_linked_parsers(guest):
     ]
 
 
-# Hostile input, as study F's edge.pl gives it: each case must end in a Perl error the program
+# Hostile input: each case must end in a Perl error the program
 # catches, or a result, exactly as natively.
 HOSTILE = r"""
 use strict; use warnings; use Cpanel::JSON::XS (); use Text::CSV_XS (); use Text::CSV ();
@@ -162,11 +162,12 @@ def test_hostile_input_ends_as_natively(guest, native_with_cpan):
     g, n = guest("-e", HOSTILE), native_with_cpan("-e", HOSTILE)
     assert (n.code, n.stderr) == (0, b""), n
     lines = n.stdout.decode().splitlines()
-    assert "json deep 100000: died: json text or perl structure exceeds maximum nesting level" in (
-        lines[0]
+    assert (
+        "json deep 100000: died: json text or perl structure exceeds maximum nesting level"
+        in (lines[0])
     )
     assert "Text::CSV_XS unterminated quote: error 2027" in lines
-    assert "encode 5.0: [5,5.0,\"5\"]" in lines
+    assert 'encode 5.0: [5,5.0,"5"]' in lines
     assert (g.code, g.stdout, g.stderr, g.error) == (n.code, n.stdout, n.stderr, "")
 
 
@@ -180,8 +181,10 @@ def test_the_import_list_is_unchanged(perl_wasm):
 
 
 def _rows_json(path: Path) -> None:
-    """Study F's t.json: 20,000 objects, 1,355,560 bytes."""
-    rows = [{"id": i, "name": f"n{i}", "tags": ["a", "b", i % 5], "v": i * 0.5} for i in range(20_000)]
+    """A JSON array of 20,000 objects, 1,355,560 bytes."""
+    rows = [
+        {"id": i, "name": f"n{i}", "tags": ["a", "b", i % 5], "v": i * 0.5} for i in range(20_000)
+    ]
     path.write_text(json.dumps(rows))
 
 

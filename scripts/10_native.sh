@@ -48,13 +48,14 @@ run "$LOG" make install
 [ -x "$PREFIX/bin/perl" ] || fail "native perl did not install to $PREFIX (see $LOG)"
 
 # The CPAN distributions, XS first, so that each later one finds those it uses. The environment
-# names no other install place, and the default answer is given to any question Makefile.PL asks.
+# names no other install place and no options for perl, and the default answer is given to any
+# question Makefile.PL asks.
 mkdir -p "$CPAN_SRC"
 for t in $cpan; do
     dist="$CPAN_SRC/$(dist_of "$t")"
     unpack_pinned "$t" "$dist" "$LOG"
     cd "$dist"
-    run "$LOG" env -u PERL_MM_OPT -u PERL_MB_OPT -u PERL_LOCAL_LIB_ROOT \
+    run "$LOG" env -u PERL5OPT -u PERL_MM_OPT -u PERL_MB_OPT -u PERL_LOCAL_LIB_ROOT \
         PERL5LIB="$CPAN_PREFIX/lib/perl5" PERL_MM_USE_DEFAULT=1 \
         "$PREFIX/bin/perl" Makefile.PL INSTALL_BASE="$CPAN_PREFIX" </dev/null
     run "$LOG" make -j"$JOBS"
