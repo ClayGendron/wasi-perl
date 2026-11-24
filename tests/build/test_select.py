@@ -73,6 +73,18 @@ SAME_AS_NATIVE = {
         "my $n = select(my $r = $v, undef, undef, 0); my $m = select(undef, my $w = $v, undef, 0); "
         'print STDERR "$n $m ", vec($w, $d, 1), "\\n"'
     ),
+    # The error set alone: nothing has an exceptional condition, so 0 and the vector cleared.
+    "error-set-only": (
+        SETUP + 'my $v = ""; vec($v, fileno($f), 1) = 1; '
+        "my $n = select(undef, undef, my $e = $v, 0); "
+        'print "$n ", ($e =~ tr/\\0//c ? "set" : "clear"), "\\n"'
+    ),
+    # No timeout, a file answered by the guest and STDOUT answered by the host.
+    "no-timeout-file-and-stdout": (
+        SETUP + 'my $r = ""; vec($r, fileno($f), 1) = 1; my $w = ""; vec($w, 1, 1) = 1; '
+        "my $n = select(my $rout = $r, my $wout = $w, undef, undef); "
+        'print "$n ", vec($rout, fileno($f), 1), vec($wout, 1, 1), "\\n"'
+    ),
     "timeout-only": 'print scalar(select(undef, undef, undef, 0.01)), "\\n"',
     "io-select": (
         SETUP + "use IO::Select; my $s = IO::Select->new($f, \\*STDIN); "

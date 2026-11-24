@@ -44,7 +44,7 @@ About `%SIG`:
 
 - `$$`. It is always 42, wasi-libc's stand-in process ID.
 - `getppid`. It returns 0: the parent is the host, outside the sandbox, as for a Linux process whose parent is in another PID namespace.
-- `times`, `sleep`, and `select(undef, undef, undef, $seconds)`. They use WASI's clock.
+- `times`, `sleep`, `Time::HiRes::sleep` and `select(undef, undef, undef, $seconds)`. They use WASI's clock, and they sleep their full time. A sleep still ends at the runner's deadline or fuel limit, like any other code: the guest waits in slices of at most 10 ms.
 - `exit`, `END` blocks, `die` and `warn`.
 - Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
 - Four-argument `select` over the bit vectors `vec` builds, `IO::Select` and `IO::Poll`. A regular file is always ready to read and to write, as on POSIX.
@@ -68,6 +68,6 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 - **Descriptor numbers start higher.** Each granted folder holds a descriptor from 3 up, so the first file a program opens gets a number above them, not 3. New descriptors still take the lowest free number.
 - **A granted folder's number always names that folder.** `open my $fh, '<&=', 3` succeeds on it, where natively it gives EBADF. Closing it succeeds and leaves the folder granted. `dup2` or `dup3` onto it fails with EBADF, and no `open` or `dup` is given it.
 - **At most 256 open descriptors.** The standard streams and the granted folders count against them. Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").
-- **Special files are refused at open.** Opening a FIFO, a device or a socket file in a granted folder fails with ENXIO ("No such device or address"), or ENOTDIR for `opendir`, before the host is asked: a host's open of a FIFO would wait for the other end, past every limit. So does a link to one. A name that does not exist is created as usual. `-e` sees a FIFO, but `-p` is false: WASI has no file type for a FIFO.
+- **Special files are refused at open.** Opening a FIFO, a device or a socket file in a granted folder fails with ENXIO ("No such device or address"), or ENOTDIR for `opendir`, before the host is asked: a host's open of a FIFO would wait for the other end, past every limit. So does a link to one. `utime` on a FIFO sets its times, as natively, but through a link to one it fails with ENXIO. A name that does not exist is created as usual. `-e` sees a FIFO, but `-p` is false: WASI has no file type for a FIFO.
 - **After a rename over an open file on Windows, the old handle reads the new file.** Natively it goes on reading the old one. For `-i` the handle is already at its end, so nothing changes. Linux and macOS hosts allow the rename, and the handle reads the old file as natively.
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
