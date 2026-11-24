@@ -583,8 +583,9 @@ stdin = "select 1;\nselect 2; drop x;"
 [[case]]
 id = "records-nul-separated"
 category = "records"
-argv = ["-0", "-ne", 'chomp; print "<$_>\n"', "nul.dat"]
-files = { "nul.dat" = { base64 = "YQBiAGMA" } }
+# Not nul.dat: NUL, with any extension, is a device name a Windows host cannot hold as a file.
+argv = ["-0", "-ne", 'chomp; print "<$_>\n"', "records.dat"]
+files = { "records.dat" = { base64 = "YQBiAGMA" } }
 
 [[case]]
 id = "records-fixed-size"

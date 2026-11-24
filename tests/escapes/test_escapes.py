@@ -49,6 +49,11 @@ def perl_set(perl):
     return perl
 
 
+def perl_quote(text: str) -> str:
+    """`text` as a single-quoted Perl string, so a Windows path's backslashes stay as they are."""
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
 def perl(code: str, **kw):
     return run(["-e", PRELUDE + textwrap.dedent(code)], **kw)
 
@@ -110,9 +115,9 @@ def host(tmp_path: Path) -> Path:
     """ro/ (f.txt, sub/), rw/ (w.txt), outside/ (secret.txt)."""
     for d in ("ro", "ro/sub", "rw", "outside"):
         (tmp_path / d).mkdir()
-    (tmp_path / "ro" / "f.txt").write_text("a original\n")
-    (tmp_path / "rw" / "w.txt").write_text("a writable\n")
-    (tmp_path / "outside" / "secret.txt").write_text("TOP SECRET\n")
+    (tmp_path / "ro" / "f.txt").write_bytes(b"a original\n")
+    (tmp_path / "rw" / "w.txt").write_bytes(b"a writable\n")
+    (tmp_path / "outside" / "secret.txt").write_bytes(b"TOP SECRET\n")
     return tmp_path
 
 
@@ -126,7 +131,7 @@ def test_a_read_outside_every_grant_is_not_found(perl_set, host):
         f"""
         t("passwd", sub {{ slurp("/etc/passwd") }});
         t("outside", sub {{ slurp("/outside/secret.txt") }});
-        t("host-path", sub {{ slurp("{secret}") }});
+        t("host-path", sub {{ slurp({perl_quote(str(secret))}) }});
         t("tmp", sub {{ slurp("/tmp/x") }});
         t("relative", sub {{ slurp("secret.txt") }});
         t("root-dir", sub {{ opendir(my $d, "/") }});
@@ -327,14 +332,19 @@ def test_an_in_place_edit_of_a_read_only_grant_changes_nothing(perl_set, host):
         grants=_grants(host),
         artifacts=perl_set,
     )
-    expect(made, {"link": "ok"})  # made, never followed
-    done = run(["-pi", "-e", "s/a/b/", "/rw/rolink"], grants=_grants(host), artifacts=perl_set)
-    assert (done.exit_code, done.stdout) == (0, b"") and PERM.encode() in done.stderr, done
+    if os.name == "nt":
+        # A Windows host lets no unprivileged process make a link, so the guest's is refused,
+        # and there is no link to edit through.
+        expect(made, {"link": PERM})
+    else:
+        expect(made, {"link": "ok"})  # made, never followed
+        done = run(["-pi", "-e", "s/a/b/", "/rw/rolink"], grants=_grants(host), artifacts=perl_set)
+        assert (done.exit_code, done.stdout) == (0, b"") and PERM.encode() in done.stderr, done
     assert (tree(host / "ro"), _digest_tree(perl_set.lib)) == before
     # The control: the same edit in the writable grant changes the file.
     done = run(["-pi", "-e", "s/a/b/", "/rw/w.txt"], grants=_grants(host), artifacts=perl_set)
     assert (done.exit_code, done.stderr) == (0, b""), done
-    assert (host / "rw" / "w.txt").read_text() == "b writable\n"
+    assert (host / "rw" / "w.txt").read_bytes() == b"b writable\n"
 
 
 def _digest_tree(folder: Path) -> str:
@@ -526,7 +536,7 @@ def test_a_fifo_in_a_grant_is_refused(perl_set, tmp_path):
     # The control: the same child, a regular file at that name, opens it and ends.
     control = tmp_path / "control"
     control.mkdir()
-    (control / "pipe").write_text("x")
+    (control / "pipe").write_bytes(b"x")
     out = _child(control, perl_set)
     assert out.returncode == 0 and "opened" in out.stdout, (out.stdout, out.stderr)
     folder = tmp_path / "g"

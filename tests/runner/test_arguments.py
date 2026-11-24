@@ -121,7 +121,7 @@ def test_a_grant_is_typed(tmp_path, no_work, standin):
 def test_a_host_path_must_be_an_existing_folder(tmp_path, no_work, standin):
     with pytest.raises(ValueError, match="does not exist"):
         run(["hello"], grants=[Grant(tmp_path / "gone", "/d")], artifacts=standin)
-    (tmp_path / "file").write_text("x")
+    (tmp_path / "file").write_bytes(b"x")
     with pytest.raises(ValueError, match="not a folder"):
         run(["hello"], grants=[Grant(tmp_path / "file", "/d")], artifacts=standin)
 
@@ -254,7 +254,7 @@ def test_a_backslash_in_a_posix_host_path_is_a_name(tmp_path, standin):
     rw.mkdir()
     (rw / "..\\secret").mkdir()
     (tmp_path / "secret").mkdir()
-    (tmp_path / "secret" / "s.txt").write_text("SECRET")
+    (tmp_path / "secret" / "s.txt").write_bytes(b"SECRET")
     done = run(["cat", "/in/s.txt"], grants=[Grant(rw / "..\\secret", "/in")], artifacts=standin)
     assert done.exit_code == 1 and b"SECRET" not in done.stdout
     done = run(

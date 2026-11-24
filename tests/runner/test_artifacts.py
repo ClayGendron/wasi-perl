@@ -50,7 +50,7 @@ def test_a_changed_set_is_refused(found, damage, words):
         with open(path, "ab") as f:
             f.write(b"# changed\n")
     else:
-        path.write_text("1;\n")
+        path.write_bytes(b"1;\n")
     with pytest.raises(ArtifactsMissing, match=words):
         run(["hello"])
 
