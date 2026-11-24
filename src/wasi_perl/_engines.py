@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -19,6 +21,9 @@ _lock = threading.Lock()  # engines, modules, counts, the ticker's engine list
 _engines: dict[bool, Any] = {}
 _modules: dict[tuple[bool, str], Any] = {}
 _compiling: dict[tuple[bool, str], threading.Lock] = {}
+# id(module): the module, held so that its id names no other, and its InstancePre
+_linked: dict[int, tuple[Any, Any]] = {}
+_linking = threading.Lock()  # one linking at a time; linking is once per module
 _counts = {"compiled": 0, "loaded": 0, "written": 0}
 
 
@@ -58,13 +63,76 @@ def wasmtime() -> Any:
     return wt
 
 
+_version: list[str | None] = []  # wasmtime-py's version, once read: [] until then
+
+
 def wasmtime_version() -> str | None:
-    from importlib.metadata import PackageNotFoundError, version
+    """wasmtime-py's installed version, read once per process. The wasmtime-py a process imports
+    cannot change after the import, so the version that gated it stays the one that keys its
+    compiled modules; reading it again searched every distribution on the path, on every call.
+    It is the version in the one `wasmtime-*.dist-info` folder beside the package an import
+    loads; with no such folder, or more than one, `importlib.metadata` decides."""
+    if _version:
+        return _version[0]
+    found = _version_beside(_wasmtime_site())
+    if found is None:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            found = version("wasmtime")
+        except PackageNotFoundError:
+            found = None  # no version to key a .cwasm by: modules stay in this process
+    _version[:] = [found]
+    return found
+
+
+def _wasmtime_site() -> Path | None:
+    """The folder that holds the wasmtime package an import loads (the one already imported, if
+    any), found without importing it; None when there is no such package."""
+    import importlib.util
 
     try:
-        return version("wasmtime")
-    except PackageNotFoundError:
-        return None  # no version to key a .cwasm by: modules stay in this process
+        spec = importlib.util.find_spec("wasmtime")
+    except (ImportError, ValueError):
+        return None
+    if spec is None or not spec.origin:
+        return None
+    return Path(spec.origin).resolve().parent.parent
+
+
+def _version_beside(site: Path | None) -> str | None:
+    """The version that the one `wasmtime-*.dist-info` in `site` names in its METADATA, read
+    without importing `importlib.metadata`, one of the slowest imports of a process's first call;
+    None when there is not exactly one such folder, or its METADATA names another package or no
+    version."""
+    if site is None:
+        return None
+    try:
+        infos = [
+            e.path
+            for e in os.scandir(site)
+            if e.name.lower().startswith("wasmtime-") and e.name.endswith(".dist-info")
+        ]
+    except OSError:
+        return None
+    if len(infos) != 1:
+        return None
+    name = version = None
+    try:
+        with open(os.path.join(infos[0], "METADATA"), encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    break  # the headers end at the first blank line
+                key, sep, value = line.partition(":")
+                if sep and key == "Name":
+                    name = value.strip()
+                elif sep and key == "Version":
+                    version = value.strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if name is None or re.sub(r"[-_.]+", "-", name).lower() != "wasmtime":
+        return None
+    return version or None
 
 
 def counts() -> dict[str, int]:
@@ -76,6 +144,31 @@ def forget() -> None:
     """Drop this process's compiled modules, so the next call goes to the disk cache."""
     with _lock:
         _modules.clear()
+        _linked.clear()
+
+
+def linked(metered: bool, mod: Any) -> Any:
+    """`mod` linked once against WASI preview1, as an `InstancePre` every call instantiates from.
+    The WASI functions a linker defines read the WASI context of the store they are called in, so
+    one linking serves every store of the engine, each with its own grants, arguments and
+    environment; and no import is resolved again per call. One thread links; calls started at
+    once wait for it."""
+    wt = wasmtime()
+    with _lock:
+        found = _linked.get(id(mod))
+    if found is not None and found[0] is mod:
+        return found[1]
+    with _linking:
+        with _lock:
+            found = _linked.get(id(mod))
+        if found is not None and found[0] is mod:
+            return found[1]
+        linker = wt.Linker(engine(metered))
+        linker.define_wasi()
+        pre = linker.instantiate_pre(mod)
+        with _lock:
+            _linked[id(mod)] = (mod, pre)
+        return pre
 
 
 def engine(metered: bool) -> Any:
@@ -88,6 +181,15 @@ def engine(metered: bool) -> Any:
             cfg.wasm_exceptions = True
             cfg.epoch_interruption = True
             cfg.consume_fuel = metered
+            # wasmtime's defaults today, stated so that a later wasmtime that changed one
+            # cannot slow every call unseen: optimised code; compiled on every core, since one
+            # core takes several times as long; the module's memory image mapped copy-on-write,
+            # else perl.wasm's data is copied into every new instance; and out-of-bounds
+            # accesses caught by guard pages rather than checked one by one in the code.
+            cfg.cranelift_opt_level = "speed"
+            cfg.parallel_compilation = True
+            cfg.memory_init_cow = True
+            cfg.signals_based_traps = True
             _engines[metered] = wt.Engine(cfg)
         return _engines[metered]
 
@@ -134,16 +236,18 @@ def _miss(
             cwasm = folder / f"{digest[:32]}-wasmtime{version}-{flavor}.cwasm"
     may_write = False
     if cwasm is not None:
-        blob, may_write = _cache.read(cwasm)
-        if blob is not None:
-            try:
-                mod = wt.Module.deserialize(eng, blob)
-            except wt.WasmtimeError:
-                may_write = True  # stale or foreign: compiled again and replaced
-            else:
-                with _lock:
-                    _counts["loaded"] += 1
-                return mod
+        try:
+            mod, may_write = _cache.load(
+                cwasm,
+                lambda name: wt.Module.deserialize_file(eng, name),
+                lambda blob: wt.Module.deserialize(eng, blob),
+            )
+        except wt.WasmtimeError:
+            mod, may_write = None, True  # stale or foreign: compiled again and replaced
+        if mod is not None:
+            with _lock:
+                _counts["loaded"] += 1
+            return mod
     # Compiled from one read, held to the digest: a file changed between its hash and its
     # compile is never compiled, so it is never cached under a digest it does not have.
     data = binary.read_bytes()
@@ -163,6 +267,7 @@ def _release_at_exit() -> None:
     interpreter's own teardown, their finalizers run after the bindings are gone and print an
     ignored TypeError."""
     with _lock:
+        _linked.clear()
         _modules.clear()
         _engines.clear()
 

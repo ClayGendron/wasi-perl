@@ -1,8 +1,10 @@
 """The module cache on disk: where it is, whether a folder or a `.cwasm` is as the runner makes
 it, and the load and the store. Adapted from wasi-python's `_engines.py` (`_cache_given`,
 `_caches`, `_load`, `_store`) and the cache checks of its `_platform_posix.py` and
-`_platform_windows.py` (same owner, Apache-2.0), trimmed: a `.cwasm` is read through the
-descriptor that was checked and handed to wasmtime as bytes, so no name is opened twice.
+`_platform_windows.py` (same owner, Apache-2.0), with `open_cached` and `_fd_name` of its
+`_platform_posix.py`, trimmed: a `.cwasm` is checked through its open descriptor, so a file put
+at the path after the check is not the one loaded. On Linux its bytes are copied through that
+descriptor into a sealed memory file, which wasmtime maps; elsewhere they are read into memory.
 
 A `.cwasm` is native code that wasmtime runs as it finds it, so it is used only as the runner
 makes it. On POSIX: a folder at 0700 and files at 0600 with one name, owned by this user, on a
@@ -24,6 +26,7 @@ import stat
 import sys
 import tempfile
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -34,6 +37,16 @@ _DIR_OPEN = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLO
 _FILE_OPEN = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 _FILE_OPEN |= getattr(os, "O_BINARY", 0)
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+# wasmtime maps a compiled module from a file it opens by name, and reads that file for the
+# module's whole life, which is the process's. The cache's own file could be written, truncated,
+# renamed or linked meanwhile, by the user or through a later grant, and a mapped file that
+# changes changes the host's running code or stops it. So on Linux the checked bytes are copied
+# into a memory file that no folder names, sealed so that nothing can write, shrink or grow it,
+# and wasmtime is given its /proc/self/fd/N name. Elsewhere the bytes are read into memory.
+_FD_FOLDER = "/proc/self/fd" if sys.platform == "linux" else None
+_F_ADD_SEALS, _F_GET_SEALS = 1033, 1034  # Linux's fcntl commands, which Python does not name
+_SEALS = 0x1 | 0x2 | 0x4 | 0x8  # F_SEAL_SEAL, F_SEAL_SHRINK, F_SEAL_GROW, F_SEAL_WRITE
+_NAME_OPEN = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
 
 
 class Cache(NamedTuple):
@@ -210,6 +223,11 @@ def _stamp(st: os.stat_result) -> tuple[int, int, int, int]:
     return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
 
 
+def _read_all_from_start(fd: int, size: int) -> bytes:
+    os.lseek(fd, 0, os.SEEK_SET)
+    return _read_all(fd, size)
+
+
 def _read_all(fd: int, size: int) -> bytes:
     parts = []
     while True:
@@ -219,11 +237,11 @@ def _read_all(fd: int, size: int) -> bytes:
         parts.append(block)
 
 
-def read(cwasm: Path) -> tuple[bytes | None, bool]:
-    """The bytes of a `.cwasm` that is as the runner makes it, read through the descriptor that
-    was checked, so a file put at the name after the check is not the file read; and whether the
-    runner may put its own file at that name (when there is none, or the one there is refused,
-    but never over a folder)."""
+def _open_checked(cwasm: Path) -> tuple[int | None, bool]:
+    """A descriptor of a `.cwasm` that is as the runner makes it, checked through itself, so a
+    file put at the name after the check is not the file used; and whether the runner may put
+    its own file at that name (when there is none, or the one there is refused, but never over a
+    folder). The caller closes the descriptor."""
     try:
         before = os.lstat(cwasm)
     except FileNotFoundError:
@@ -251,9 +269,90 @@ def read(cwasm: Path) -> tuple[bytes | None, bool]:
         return None, True
     try:
         st = os.fstat(fd)
-        if _stamp(st) != _stamp(before) or _as_made(st, is_dir=False) is not None:
-            return None, True  # another file since its name was read
-        return _read_all(fd, st.st_size), False
+        ok = _stamp(st) == _stamp(before) and _as_made(st, is_dir=False) is None
+    except OSError:
+        ok = False
+    if not ok:
+        os.close(fd)
+        return None, True  # another file since its name was read
+    return fd, False
+
+
+def _fd_name(fd: int) -> str | None:
+    """A name that opens the very file open at `fd`, whatever is at its path by then, checked by
+    opening it; None where the system has no such name, or it opens another file."""
+    if _FD_FOLDER is None:
+        return None
+    name = f"{_FD_FOLDER}/{fd}"
+    try:
+        held = os.fstat(fd)
+        other = os.open(name, _NAME_OPEN)
+        try:
+            named = os.fstat(other)
+        finally:
+            os.close(other)
+    except OSError:
+        return None
+    return name if (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino) else None
+
+
+def _sealed_copy(fd: int, size: int) -> int | None:
+    """A memory file holding the `size` bytes at `fd`, sealed against every write, shrink and
+    grow, and against new seals; or None where the system cannot make one."""
+    if _FD_FOLDER is None or not hasattr(os, "memfd_create"):
+        return None
+    import fcntl  # Linux only, as is this path
+
+    try:
+        copy = os.memfd_create("wasi-perl-module", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    except OSError:
+        return None
+    try:
+        done = 0
+        while done < size:
+            n = os.sendfile(copy, fd, done, size - done)
+            if n == 0:
+                break
+            done += n
+        if done == size and os.fstat(copy).st_size == size:
+            fcntl.fcntl(copy, _F_ADD_SEALS, _SEALS)
+            if fcntl.fcntl(copy, _F_GET_SEALS) & _SEALS == _SEALS:
+                return copy
+    except OSError:
+        pass
+    os.close(copy)
+    return None
+
+
+def load(
+    cwasm: Path, by_name: Callable[[str], Any], by_bytes: Callable[[bytes], Any]
+) -> tuple[Any, bool]:
+    """The module a `.cwasm` that is as the runner makes it holds, from the bytes of the
+    descriptor that was checked: made by `by_name` from the name of a sealed memory copy of them,
+    which wasmtime maps, where the system has one; else, or if wasmtime refuses that copy, by
+    `by_bytes` from the bytes read through the descriptor. And whether the runner may put its own
+    file at that name. Either way nothing done to the cache's file after the load reaches the
+    module: the copy is named by no folder and cannot be changed, and the bytes are wasmtime's
+    own. An error of wasmtime's on the bytes is raised."""
+    fd, may_write = _open_checked(cwasm)
+    if fd is None:
+        return None, may_write
+    try:
+        size = os.fstat(fd).st_size
+        copy = _sealed_copy(fd, size)
+        if copy is not None:
+            try:
+                name = _fd_name(copy)
+                if name is not None:
+                    try:
+                        return by_name(name), False
+                    except (
+                        Exception
+                    ):  # wasmtime refused the copy: the bytes below decide, and raise
+                        pass
+            finally:
+                os.close(copy)
+        return by_bytes(_read_all_from_start(fd, size)), False
     except OSError:
         return None, True
     finally:

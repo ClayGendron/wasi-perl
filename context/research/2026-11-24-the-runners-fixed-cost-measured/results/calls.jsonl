@@ -1,0 +1,6 @@
+{"label": "base-s1", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/base/src/wasi_perl/__init__.py", "bare": 4.495, "ro": 4.538, "rw": 23.473, "stdin+env": 4.501, "fuel": 4.527, "cat ro file": 4.825}
+{"label": "after-s1", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "bare": 1.399, "ro": 1.635, "rw": 19.63, "stdin+env": 1.714, "fuel": 1.703, "cat ro file": 2.219}
+{"label": "base-s2", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/base/src/wasi_perl/__init__.py", "bare": 3.853, "ro": 3.789, "rw": 21.682, "stdin+env": 4.105, "fuel": 3.846, "cat ro file": 4.216}
+{"label": "after-s2", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "bare": 1.778, "ro": 1.666, "rw": 19.936, "stdin+env": 1.615, "fuel": 1.522, "cat ro file": 2.092}
+{"label": "base-s3", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/m014/base/src/wasi_perl/__init__.py", "bare": 3.685, "ro": 3.663, "rw": 21.197, "stdin+env": 3.732, "fuel": 3.711, "cat ro file": 3.898}
+{"label": "after-s3", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "bare": 1.217, "ro": 1.438, "rw": 20.225, "stdin+env": 2.251, "fuel": 1.269, "cat ro file": 1.79}

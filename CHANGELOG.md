@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Nothing yet.
+- A call's fixed cost on the host is smaller: a bare warm call 3.9–4.5 ms → 1.4–1.8 ms, and a fresh process's first call about 135 ms → 114 ms, with 36 MiB less peak memory, on one Linux VM. wasmtime-py's version is read once per process, from its dist-info; `SHA256SUMS` is parsed once per stamp of the file; a rule's inputs are found only when a grant can break the rule; each compiled module is linked once; on Linux the checked `.cwasm` is copied into a sealed memory file that wasmtime maps, instead of being read into Python and copied again, so nothing done to the cache's file afterwards reaches the running module; and the engine states the four wasmtime defaults the speed depends on. Every rule is unchanged. Specification 014; the timings are in `context/research/2026-11-24-the-runners-fixed-cost-measured.md`.
 
 ## 0.1.0 — 2026-11-24
 
