@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -58,13 +60,76 @@ def wasmtime() -> Any:
     return wt
 
 
+_version: list[str | None] = []  # wasmtime-py's version, once read: [] until then
+
+
 def wasmtime_version() -> str | None:
-    from importlib.metadata import PackageNotFoundError, version
+    """wasmtime-py's installed version, read once per process. The wasmtime-py a process imports
+    cannot change after the import, so the version that gated it stays the one that keys its
+    compiled modules; reading it again searched every distribution on the path, on every call.
+    It is the version in the one `wasmtime-*.dist-info` folder beside the package an import
+    loads; with no such folder, or more than one, `importlib.metadata` decides."""
+    if _version:
+        return _version[0]
+    found = _version_beside(_wasmtime_site())
+    if found is None:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            found = version("wasmtime")
+        except PackageNotFoundError:
+            found = None  # no version to key a .cwasm by: modules stay in this process
+    _version[:] = [found]
+    return found
+
+
+def _wasmtime_site() -> Path | None:
+    """The folder that holds the wasmtime package an import loads (the one already imported, if
+    any), found without importing it; None when there is no such package."""
+    import importlib.util
 
     try:
-        return version("wasmtime")
-    except PackageNotFoundError:
-        return None  # no version to key a .cwasm by: modules stay in this process
+        spec = importlib.util.find_spec("wasmtime")
+    except (ImportError, ValueError):
+        return None
+    if spec is None or not spec.origin:
+        return None
+    return Path(spec.origin).resolve().parent.parent
+
+
+def _version_beside(site: Path | None) -> str | None:
+    """The version that the one `wasmtime-*.dist-info` in `site` names in its METADATA, read
+    without importing `importlib.metadata`, one of the slowest imports of a process's first call;
+    None when there is not exactly one such folder, or its METADATA names another package or no
+    version."""
+    if site is None:
+        return None
+    try:
+        infos = [
+            e.path
+            for e in os.scandir(site)
+            if e.name.lower().startswith("wasmtime-") and e.name.endswith(".dist-info")
+        ]
+    except OSError:
+        return None
+    if len(infos) != 1:
+        return None
+    name = version = None
+    try:
+        with open(os.path.join(infos[0], "METADATA"), encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    break  # the headers end at the first blank line
+                key, sep, value = line.partition(":")
+                if sep and key == "Name":
+                    name = value.strip()
+                elif sep and key == "Version":
+                    version = value.strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if name is None or re.sub(r"[-_.]+", "-", name).lower() != "wasmtime":
+        return None
+    return version or None
 
 
 def counts() -> dict[str, int]:
