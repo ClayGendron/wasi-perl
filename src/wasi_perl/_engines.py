@@ -1,6 +1,9 @@
-"""wasmtime-py's import, the two engines, the compiled modules and the epoch ticker. Adapted
-from wasi-python's `_engines.py` (same owner, Apache-2.0): `_wasmtime`, `_engine`, `_module`,
-`_compile` and `_epoch_ticker`, trimmed to one binary and no async stack."""
+"""wasmtime-py's import, the two engines, the compiled modules, their linkers and the epoch
+ticker. Adapted from wasi-python's `_engines.py` (same owner, Apache-2.0): `_wasmtime`,
+`_engine`, `_module`, `_compile` and `_epoch_ticker`, trimmed to one binary and no async stack;
+and from its `_call.py` at f9bf678: `_linker`, `_mount_linker` and `_trampoline_module`, the
+engine's linkers and the mounts' forwarders, cached here beside the engines they serve, without
+the runner's own `poll_oneoff` and door, which wasi-perl does not have."""
 
 from __future__ import annotations
 
@@ -23,7 +26,12 @@ _modules: dict[tuple[bool, str], Any] = {}
 _compiling: dict[tuple[bool, str], threading.Lock] = {}
 # id(module): the module, held so that its id names no other, and its InstancePre
 _linked: dict[int, tuple[Any, Any]] = {}
+_mount_linked: dict[int, tuple[Any, Any]] = {}  # the same, from the mount linker
 _linking = threading.Lock()  # one linking at a time; linking is once per module
+# Per engine: its linker, its mount linker and the mounts' trampoline module.
+_linkers: dict[Any, Any] = {}
+_mount_linkers: dict[Any, Any] = {}
+_trampolines: dict[Any, Any] = {}
 _counts = {"compiled": 0, "loaded": 0, "written": 0}
 
 
@@ -60,6 +68,8 @@ def wasmtime() -> Any:
             "wasi_perl.run needs wasmtime-py (wasmtime>=51,<52), which installs with wasi-perl; "
             "reinstall it or install wasmtime directly"
         ) from e
+    from wasi_perl import _wasmtime_ffi  # noqa: F401  (its own ImportError names what moved)
+
     return wt
 
 
@@ -141,33 +151,84 @@ def counts() -> dict[str, int]:
 
 
 def forget() -> None:
-    """Drop this process's compiled modules, so the next call goes to the disk cache."""
+    """Drop this process's compiled modules and their linkings, so the next call goes to the
+    disk cache and links afresh."""
     with _lock:
         _modules.clear()
         _linked.clear()
+        _mount_linked.clear()
+        _linkers.clear()
 
 
-def linked(metered: bool, mod: Any) -> Any:
+def linker(eng: Any) -> Any:
+    """The engine's one linker: WASI preview1, defined once, so a call adds nothing to
+    wasmtime-py's process-wide table of host functions. The mounts' trampoline takes wasmtime's
+    own calls from it."""
+    wt = wasmtime()
+    with _lock:
+        found = _linkers.get(eng)
+        if found is None:
+            found = _linkers[eng] = wt.Linker(eng)
+            found.define_wasi()
+        return found
+
+
+def mount_linker(eng: Any) -> Any:
+    """The engine's second linker, used only by calls with mounts: the first's WASI, plus a
+    shadow over each of the 29 calls in `_fs_memory.SHADOWED`, each the runner's shared host
+    function, answering EBADF to a caller that is not its call's store and EIO once its call has
+    stopped. Defined once per engine, like the first."""
+    wt = wasmtime()
+    from wasi_perl._fs_memory import SIGNATURES
+    from wasi_perl.runner import _shared
+
+    with _lock:
+        found = _mount_linkers.get(eng)
+        if found is None:
+            found = wt.Linker(eng)
+            found.define_wasi()
+            found.allow_shadowing = True
+            kinds = {"i32": wt.ValType.i32(), "i64": wt.ValType.i64()}
+            for name, params in SIGNATURES.items():
+                ty = wt.FuncType([kinds[p] for p in params], [kinds["i32"]])
+                found.define_func("wasi_snapshot_preview1", name, ty, _shared(name), True)
+            _mount_linkers[eng] = found
+        return found
+
+
+def trampoline(eng: Any) -> Any:
+    """The mounts' forwarders, compiled once per engine and instantiated per call."""
+    wt = wasmtime()
+    from wasi_perl._fs_memory import trampoline_wat
+
+    with _lock:
+        found = _trampolines.get(eng)
+        if found is None:
+            found = _trampolines[eng] = wt.Module(eng, trampoline_wat())
+        return found
+
+
+def linked(metered: bool, mod: Any, mounts: bool = False) -> Any:
     """`mod` linked once against WASI preview1, as an `InstancePre` every call instantiates from.
     The WASI functions a linker defines read the WASI context of the store they are called in, so
     one linking serves every store of the engine, each with its own grants, arguments and
     environment; and no import is resolved again per call. One thread links; calls started at
-    once wait for it."""
-    wt = wasmtime()
+    once wait for it. With `mounts`, from the mount linker, into a cache of its own, made on the
+    first call with mounts."""
+    cache = _mount_linked if mounts else _linked
     with _lock:
-        found = _linked.get(id(mod))
+        found = cache.get(id(mod))
     if found is not None and found[0] is mod:
         return found[1]
     with _linking:
         with _lock:
-            found = _linked.get(id(mod))
+            found = cache.get(id(mod))
         if found is not None and found[0] is mod:
             return found[1]
-        linker = wt.Linker(engine(metered))
-        linker.define_wasi()
-        pre = linker.instantiate_pre(mod)
+        eng = engine(metered)
+        pre = (mount_linker(eng) if mounts else linker(eng)).instantiate_pre(mod)
         with _lock:
-            _linked[id(mod)] = (mod, pre)
+            cache[id(mod)] = (mod, pre)
         return pre
 
 
@@ -268,6 +329,10 @@ def _release_at_exit() -> None:
     ignored TypeError."""
     with _lock:
         _linked.clear()
+        _mount_linked.clear()
+        _trampolines.clear()
+        _mount_linkers.clear()
+        _linkers.clear()
         _modules.clear()
         _engines.clear()
 

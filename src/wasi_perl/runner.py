@@ -6,26 +6,37 @@
     done.exit_code, done.stdout
 
 Adapted from wasi-python's `runner.py` and `_call.py` (same owner, Apache-2.0): the same
-`Defaults`, `Completed` and limits, trimmed to one call with grants and no root, mounts, tools
-or sessions. It is safe by default: the guest sees the library and `/dev` read-only and nothing
-else unless granted, nothing is writable unless a grant says so, and a call that names no limit
-has the ones `defaults()` returns."""
+`Defaults`, `Completed` and limits, trimmed to one call with grants and mounts and no root,
+tools or sessions. From `_call.py` at f9bf678 come the mounts' glue: `_Call`, the shared host
+function (`_shared`), the mount table's host (`_Context`) and the thread's stack of calls,
+trimmed of the door, the host-side `poll_oneoff`, `cancel` and the guest's own thread, which
+wasi-perl does not have: here the guest runs on the calling thread, so a provider is called
+directly. It is safe by default: the guest sees the library and `/dev` read-only and nothing
+else unless granted or mounted, nothing is writable unless a grant or a mount says so, and a
+call that names no limit has the ones `defaults()` returns."""
 
 from __future__ import annotations
 
 import os
+import stat
 import sys
+import tempfile
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import wasi_perl
-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop, _wasmtime_ffi
+from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop
 from wasi_perl._artifacts import Artifacts
+from wasi_perl._fs_memory import EBADF, EIO, STAGING_CEILING
 from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
 from wasi_perl._limits import UNSET
+from wasi_perl.mounts import FileRecord, Mount
+
+if TYPE_CHECKING:
+    from wasi_perl._fs_table import _Files
 
 ARGV0 = "perl"
 UNMETERED = 2**63 - 1  # the fuel instantiation runs on, before the cap is set
@@ -44,14 +55,18 @@ class Defaults:
         deadline_s: The wall-clock seconds a call may run, enforced by epoch interruption.
         output_bytes: The most bytes kept per stream; the rest are dropped and the stream is
             named in `truncated`.
+        file_calls: The most provider calls a call with mounts makes; then it ends "out of file
+            calls".
     """
 
     memory_bytes: int | None
     deadline_s: float | None
     output_bytes: int | None
+    file_calls: int | None = 10_000
 
     def __post_init__(self) -> None:
         _limits.check_limits(None, self.deadline_s, self.memory_bytes, self.output_bytes)
+        _limits.integer_limit("file_calls", self.file_calls)
 
 
 DEFAULTS = Defaults(memory_bytes=1 << 30, deadline_s=60.0, output_bytes=16 << 20)
@@ -59,8 +74,8 @@ _defaults_lock = threading.Lock()
 
 
 def defaults() -> Defaults:
-    """The `Defaults` a call reads now. On import: 1 GiB of memory, a 60 s deadline and 16 MiB of
-    output per stream."""
+    """The `Defaults` a call reads now. On import: 1 GiB of memory, a 60 s deadline, 16 MiB of
+    output per stream and 10,000 provider calls."""
     return DEFAULTS
 
 
@@ -88,12 +103,15 @@ class Completed:
             uncaught `die`. `None` when it trapped.
         stdout: What the guest wrote to standard output, up to the output limit.
         stderr: What the guest wrote to standard error, up to the output limit.
-        trapped: `None` when the program ended by itself; else "out of fuel", "deadline", or
-            wasmtime's words: a trap's kind ("stack overflow", "unreachable") or an error's first
-            line. The two fixed strings are promised; wasmtime's words are not.
+        trapped: `None` when the program ended by itself; else "out of fuel", "deadline",
+            "out of file calls", or wasmtime's words: a trap's kind ("stack overflow",
+            "unreachable") or an error's first line. The three fixed strings are promised;
+            wasmtime's words are not.
         fuel_used: The guest's instructions spent, when a `fuel` cap was given and no deadline
             hit; else `None`.
         truncated: The streams ("stdout", "stderr") whose output passed the limit.
+        files: For a call with mounts, its provider calls, faults and refused writes; else
+            `None`.
     """
 
     exit_code: int | None
@@ -102,6 +120,7 @@ class Completed:
     trapped: str | None
     fuel_used: int | None
     truncated: tuple[str, ...] = ()
+    files: FileRecord | None = None  # the mounts' record, for a call with mounts
 
 
 class _Stream:
@@ -145,6 +164,8 @@ def _set_stdin(wt: Any, wasi: Any, data: bytes) -> None:
     not wrap: no file holds it. The vector is handed over, and wasmtime frees it."""
     if not data:
         return  # wasmtime's default stdin is empty
+    from wasi_perl import _wasmtime_ffi
+
     _wasmtime_ffi.set_stdin_bytes(wasi, data)
 
 
@@ -196,7 +217,7 @@ def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
     import site
     import sysconfig
 
-    import wasmtime
+    wasmtime = _engines.wasmtime()  # with the seam it gates, so its import is in the scan
 
     folders = [found.perl.parent, found.manifest.parent, found.sums.parent, found.lib, found.dev]
     folders += [Path(wasi_perl.__file__).parent, Path(wasmtime.__file__).parent]
@@ -216,8 +237,10 @@ def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
 def _runtime_files(found: Artifacts) -> _grants.RuntimeFiles:
     """The files a writable grant may not hold a second name of: wasmtime-py's (its native
     library above all), this package's, and the artifact set's, the library tree included. The
-    scan is kept, and made again when a folder in it changes."""
-    import wasmtime
+    scan is kept, and made again when a folder in it changes. wasmtime-py is imported through
+    its gate, which imports the engine seam too, so the scan sees this package's files as every
+    call leaves them."""
+    wasmtime = _engines.wasmtime()
 
     tops = (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent, found.lib)
     singles = (found.perl, found.manifest, found.sums, found.dev / "null")
@@ -228,6 +251,7 @@ def run(
     argv: Iterable[str],
     *,
     grants: Iterable[Grant] = (),
+    mounts: Iterable[Mount] = (),
     env: Mapping[str, str] | None = None,
     stdin: bytes | bytearray | memoryview | None = None,
     cwd: str | None = None,
@@ -237,21 +261,27 @@ def run(
     output_bytes: int | None = UNSET,
     cache_dir: str | os.PathLike[str] | bool | None = None,
     artifacts: Artifacts | None = None,
+    max_file_calls: int | None = UNSET,
 ) -> Completed:
     """Run one Perl program in a fresh, sealed perl.wasm and return how it ended.
 
     The guest sees the library read-only at /usr/local/lib/perl5, an empty `null` read-only at
-    /dev, and the folders `grants` names, nothing else. Every argument is checked before any
-    work. Nothing the guest does makes `run` raise.
+    /dev, the folders `grants` names and the providers' files `mounts` names, nothing else.
+    Every argument is checked before any work. Nothing the guest does makes `run` raise; a
+    provider's own BaseException that is not an Exception does, once the guest is stopped.
 
     Args:
         argv: The arguments after `perl`, as for `perl`: `["-ne", "print if /x/", "/data/f"]`.
         grants: Host folders the guest sees, each a `Grant`, read-only unless it says
             `writable=True`.
+        mounts: Providers whose files the guest sees at their guest paths, each a `Mount`,
+            served from your code, read-only unless it says `writable=True`.
         env: The guest's whole environment (plus `PWD` from `cwd`); nothing of the host's.
         stdin: The guest's standard input, whole; `None` is empty.
-        cwd: The guest's working folder: a guest path inside a grant. `None` leaves it at /,
-            which no grant serves, so relative paths fail.
+        cwd: The guest's working folder: a guest path inside a grant or a mount. `None` leaves
+            it at /, which no grant serves, so relative paths fail unless a mount is at /. In a
+            mount it is checked by its text; the guest's start-up asks the provider, and stays
+            at / if the provider does not answer a folder.
         fuel: A cap on the guest's executed instructions; past it the call ends "out of fuel".
         deadline_s: Wall-clock seconds; past them the call ends "deadline". Default 60.
         memory_bytes: The most linear memory the guest may hold. Default 1 GiB.
@@ -261,15 +291,19 @@ def run(
             `False`: none on disk.
         artifacts: The artifact set; `None` finds it and checks it against its SHA256SUMS. A set
             you pass is used as you give it.
+        max_file_calls: The most provider calls a call with mounts makes; then it ends "out
+            of file calls". Default: `defaults().file_calls`, 10,000. `None` means no limit.
 
     Raises:
         TypeError: An argument has the wrong type.
-        ValueError: An argument is out of range, or a grant breaks a rule.
+        ValueError: An argument is out of range, or a grant or a mount breaks a rule.
         ArtifactsMissing: There is no usable artifact set.
         ImportError: wasmtime-py cannot load, or is older than 51.
         OSError: A host filesystem call failed while the call was prepared.
         TooManyCalls: This process's live calls already hold its budget of host descriptors.
         KeyboardInterrupt: Ctrl-C, on the main thread: the guest is stopped first.
+        BaseException: A provider's own, that is not an Exception, raised once the guest is
+            stopped; nothing is written back.
     """
     wt = _engines.wasmtime()
     d = DEFAULTS
@@ -283,6 +317,10 @@ def run(
     if artifacts is not None and not isinstance(artifacts, Artifacts):
         raise TypeError(f"artifacts must be an Artifacts, or None; got {type(artifacts).__name__}")
     asked = _grants.check(grants)
+    mounted = _grants.check_mounts(mounts, asked)
+    file_calls = _limits.integer_limit(
+        "max_file_calls", d.file_calls if max_file_calls is UNSET else max_file_calls
+    )
     cwd_guest = _grants.check_cwd(cwd)
     cache = _cache.given(cache_dir)
     if artifacts is None:
@@ -291,13 +329,15 @@ def run(
         found, want = artifacts, None
     writing = any(g.writable for g in asked)
     # A rule's inputs are found only when a grant can break the rule: the cache rule binds every
-    # grant, the runtime rules only a writable one. A call with no grant has nothing to judge.
+    # grant, the runtime rules only a writable one. A call with no grant has nothing to judge; a
+    # mount has no host folder, so no host rule binds it, writable or not.
     placed, cwd_guest = _grants.judge(
         asked,
         cwd_guest,
         caches=_cache.every(cache) if asked else (),
         runtime=_runtime_folders(found) if writing else (),
         runtime_files=_runtime_files(found) if writing else (),
+        mounts=tuple(m.guest for m in mounted),
     )
     guest_env = dict(inputs.env)
     if cwd_guest is not None:
@@ -310,8 +350,10 @@ def run(
             metered = limits.fuel is not None
             module = _engines.module(metered, found.perl, want, cache.folder)
             engine = _engines.engine(metered)
-            pre = _engines.linked(metered, module)
-            return _call(wt, engine, pre, found, placed, inputs, guest_env, limits)
+            pre = _engines.linked(metered, module, mounts=bool(mounted))
+            return _call(
+                wt, engine, pre, found, placed, inputs, guest_env, limits, mounted, file_calls
+            )
         finally:
             _grants.let_go(slot)
     finally:
@@ -327,10 +369,13 @@ def _set_up(
     guest_env: dict[str, str],
     out: _Stream,
     err: _Stream,
+    mounts: tuple[Mount, ...] = (),
+    placeholder: str | None = None,
 ) -> None:
     """The store's WASI context, which the module's one linking reads for this store alone.
     wasmtime opens each grant here, and raises WasmtimeError for a folder it cannot open; the
-    caller reports that as the call's trap."""
+    caller reports that as the call's trap. Each mount is preopened last, in the order given,
+    read-only on the call's empty placeholder."""
     wasi = wt.WasiConfig()
     wasi.argv = [ARGV0, *inputs.argv]
     wasi.env = sorted(guest_env.items())
@@ -341,7 +386,44 @@ def _set_up(
     wasi.preopen_dir(str(found.dev), DEV_GUEST, False)
     for p in placed:
         wasi.preopen_dir(str(p.host), p.guest, p.writable)
+    for m in mounts:
+        assert placeholder is not None
+        wasi.preopen_dir(placeholder, m.guest, False)
     store.set_wasi(wasi)
+
+
+def _placeholder() -> str:
+    """The call's placeholder: an empty folder `mount`, read-only, in a fresh folder of this
+    user's own (0700) in the system's temporary folder. Every mount's preopen is made on it, so
+    wasi-libc's preopen scan and the guest's own table find a mount as they find a grant; every
+    path call on such a preopen is the table's, so nothing reads its entries."""
+    folder = tempfile.mkdtemp(prefix="wasi-perl-")
+    try:
+        placeholder = os.path.join(folder, "mount")
+        os.mkdir(placeholder, 0o700)
+        os.chmod(placeholder, 0o500)
+    except BaseException:
+        _remove_placeholder(folder)
+        raise
+    return folder
+
+
+def _remove_placeholder(folder: str) -> None:
+    """The placeholder, then its folder, each by `rmdir`, never a tree removal: the folder lies
+    in the temporary folder, which a writable grant may hold, so a guest may have renamed it or
+    put entries where it was, and an `rmdir` removes only an empty folder. Either one that
+    cannot be removed is left, and the call's result is unchanged."""
+    placeholder = os.path.join(folder, "mount")
+    if os.name == "nt":  # a read-only folder cannot be removed there
+        try:
+            os.chmod(placeholder, stat.S_IWRITE)
+        except OSError:
+            pass
+    for path in (placeholder, folder):
+        try:
+            os.rmdir(path)
+        except OSError:
+            return
 
 
 def _call(
@@ -353,41 +435,77 @@ def _call(
     inputs: _limits.Inputs,
     guest_env: dict[str, str],
     limits: _limits.Limits,
+    mounts: tuple[Mount, ...] = (),
+    file_calls: int | None = None,
 ) -> Completed:
     metered = limits.fuel is not None
     out = _Stream("stdout", limits.output_bytes)
     err = _Stream("stderr", limits.output_bytes)
     stop = _stop.Stop(None if limits.deadline_s is None else _limits.ticks(limits.deadline_s))
     store = wt.Store(engine)
+    folder: str | None = None
+    table: _Files | None = None
+    call: _Call | None = None
+    files: FileRecord | None = None
     try:
         if metered:
             store.set_fuel(UNMETERED)
         if limits.memory_bytes is not None:
             store.set_limits(memory_size=limits.memory_bytes)
+        placeholder = None
+        if mounts:
+            from wasi_perl._fs_table import _Files
+
+            folder = _placeholder()
+            placeholder = os.path.join(folder, "mount")
+            staging = STAGING_CEILING if limits.memory_bytes is None else limits.memory_bytes
+            # The library, /dev and the grants are wasmtime's preopens from 3; the mounts' come
+            # after every other.
+            others = [LIBRARY_GUEST, DEV_GUEST, *(p.guest for p in placed)]
+            first = 3 + len(others)
+            numbers = [(m, first + i) for i, m in enumerate(mounts)]
+            context = _Context()
+            table = _Files(numbers, others, file_calls, staging, metered, engine, context=context)
+            call = _Call(store, table, stop)
         try:
-            _set_up(wt, store, found, placed, inputs, guest_env, out, err)
+            _set_up(wt, store, found, placed, inputs, guest_env, out, err, mounts, placeholder)
         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
-            return Completed(None, b"", b"", _error_words(str(e)), None, ())
+            files = None if table is None else table.record()
+            return Completed(None, b"", b"", _error_words(str(e)), None, (), files)
         _stop.arm(store, stop)
         store.set_epoch_deadline(stop.first())
         _engines.TICKER.enter()
         try:
             with _stop.watching_ctrl_c(stop):
-                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits)
+                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits, call)
         finally:
             _engines.TICKER.leave()
+        if table is not None:
+            # What the guest wrote is handed over at every ending that returns a result, after
+            # the fuel is read; a call that raises never gets here.
+            table.walk()
+            files = table.record()
     finally:
         store.close()
+        if table is not None:  # the rest dropped now
+            table.release()
+            table.context.leave()  # type: ignore[attr-defined]
+        if folder is not None:
+            _remove_placeholder(folder)
     if stop.interrupted:
         raise KeyboardInterrupt  # Ctrl-C ended the guest; the store is closed
     truncated = tuple(s.name for s in (out, err) if s.dropped)
-    return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated)
+    return Completed(exit_code, out.value(), err.value(), trapped, fuel_used, truncated, files)
 
 
 def _drive(
-    wt: Any, store: Any, pre: Any, limits: _limits.Limits
+    wt: Any, store: Any, pre: Any, limits: _limits.Limits, call: _Call | None = None
 ) -> tuple[int | None, str | None, int | None]:
-    """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
+    """Instantiate and run the guest; how it ended: (exit code, trap, fuel used). A call with
+    mounts is on this thread's stack while its guest runs, its trampoline bound after the
+    instance and before the fuel cap. What a host function caught and recorded comes first: a
+    trap or an error is the call's result, and any other exception (a provider's own
+    BaseException) is raised here."""
     metered = limits.fuel is not None
     exit_code: int | None = None
     trapped: str | None = None
@@ -395,8 +513,13 @@ def _drive(
     is_metered = False
     instance = None
     read_status = False  # whether the guest's own record of its exit status is asked for
+    stack = _stack()
+    if call is not None:
+        stack.append(call)
     try:
         instance = pre.instantiate(store)
+        if call is not None:
+            call.table.bind(wt, store, _engines.linker(store.engine), instance)
         if metered:
             store.set_fuel(limits.fuel)
             is_metered = True
@@ -412,9 +535,34 @@ def _drive(
         trapped = _stop.word(text) or _error_words(text)
         read_status = trapped not in (_stop.DEADLINE, _stop.INTERRUPTED) and INVALID_EXIT in text
         e.__traceback__ = None
-    if metered and trapped not in (_stop.DEADLINE, _stop.INTERRUPTED):
-        # Read before the status export runs, which spends a little fuel of its own.
-        fuel_used = limits.fuel - store.get_fuel() if is_metered else 0  # type: ignore[operator]
+    finally:
+        if call is not None:
+            stack.remove(call)
+    cause = None if call is None else call.stopped
+    ended = None if call is None else call.ended
+    if cause is not None:
+        exit_code, trapped, read_status = None, None, False
+        if isinstance(cause, wt.Trap):
+            trapped = _stop.word(cause.message) or _trap_name(wt, cause)
+        elif isinstance(cause, wt.WasmtimeError):
+            text = str(cause)
+            trapped = _stop.word(text) or _error_words(text)
+        else:
+            raise cause
+        cause.__traceback__ = None  # a reported stop's frames hold this call
+    elif ended == _stop.FILE_CALLS:  # the file-call limit stopped it
+        exit_code, trapped, read_status = None, ended, False
+    if metered and trapped not in (_stop.DEADLINE, _stop.INTERRUPTED, _stop.FILE_CALLS):
+        held = None if call is None else call.table.stop_fuel
+        if held is not None and ended is None and cause is held[0]:
+            # A forward's own trap or error, or an ABI error a served call raised: the count
+            # read then is the guest's, as when wasmtime's WASI meets it directly.
+            fuel_used = limits.fuel - held[1]  # type: ignore[operator]
+        elif cause is not None:
+            fuel_used = None
+        else:
+            # Read before the status export runs, which spends a little fuel of its own.
+            fuel_used = limits.fuel - store.get_fuel() if is_metered else 0  # type: ignore[operator]
     if read_status and instance is not None:
         # The guest may have reached its exit with no fuel or time left; the export gets a
         # budget of its own, so it answers rather than trapping. A trap never reaches here.
@@ -425,3 +573,170 @@ def _drive(
         if status is not None:
             exit_code, trapped = status, None
     return exit_code, trapped, fuel_used
+
+
+# The mounts' glue. Each shadowed call is one host function per engine, which finds its call on
+# this thread's stack and serves it only when the caller's store is that call's.
+
+_calls = threading.local()
+
+
+def _stack() -> list[_Call]:
+    """This thread's stack of calls with mounts: a provider may itself call `run`, so a call may
+    run inside another's host function, on the same thread."""
+    stack: list[_Call] | None = getattr(_calls, "stack", None)
+    if stack is None:
+        stack = _calls.stack = []
+    return stack
+
+
+class _Call:
+    """One call with mounts, as its host functions find it on the thread's stack: its store's
+    context address, its table, and its stop, where the first exception a host function caught
+    and the name the call's end was given are kept for the epoch callback."""
+
+    def __init__(self, store: Any, table: _Files, watch: _stop.Stop) -> None:
+        from wasi_perl import _wasmtime_ffi as ffi
+
+        self.context = ffi.context_address(store)
+        self.table = table
+        self.watch = watch
+        context = table.context
+        if isinstance(context, _Context):
+            context.enter(self)
+
+    @property
+    def stopped(self) -> BaseException | None:
+        return self.watch.stopped
+
+    @stopped.setter
+    def stopped(self, cause: BaseException | None) -> None:
+        self.watch.stopped = cause
+
+    @property
+    def ended(self) -> str | None:
+        return self.watch.ended
+
+    @ended.setter
+    def ended(self, name: str | None) -> None:
+        self.watch.ended = name
+
+    def files(self, caller: Any, name: str, *args: int) -> int:
+        """One of the 29 shadowed calls."""
+        return self.table(caller, name, *args)
+
+    def stop(self, caller: Any, cause: BaseException) -> None:
+        """Record the cause and stop the guest: an epoch deadline of 0, set through the caller's
+        context, meets the epoch callback at its next function entry, with nothing raised
+        through wasmtime-py."""
+        if self.stopped is None:
+            self.stopped = cause
+        _epoch_now(caller)
+
+
+def _shared(name: str) -> Callable[..., int]:
+    """A host function defined once per engine, shadowing the preview1 call `name`. It serves
+    the call on top of this thread's stack, and only when the caller is that call's store:
+    EBADF otherwise, and EIO once its call has stopped or ended. It never raises into
+    wasmtime-py, whose exceptions travel by a process-wide slot."""
+    import wasmtime as wt
+
+    from wasi_perl import _wasmtime_ffi as ffi
+
+    wasmtime_errors = (wt.Trap, wt.WasmtimeError)
+
+    def function(caller: Any, *args: int) -> int:
+        call = None
+        try:
+            stack = _stack()
+            call = stack[-1] if stack else None
+            if call is None or ffi.context_address(caller) != call.context:
+                return EBADF
+            # Ctrl-C comes before the guard below: a noted Ctrl-C stops the guest even for a
+            # call the epoch callback has ended.
+            if call.watch.interrupted:
+                _epoch_now(caller)
+                return EIO
+            if call.stopped is not None or call.ended is not None:
+                return EIO  # no host function runs for a stopped or ended call
+            answer: int = call.files(caller, name, *args)
+            if call.watch.interrupted:  # Ctrl-C during a provider call, noted and deferred
+                _epoch_now(caller)
+            return answer
+        except BaseException as cause:
+            try:
+                if (
+                    call is not None
+                    and call.ended is not None
+                    and isinstance(cause, wasmtime_errors)
+                ):
+                    # While the guest runs, `ended` is set only where the runner also stops the
+                    # guest in the same step: the epoch callback, on a path that returns an
+                    # error; or the file-call limit, which sets the epoch deadline to 0 before
+                    # it returns. So a Trap or WasmtimeError caught here after `ended` is set is
+                    # the runner's own stop surfacing at a forward's trampoline entry. It is not
+                    # a stop: `_drive` names the run from `ended`. Any other exception, or one
+                    # caught before `ended`, is a stop.
+                    _epoch_now(caller)
+                elif call is not None:
+                    call.stop(caller, cause)
+            except BaseException:
+                pass
+            return EIO
+
+    return function
+
+
+def _epoch_now(caller: Any) -> None:
+    """An epoch deadline of 0 for the caller's store: its guest meets its epoch callback at its
+    next function entry."""
+    from wasi_perl import _wasmtime_ffi as ffi
+
+    ffi.set_epoch_deadline(caller, 0)
+
+
+class _Context:
+    """The runner's answers to the mount table's nine questions (`mounts._CallContext`): the
+    four process-wide ones, and the five of the call the table serves, which `enter` and `leave`
+    set and clear with the call's life; with no call they answer "no call"."""
+
+    def __init__(self) -> None:
+        self.call: _Call | None = None
+
+    def enter(self, call: _Call) -> None:
+        self.call = call
+
+    def leave(self) -> None:
+        self.call = None
+
+    def ino_of(self, path: str) -> int:
+        return _grants._siphash13(path.encode())
+
+    def trampoline(self, wt: Any, engine: Any) -> Any:
+        return _engines.trampoline(engine)
+
+    def exiting(self) -> bool:
+        return sys.is_finalizing()
+
+    def ctrl_c_pending(self) -> bool:
+        call = self.call
+        return call is not None and call.watch.interrupted
+
+    def stop_now(self, caller: Any) -> None:
+        _epoch_now(caller)
+
+    def cancelled(self) -> bool:
+        return False  # wasi-perl has no cancel; the gate's order stays wasi-python's
+
+    def deadline_passed(self) -> bool:
+        call = self.call
+        stop_at = None if call is None else call.watch.stop_at
+        return stop_at is not None and _engines.TICKER.count >= stop_at
+
+    def name_end(self, reason: str) -> None:
+        call = self.call
+        if call is not None and call.ended is None:
+            call.ended = reason
+
+    def on_home(self, fn: Callable[..., Any], *args: Any) -> Any:
+        return fn(*args)  # the guest runs on the calling thread: the provider's thread
