@@ -1,0 +1,1612 @@
+{
+ "grep_args_500": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "provider": {
+    "read": 500,
+    "stat": 500
+   },
+   "provider_total": 1000,
+   "wasi_total": 4537
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "provider": {
+    "read": 500
+   },
+   "provider_total": 500,
+   "wasi_total": 4537
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 500,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 500,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 500,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 120118,
+    "fd_write": 6417
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "fd_read_sizes": {
+    "8192": 1000
+   },
+   "stdout": 6417,
+   "total": 4537,
+   "who": {
+    "fd-table look": 501,
+    "fd-table start": 10,
+    "perl + wasi-libc": 4026
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "provider": {
+    "read": 500,
+    "stat": 500
+   },
+   "provider_total": 1000,
+   "wasi_total": 4537
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "provider": {
+    "read": 500,
+    "stat": 500
+   },
+   "provider_total": 1000,
+   "wasi_total": 4537
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 501,
+    "fd_fdstat_get": 1012,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 501,
+    "path_open": 501
+   },
+   "provider": {
+    "read": 500
+   },
+   "provider_total": 500,
+   "wasi_total": 4537
+  }
+ },
+ "grep_glob_500": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 1002
+   },
+   "provider_total": 1503,
+   "wasi_total": 5114
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "provider": {
+    "list": 1,
+    "read": 501
+   },
+   "provider_total": 502,
+   "wasi_total": 5114
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 1,
+    "mkdir": 0,
+    "read": 500,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 1002,
+    "write": 0
+   },
+   "trips": 3
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 1,
+    "mkdir": 0,
+    "read": 501,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 2
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 174761,
+    "fd_readdir": 16064,
+    "fd_write": 6417
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "fd_read_sizes": {
+    "8192": 1007
+   },
+   "stdout": 6417,
+   "total": 5114,
+   "who": {
+    "fd-table look": 506,
+    "fd-table start": 10,
+    "perl + wasi-libc": 4598
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 501
+   },
+   "provider_total": 1002,
+   "wasi_total": 5114
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 501
+   },
+   "provider_total": 1002,
+   "wasi_total": 5114
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 506,
+    "fd_fdstat_get": 1021,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1007,
+    "fd_readdir": 4,
+    "fd_seek": 4,
+    "fd_tell": 512,
+    "fd_write": 1,
+    "path_filestat_get": 1036,
+    "path_open": 506
+   },
+   "provider": {
+    "list": 1,
+    "read": 501
+   },
+   "provider_total": 502,
+   "wasi_total": 5114
+  }
+ },
+ "grep_opendir_500": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 502
+   },
+   "provider_total": 1003,
+   "wasi_total": 4545
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "provider": {
+    "list": 1,
+    "read": 501
+   },
+   "provider_total": 502,
+   "wasi_total": 4545
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 1,
+    "mkdir": 0,
+    "read": 500,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 502,
+    "write": 0
+   },
+   "trips": 3
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 1,
+    "mkdir": 0,
+    "read": 501,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 2
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 120118,
+    "fd_readdir": 16064,
+    "fd_write": 6417
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "fd_read_sizes": {
+    "8192": 1000
+   },
+   "stdout": 6417,
+   "total": 4545,
+   "who": {
+    "fd-table look": 502,
+    "fd-table start": 10,
+    "perl + wasi-libc": 4033
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 501
+   },
+   "provider_total": 1002,
+   "wasi_total": 4545
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "provider": {
+    "list": 1,
+    "read": 500,
+    "stat": 501
+   },
+   "provider_total": 1002,
+   "wasi_total": 4545
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 502,
+    "fd_fdstat_get": 1013,
+    "fd_filestat_get": 501,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 1000,
+    "fd_readdir": 4,
+    "fd_tell": 504,
+    "fd_write": 1,
+    "path_filestat_get": 502,
+    "path_open": 502
+   },
+   "provider": {
+    "list": 1,
+    "read": 501
+   },
+   "provider_total": 502,
+   "wasi_total": 4545
+  }
+ },
+ "hello": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "provider": {},
+   "provider_total": 0,
+   "wasi_total": 36
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "provider": {},
+   "provider_total": 0,
+   "wasi_total": 36
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 0,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 0
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 0,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 0
+  },
+  "grant": {
+   "bytes": {},
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "fd_read_sizes": {},
+   "stdout": 0,
+   "total": 36,
+   "who": {
+    "fd-table look": 1,
+    "fd-table start": 10,
+    "perl + wasi-libc": 25
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "provider": {},
+   "provider_total": 0,
+   "wasi_total": 36
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "provider": {},
+   "provider_total": 0,
+   "wasi_total": 36
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 1,
+    "fd_fdstat_get": 12,
+    "fd_filestat_get": 1,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 4,
+    "path_filestat_get": 1,
+    "path_open": 1
+   },
+   "provider": {},
+   "provider_total": 0,
+   "wasi_total": 36
+  }
+ },
+ "lane_5m": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 656
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 656
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 1,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 5000032,
+    "fd_write": 11
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "fd_read_sizes": {
+    "8192": 612
+   },
+   "stdout": 11,
+   "total": 656,
+   "who": {
+    "fd-table look": 2,
+    "fd-table start": 10,
+    "perl + wasi-libc": 644
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 656
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 656
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 656
+  }
+ },
+ "ne_50k": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 52
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 52
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 1,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 50022,
+    "fd_write": 1064
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "fd_read_sizes": {
+    "8192": 8
+   },
+   "stdout": 1064,
+   "total": 52,
+   "who": {
+    "fd-table look": 2,
+    "fd-table start": 10,
+    "perl + wasi-libc": 40
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 52
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 52
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 52
+  }
+ },
+ "pi_50k": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "provider": {
+    "read": 1,
+    "rename": 1,
+    "stat": 2,
+    "write": 2
+   },
+   "provider_total": 6,
+   "wasi_total": 66
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "provider": {
+    "read": 2,
+    "write": 1
+   },
+   "provider_total": 3,
+   "wasi_total": 66
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 1,
+    "rmdir": 0,
+    "stat": 2,
+    "write": 2
+   },
+   "trips": 5
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 2,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 1
+   },
+   "trips": 3
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 50022,
+    "fd_write": 49999
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "fd_read_sizes": {
+    "8192": 8
+   },
+   "stdout": 0,
+   "total": 66,
+   "who": {
+    "fd-table look": 2,
+    "fd-table start": 10,
+    "perl + wasi-libc": 54
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "provider": {
+    "read": 1,
+    "rename": 1,
+    "stat": 2,
+    "write": 2
+   },
+   "provider_total": 6,
+   "wasi_total": 66
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "provider": {
+    "read": 1,
+    "rename": 1,
+    "stat": 2,
+    "write": 1
+   },
+   "provider_total": 5,
+   "wasi_total": 66
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 3,
+    "fd_fdstat_get": 16,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 8,
+    "fd_tell": 6,
+    "fd_write": 7,
+    "path_filestat_get": 2,
+    "path_open": 3,
+    "path_rename": 1
+   },
+   "provider": {
+    "read": 2,
+    "rename": 1,
+    "write": 1
+   },
+   "provider_total": 4,
+   "wasi_total": 66
+  }
+ },
+ "slurp_5m": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 658
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 658
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 1,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 0
+   },
+   "trips": 1
+  },
+  "grant": {
+   "bytes": {
+    "fd_read": 5000032,
+    "fd_write": 8
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "fd_read_sizes": {
+    "8192": 612
+   },
+   "stdout": 8,
+   "total": 658,
+   "who": {
+    "fd-table look": 2,
+    "fd-table start": 10,
+    "perl + wasi-libc": 646
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 658
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "stat": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 658
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 4,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_read": 612,
+    "fd_tell": 5,
+    "fd_write": 1,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1
+   },
+   "provider_total": 1,
+   "wasi_total": 658
+  }
+ },
+ "write_new": {
+  "a_wasi_python": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "stat": 2,
+    "write": 2
+   },
+   "provider_total": 4,
+   "wasi_total": 61
+  },
+  "all_four": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "write": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 61
+  },
+  "e_cache+a_wasi_python": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 0,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 2,
+    "write": 2
+   },
+   "trips": 4
+  },
+  "e_cache+all_four": {
+   "protocol": {
+    "list": 0,
+    "mkdir": 0,
+    "read": 1,
+    "remove": 0,
+    "rename": 0,
+    "rmdir": 0,
+    "stat": 0,
+    "write": 1
+   },
+   "trips": 2
+  },
+  "grant": {
+   "bytes": {
+    "fd_write": 140893
+   },
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "fd_read_sizes": {},
+   "stdout": 0,
+   "total": 61,
+   "who": {
+    "fd-table look": 2,
+    "fd-table start": 10,
+    "perl + wasi-libc": 49
+   }
+  },
+  "memo": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "stat": 1,
+    "write": 2
+   },
+   "provider_total": 3,
+   "wasi_total": 61
+  },
+  "memo_defer": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "stat": 1,
+    "write": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 61
+  },
+  "memo_defer_statread": {
+   "calls": {
+    "args_get": 1,
+    "args_sizes_get": 1,
+    "clock_time_get": 4,
+    "environ_sizes_get": 1,
+    "fd_close": 2,
+    "fd_fdstat_get": 14,
+    "fd_filestat_get": 2,
+    "fd_prestat_dir_name": 3,
+    "fd_prestat_get": 6,
+    "fd_tell": 5,
+    "fd_write": 18,
+    "path_filestat_get": 2,
+    "path_open": 2
+   },
+   "provider": {
+    "read": 1,
+    "write": 1
+   },
+   "provider_total": 2,
+   "wasi_total": 61
+  }
+ }
+}
