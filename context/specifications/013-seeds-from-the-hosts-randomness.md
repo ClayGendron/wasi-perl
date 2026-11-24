@@ -1,6 +1,6 @@
 # 013 — Seeds from the host's randomness
 
-- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H1, M1, M2, L6).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H1, M1, M2, L6); amended 2026-11-24 by the orchestrator after the build found it (decision 7, and check 6).
 - **Owner:** Clay Gendron
 - **Kind:** the build recipe (`recipes/wasi-fd-table.c`), checks in `tests/build/` and `tests/escapes/`, and `docs/sandbox.md`.
 - **Depends on:** 009, 010.
@@ -59,6 +59,7 @@ Evidence:
 6. **Perl's own controls keep working, as natively:**
    - `PERL_HASH_SEED` (including `0`), `PERL_PERTURB_KEYS` and `PERL_INTERNAL_RAND_SEED` (where Perl's rules allow it);
    - `srand(N)`.
+7. **An open with no access mode reads, as on Linux.** Perl's `Perl_seed` opens the device with flags `0` (`util.c` 4730), which is read-only on Linux, but wasi-libc encodes read-only as `O_RDONLY` = 0x04000000, so it rejects `0` with EINVAL before the table sees it. The descriptor table wraps `open` and `openat` (`--wrap`): when the access-mode bits (`O_ACCMODE`) are zero, `O_RDONLY` is added, and nothing else changes. So `sysopen(F, $p, 0)` reads as natively, where today it fails.
 
 ## Checks (written first, seen failing)
 
@@ -82,6 +83,12 @@ Evidence:
    - A FIFO named `urandom` inside a grant is refused with `ENXIO`.
    - The import list is the 32 functions of today plus `random_get`, all `wasi_snapshot_preview1`.
 5. **`PERL_HASH_SEED=0`** gives the same key order on every call, as natively.
+
+6. **An open with no access mode reads** (decision 7).
+   - `sysopen(my $f, "/dev/urandom", 0)` reads 16 bytes.
+   - `sysopen(F, <a granted file>, 0)` reads it.
+   - `O_WRONLY` and `O_RDWR` are unchanged.
+   - The `random_get` probe of check 1 sees calls, and check 1 passes.
 
 ## Acceptance
 
