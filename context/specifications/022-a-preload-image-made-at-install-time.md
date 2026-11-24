@@ -1,10 +1,10 @@
 # 022 — A preload image the embedder makes at install time
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 10. The owner gave two answers that bear on it, the same day (`../roadmap.md`):
+- **Status:** agreed by the owner, 2026-11-24, and being built. The owner answered through AskUserQuestion: "Build it last (Recommended)", with a prototype first and a stop with a report if the prototype failed. The prototype says go (`../research/2026-11-24-preload-image-prototype.md`, §0). That answer agrees to the four new choices named below. Written by the orchestrator, 2026-11-24, for synthesis item 10. The owner gave two answers that bear on it, the same day (`../roadmap.md`):
   - "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That agrees to building the item, not this text.
   - "Install-time images only." The roadmap records what it means: the image may be built only as one the embedder makes itself, so that its fixed hash seed is never published. So wasi-perl ships no preloaded image.
 
-  These choices are new here and await the owner: choice (c), which no study prototyped; the second binary `perl-reactor.wasm`; the default package list held in the runner's code (Decision 5); and the cap on data segments. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, M1–M4, M6, L5–L8; round 2: N1, N2).
+  These choices are new here and await the owner: choice (c), which no study prototyped; the second binary `perl-reactor.wasm`; the default package list held in the runner's code (Decision 5); and the cap on data segments. They were asked with AskUserQuestion before the build started, and agreed as above. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, M1–M4, M6, L5–L8; round 2: N1, N2).
 - **Owner:** Clay Gendron
 - **Kind:**
   - the build: a new `recipes/wasi-reactor.c`, its object compiled in `scripts/20_target.sh`, its link in step 4 of spec 019's `scripts/40_link.sh`, `scripts/assemble_artifacts.py`, and the `SHA256SUMS` that step 7 writes. `MANIFEST` is not changed;
