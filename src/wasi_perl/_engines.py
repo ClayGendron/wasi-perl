@@ -174,6 +174,15 @@ def engine(metered: bool) -> Any:
             cfg.wasm_exceptions = True
             cfg.epoch_interruption = True
             cfg.consume_fuel = metered
+            # wasmtime's defaults today, stated so that a later wasmtime that changed one
+            # cannot slow every call unseen: optimised code; compiled on every core, since one
+            # core takes several times as long; the module's memory image mapped copy-on-write,
+            # else perl.wasm's data is copied into every new instance; and out-of-bounds
+            # accesses caught by guard pages rather than checked one by one in the code.
+            cfg.cranelift_opt_level = "speed"
+            cfg.parallel_compilation = True
+            cfg.memory_init_cow = True
+            cfg.signals_based_traps = True
             _engines[metered] = wt.Engine(cfg)
         return _engines[metered]
 
