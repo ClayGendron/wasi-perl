@@ -84,3 +84,68 @@ Sources read: wasmtime-wasi 51.0.0 (`src/filesystem.rs` `set_times_at` line 890 
 ## Verdict
 
 Does not land: H1 is the hang this specification exists to remove, reached through `utime` instead of `open`, and it holds `run()` past its deadline and fuel (EXECUTED). Wrapping `path_filestat_set_times` with the same look, with a check beside the FIFO escape check, should be one round. M1 should be fixed in the same round. The Lows may be fixed or answered in writing.
+
+## Round 2
+
+- **Fix commit:** 7bcaf73. It fast-forwards on 5b68427.
+- **Reviewer:** the same agent as round 1 (Claude), a fresh sub-agent of https://claude.ai/code/session_01ThzDEUwftdmy8zWBJK1gWa; not the author.
+- **Build:** a fresh worktree, `WASI_PERL_JOBS=2 scripts/build.sh`: ok, 1453 library files, EXECUTED.
+- **Tests:**
+  - `uv run --no-project --with pytest --with wasmtime==51.0.0 pytest tests/build -q`: 382 passed, EXECUTED.
+  - `WASI_PERL_ARTIFACTS=$PWD/build/artifacts uv run pytest -q tests/escapes`: 13 passed, EXECUTED.
+  - No check was removed or loosened: the diff's test changes are additions only.
+
+### Reproductions
+
+Each program ran in the guest (the wasmtime CLI, a writable `/g` with a FIFO `pipe` and a folder `d` holding a FIFO `p2` and a file `f`) and in native perl on the same tree. All EXECUTED.
+
+| Program | Guest | Native |
+|---|---|---|
+| `utime(undef,undef,"pipe")` | `ok` | `ok` |
+| `utime(1,1,"pipe")`, then mtime | `ok 1` | `ok 1` |
+| `utime` through a guest-made link to the FIFO | `No such device or address`, returns at once | `ok` |
+| `utime(1,1,…)` through a link to a regular file | `ok 1` | `ok 1` |
+| `-e "pipe"`, `-p "pipe"`, `-e "d/p2"` | `101` | `111` |
+| `opendir "d"; readdir` | `f,p2` | `f,p2` |
+| `open "<", "d/p2"` | ENXIO | blocks (killed at 3 s) |
+| both `utime` forms through `run()` (`deadline_s=2`, fuel cap) | returns, exit 0 | |
+
+- The ENXIO through a link is the documented refusal, the same as an open through a link.
+- `-p` false is the documented WASI limit.
+
+### The audit, checked against the sources
+
+I spot-checked the author's claim against wasmtime-wasi 51.0.0 and cap-primitives 3.4.4.
+
+- READ:
+  - `link_at` refuses `SYMLINK_FOLLOW` with EINVAL (`filesystem.rs:914-930`). Without following, the link is a `hard_link` through the parent.
+  - On Linux, `stat` with following is `open_beneath` with `O_PATH` (`rustix/linux/fs/stat_impl.rs`). Without following, it is `stat_unchecked` on a single component.
+  - The macOS manual `stat` does a no-follow `stat_unchecked` on the last component (`fs/manually/open.rs:458-492`).
+  - Components in the middle of a path use `dir_options()`, which is read plus `dir_required`, so `O_DIRECTORY`, plus `O_PATH` on Linux (`rustix/fs/dir_utils.rs:79`, `rustix/fs/oflags.rs`).
+  - The rename, unlink, readlink, mkdir, rmdir and symlink helpers all live under `fs/via_parent/`.
+  - The two `primitives::open` calls outside `open_at` and `set_times` (`filesystem.rs:540`, `637`) are `sync` and `sync_data` on a descriptor already open, not on a guest path.
+- INFERRED: that macOS refuses `O_DIRECTORY` on a FIFO before the FIFO's open waits. It is not run here.
+
+### The other fixes
+
+- **M1, the host's event buffer.**
+  - The host now writes into a `malloc` of `nsent` events.
+  - The copy into `out` is bounded by `nsubscriptions`, and the zero clock is dropped only when the wrapper added it.
+  - `tests/build/test_poll_buffer.py` passes. Its fake host answers every subscription it is sent.
+- **L1, the error set.** It is never passed to wasi-libc, and its bits come back clear on success.
+- **L2, the reopen.** It is now looked at first, and must open a regular file.
+- **L3 and L4, the probe before closing.**
+  - A probe open runs before any held descriptor is closed. It uses the current `fs_flags`, with rights masked by the current ones.
+  - If the probe fails, nothing is closed and the first error is returned.
+  - This settles both findings.
+- **L5, a lost descriptor.** `GONE` closes cleanly and is answered locally in poll.
+- **L6, the hash.** Answered: `perl -V` embeds `__DATE__` and `__TIME__`. This round's build hashed `d0e484c5…`, different again, which fits that answer.
+
+### Left as notes, not findings
+
+- With an error-set-only select and no timeout, wasi-libc now sees three NULL sets and no clock. That should give ENOTSUP where native waits forever. It is not run, and it is harmless.
+- The probe open at the destination skips `look()`. Only a host process could race it, the same documented race as before.
+
+### Verdict
+
+Lands. H1 and M1 are fixed and checked by rerunning the reproductions (EXECUTED). L1 to L5 are fixed. L6 is answered in writing. tests/build and tests/escapes pass.
