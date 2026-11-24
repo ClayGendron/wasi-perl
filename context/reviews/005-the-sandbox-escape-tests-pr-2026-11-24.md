@@ -63,3 +63,47 @@ All three are tested with real Perl under the real `perl.wasm`, and they pass: r
 Nothing is skipped silently. Without a set, every check skips with spec 001's message. The Windows skips name their reason. The one row that drops out (`sysopen` without Fcntl) is recorded in the landing notes. The FIFO xfail states the wanted behaviour, and I confirmed the block it records. The README's "Not protected" names both the FIFO block and the guest-made link left behind. The `_engines` `atexit` change is small and matches wasi-python's `release_at_exit`.
 
 Verdict: Lands. No escape was found by the branch's checks or by mine. The four Medium findings strengthen assertions that already pass. Fix them, or answer them in writing, in one round before the merge.
+
+## Round 2
+
+I re-reviewed fix commit `6fbe4e8` on `spec/005-escapes`, by the diff `git diff a1f679c..6fbe4e8 -- tests/escapes context/specifications/005*`. I left out the 004 merge (`bc64277`), which belongs to 004's own reviewer. Fresh worktree, 2026-11-24.
+
+### The run (EXECUTED)
+
+I sealed a fresh scratch copy of 001's set with `scripts/write_sums.py`. It gave 1,624 lines, with no `MANIFEST`, and `sha256sum -c` passes.
+
+```
+$ WASI_PERL_ARTIFACTS=$PWD/build/artifacts uv run pytest -q -rsx tests
+XFAIL test_escapes.py::test_a_fifo_in_a_grant_is_refused
+XFAIL test_perl.py::test_exit_256_is_0, test_exit_minus_1_is_255   (004's, not this review's)
+169 passed, 1 skipped, 3 xfailed, 4 warnings in 33.60s
+$ WASI_PERL_ARTIFACTS=/nonexistent uv run pytest -q tests
+149 passed, 24 skipped, 4 warnings in 9.60s
+$ uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
+All checks passed!  20 files already formatted
+```
+
+These counts match the author's revised landing notes. My ruff run reports 20 files, theirs 23, because they ran over more folders.
+
+### Each finding
+
+| # | Was | Now |
+|---|---|---|
+| 1 | Medium | **Fixed.** `tree()` now starts with a `"."` row holding the folder's own mode and mtime. `_digest_tree()` is built on `tree()`, so the library and `dev/` digests also cover modes and times. |
+| 2 | Medium | **Fixed.** `expect()` checks the text of every row. Check 1 wants "No such file or directory" on all 7 rows, the new `/..` row included. Check 6 wants "Operation not permitted" on every row except `chmod` (ENOSYS) and `write-read-handle` (EBADF). The guest-made link rows each want the text this run gives. The six plant rows accept either ENOENT or EPERM. That is reasonable: `/usr/./local` stops at ENOENT, as my round-1 probe saw, and both answers are the wall's refusal. |
+| 3 | Medium | **Fixed.** The no-grant check compares the library and `dev/` digests and `tmp_path`'s tree. The plant check compares the library digest and `ro`'s tree, and wants `rw` to hold exactly `Evil.pm` and `w.txt`. The `..` check compares the trees of `outside` and `ro`, and the top-level listing. |
+| 4 | Medium | **Fixed.** `lines()` asserts `(exit_code, trapped) == (0, None)`. `expect()` asserts the exact set of row names. The read-only check counts 22 rows, or 23 with Fcntl. The row names come from `READ_ONLY` itself, and the `sysopen` row is added only when Fcntl is present. |
+| 5 | Low | **Fixed.** The check is now `xfail(raises=BlockedInHost, strict=True)`, and only the child's timeout raises it. A control child on a regular file must print `opened` first. Anything else is a real failure: an import error, a non-zero exit, or a failed control. A future fix that refuses the open would XPASS, which `strict=True` turns into a failure, so the marker gets removed. |
+| 6 | Low | **Fixed.** The three other spellings are plant rows, and `opendir("/..")` is a row of check 1. |
+| 7 | Low | **Fixed.** The in-place check now covers `-pi` and `-pi.bak` on `/ro`, `-pi` on `strict.pm`, `-pi` on `../ro/f.txt` from `/rw`, and `-pi` through a link the guest made. Each must say "Operation not permitted" on stderr. Afterwards `ro`'s tree and the library's digest must be unchanged. |
+| 8 | Low | **Answered, accepted.** The author did not add a FIFO open for writing. They argue it is the same blocking host `open(2)`, and the spec labels that INFERRED. The one xfail names the gap, and the planned `path_open` fix covers both directions. |
+| 9 | Low | **Answered, accepted.** Their sealed copy also held a `MANIFEST`. Mine had none, which accounts for the difference of one line. |
+
+New code I checked in passing:
+- `want["inet"] = ""` requires only a refusal, which is right for a row that this build never reaches.
+- `null-read` is `!defined <$n>`, so the row is `ok` exactly at end of file.
+- The `dataclasses.replace()` that drops the `absent` lines works on `Completed`, since the suite passes.
+
+I have no new findings.
+
+Verdict: Lands. All four Medium findings and Lows 5, 6, 7 and 9 are fixed and pass against the real `perl.wasm`. Low 8 is answered in the specification.
