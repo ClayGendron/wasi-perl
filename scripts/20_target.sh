@@ -35,6 +35,9 @@ rm -rf "$SRC" "$ART" "$STUBS" "$BUILD/host-tools" "$STAMP"
 mkdir -p "$STUBS"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-stubs.c" -o "$STUBS/wasi-stubs.o"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-posix-stubs.c" -o "$STUBS/wasi-posix-stubs.o"
+# The descriptor table is linked into every program wasi-cc links, so it comes first.
+run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-fd-table.c" -o "$STUBS/wasi-fd-table.o"
+run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-fd-table.a" "$STUBS/wasi-fd-table.o"
 
 mkdir -p "$BUILD/unpack-target"
 run "$LOG" tar -C "$BUILD/unpack-target" -xf "$TARBALL"
