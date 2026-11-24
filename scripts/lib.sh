@@ -51,6 +51,14 @@ check_pinned() {
         || fail "$1 does not match its SHA-256 in downloads/SHA256SUMS"
 }
 
+# listed <find arguments>: "<sha256>  <path>" per file found from the current folder, sorted by
+# path component (as Python sorts paths: "a/x" before "a-b/x"), so the runner's own writer gives
+# the same bytes. MANIFEST and SHA256SUMS are written with it.
+listed() {
+    find "$@" -type f | sed 's|^\./||' | sed 's|/|\x01|g' | LC_ALL=C sort | sed 's|\x01|/|g' \
+        | xargs -d '\n' sha256sum --
+}
+
 # listed_tarballs <list>: the first field of each line of a recipes/cpan-* list that is neither
 # blank nor a comment.
 listed_tarballs() {

@@ -260,13 +260,12 @@ def _checkout_with_a_tampered(tmp_path: Path, tampered: str) -> Path:
         "tools/wasi-sdk-34.0-x86_64-linux/bin/clang",
         "native/miniperl",
         "native/generate_uudmap",
-        "artifacts/perl.wasm",
+        "target/perl",
         ".target.stamp",
     ):
         (build / tool).parent.mkdir(parents=True, exist_ok=True)
         (build / tool).write_text("")
         (build / tool).chmod(0o755)
-    (build / "target").mkdir()
     (build / "target" / "kept").write_text("")
     return root
 
@@ -345,9 +344,9 @@ def _library_checkout(tmp_path: Path, members: dict[str, bytes | Link]) -> tuple
     (root / "recipes" / "cpan-pure").write_text(f"{name}\n")
     build = root / "build"
     (build / "artifacts").mkdir(parents=True)
-    (build / "artifacts" / "perl.wasm").write_bytes(b"")
     (build / ".target.stamp").write_text("stand-in\n")
     (build / "target").mkdir()
+    (build / "target" / "perl").write_bytes(b"")
     (build / "target" / "miniperl").write_text(STANDIN_MINIPERL)
     (build / "target" / "miniperl").chmod(0o755)
     return root, name
