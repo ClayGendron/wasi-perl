@@ -1,7 +1,7 @@
 # Untrusted downloads (toolchains, source tarballs) and build trees. Only the hash list is tracked.
 downloads/*
 !downloads/SHA256SUMS
-build/
+/build/
 .venv/
 __pycache__/
 *.pyc
