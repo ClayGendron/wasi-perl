@@ -455,6 +455,12 @@ Built on `spec/017-mounts` from dev at `f44e0fd`, with wasi-python at `f9bf678` 
 - **CI.** The wheel job now runs `tests/mounts` beside `tests/runner`, `tests/escapes` and `tests/oneliners`, against the set `WASI_PERL_ARTIFACTS` names, and its gate counts every check of `tests/mounts` and `tests/escapes/test_mount_escapes.py`: a skip of any fails it. The raw-preview1 checks (B, C) need no Perl, so the lint job runs them too.
 - **No speed memo.** The specification asks for the unification record, `../research/2026-11-24-mounts-beside-wasi-python.md`, and no timing; the provider-call counts are D1's and D2's, in `docs/mounts.md` and the checks.
 
+### Found by CI: `cwd` is checked by text before the artifact set is found
+
+CI's lint job runs the fast suite with no artifact set. There `test_a_bad_mount_is_refused_before_any_work[kw29-ValueError-mount]`, a `cwd` outside every grant and mount, raised `ArtifactsMissing` before its `ValueError`: the check lay in `judge`, after `_artifacts.checked()`. Locally it had passed only because a set was built. Seen failing the same way locally, in a clean export with no `build/` and `WASI_PERL_ARTIFACTS` unset (EXECUTED: 1 failed, 205 passed). `_grants.check_cwd` now takes the grants and mounts and refuses such a `cwd` by its text, with the other argument checks, before any work; `judge` still checks a grant's host folder for it. After the fix that run passes whole (EXECUTED: 206 passed, 390 skipped).
+
+The refusals still made after the set is found are host rules, not argument checks: a grant's host folder that is missing or not a folder, and a `cwd` whose folder in a grant is missing (EXECUTED: each gives `ArtifactsMissing` when there is no set). wasi-python orders them the same way: its `_run_checked` finds the set, then walks the grants (READ: `_call.py`, `_run_checked`).
+
 ### Counts that differ from the specification's table
 
 Each is a correction of an inference or of a prototype's count, with the guest's own calls as the reason; the review should see them (EXECUTED: `uv run pytest -m slow tests/mounts/test_mount_perl.py`).

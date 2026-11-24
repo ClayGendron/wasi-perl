@@ -321,7 +321,7 @@ def run(
     file_calls = _limits.integer_limit(
         "max_file_calls", d.file_calls if max_file_calls is UNSET else max_file_calls
     )
-    cwd_guest = _grants.check_cwd(cwd)
+    cwd_guest = _grants.check_cwd(cwd, asked, mounted)
     cache = _cache.given(cache_dir)
     if artifacts is None:
         found, want = _artifacts.checked()

@@ -205,10 +205,15 @@ def _siphash13(data: bytes) -> int:
     return v0 ^ v1 ^ v2 ^ v3
 
 
-def check_cwd(cwd: Any) -> str | None:
+def check_cwd(cwd: Any, grants: Sequence[Grant] = (), mounts: Sequence[Any] = ()) -> str | None:
+    """`cwd` as a guest path inside one of the grants or mounts, judged by its text alone, so it
+    is refused before any work; `judge` checks a grant's host folder later."""
     if cwd is None:
         return None
-    return guest_path("cwd", cwd)
+    path = guest_path("cwd", cwd)
+    if not any(_under(path, place.guest) for place in (*grants, *mounts)):
+        raise ValueError(_NOT_INSIDE.format(cwd=path))
+    return path
 
 
 def _can_write(folder: str) -> bool:
@@ -717,6 +722,11 @@ def granted_writable(path: Path) -> bool:
     return any(w in mine or (me is not None and me in w_chain) for w, w_chain in ever)
 
 
+_NOT_INSIDE = (
+    "cwd {cwd} is not inside a grant or a mount; name a grant's or a mount's guest path, or below"
+)
+
+
 def _under(path: str, top: str) -> bool:
     return top == "/" or path == top or path.startswith(top + "/")
 
@@ -727,10 +737,7 @@ def _judge_cwd(cwd: str | None, placed: Sequence[Placed], mounts: Sequence[str] 
     serving = [p for p in placed if _under(cwd, p.guest)]
     mounted = [m for m in mounts if _under(cwd, m)]
     if not serving and not mounted:
-        raise ValueError(
-            f"cwd {cwd} is not inside a grant or a mount; name a grant's or a mount's guest "
-            "path, or below"
-        )
+        raise ValueError(_NOT_INSIDE.format(cwd=cwd))
     # wasi-libc picks the longest prefix too. A mount's cwd is judged by its text: no provider
     # code runs before the guest does, so the guest's own start-up chdir asks the provider.
     deepest_grant = max((len(p.guest) for p in serving), default=-1)
