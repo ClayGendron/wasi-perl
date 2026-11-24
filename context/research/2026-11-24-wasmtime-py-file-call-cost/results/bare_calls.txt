@@ -1,0 +1,6 @@
+bare -e 1 stock: median 3.485 ms, min 3.139 ms over 200
+bare -e 1 blocking: median 3.286 ms, min 2.977 ms over 200
+bare -e 1 stock: median 3.581 ms, min 3.125 ms over 200
+bare -e 1 blocking: median 3.587 ms, min 3.392 ms over 200
+bare -e 1 stock: median 4.098 ms, min 3.658 ms over 200
+bare -e 1 blocking: median 3.547 ms, min 3.084 ms over 200

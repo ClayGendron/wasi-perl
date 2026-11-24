@@ -1,0 +1,10 @@
+py-patched read per WASI call: futex 7.89, pread64 1.00
+py-patched fstat per WASI call: futex 17.94, statx 2.00
+py-patched fdstat per WASI call: futex 17.37, statx 1.00, fcntl 1.00
+py-patched pstat per WASI call: futex 16.05, statx 2.00
+py-patched open per WASI call: futex 4.17, statx 1.00, openat2 1.00, close 1.00
+py-blocking read per WASI call: pread64 1.00
+py-blocking fstat per WASI call: statx 2.00, futex 0.19
+py-blocking fdstat per WASI call: statx 1.00, fcntl 1.00
+py-blocking pstat per WASI call: statx 2.00
+py-blocking open per WASI call: statx 1.00, openat2 1.00, close 1.00

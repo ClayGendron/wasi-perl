@@ -1,0 +1,7 @@
+218
+    Finished `release` profile [optimized] target(s) in 3m 04s
+exit 0
+a604ff298233ea9db449a32dfef877a7aa4edffa753ec0d8e6b9474f5e3c9162  /home/user/wasi-perl-downloads/target-c-api/release/libwasmtime.so
+4a3485a73e98a596cc6286183f55683b344d6207cf9890357489d294725be030  /home/user/wasi-perl-downloads/pylib-patched/wasmtime/linux-x86_64/_libwasmtime.so
+e3b6f82a76730979875b0c336e573583e1bd9deb052ac44be771e19b1dc51e00  <bench venv>/lib/python3.11/site-packages/wasmtime/linux-x86_64/_libwasmtime.so
+d7fe6469adaed4c236384610fad9ab3fbbec0bdb50ae410e1352f464a80105bb  /home/user/wasi-perl-downloads/probe-build/probe.wasm
