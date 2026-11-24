@@ -557,3 +557,58 @@ def test_a_fifo_in_a_grant_is_refused(perl_set, tmp_path):
         f"link refused {nxio}",
         "still there",
     ], out.stdout
+
+
+# A sleep waits in the host's poll_oneoff, where neither the deadline nor fuel reaches, so the
+# guest cuts every clock wait into short slices and runs between them. Each sleep here would
+# outlast the suite; the call must end "deadline" (or "out of fuel"), and the END block, which
+# would print how long the guest waited, must not run. Each run is in a child with a fail-safe,
+# so a regression fails the check instead of holding the suite.
+SLEEPS = {
+    "sleep": "sleep 30",
+    "sleep-forever": "sleep 2**31 - 1",  # the largest sleep takes: it reads an I32
+    "select": "select(undef, undef, undef, 1e9)",
+    "hires-sleep": "Time::HiRes::sleep(1e6)",
+    "nanosleep": "Time::HiRes::nanosleep(1e15)",
+    "absolute-clock": (
+        "Time::HiRes::clock_nanosleep(Time::HiRes::CLOCK_REALTIME(), "
+        "(Time::HiRes::time() + 3600) * 1e9, Time::HiRes::TIMER_ABSTIME())"
+    ),
+}
+
+SLEEP_CHILD = r"""
+import sys
+from wasi_perl import Artifacts, run
+artifacts, code, limit = sys.argv[1:4]
+kw = {"deadline_s": 1, "fuel": 10**12} if limit == "deadline" else {"deadline_s": None}
+if limit == "fuel":
+    start = run(["-MTime::HiRes", "-e", "1"], fuel=10**12, artifacts=Artifacts.at(artifacts))
+    kw["fuel"] = start.fuel_used + 100_000  # start-up, then about two seconds of slices
+prog = "use Time::HiRes; my $t0 = Time::HiRes::time(); "
+prog += 'END { printf "%.3f\n", Time::HiRes::time() - $t0 } ' + code
+done = run(["-e", prog], artifacts=Artifacts.at(artifacts), **kw)
+print(done.exit_code, done.trapped, repr(done.stdout), repr(done.stderr))
+"""
+
+
+def _sleep_child(perl_set, code: str, limit: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", SLEEP_CHILD, str(perl_set.perl.parent), code, limit],
+        capture_output=True,
+        text=True,
+        timeout=30,  # a fail-safe for the suite, not a measurement
+    )
+
+
+@pytest.mark.parametrize("code", SLEEPS.values(), ids=SLEEPS.keys())
+def test_a_sleeping_guest_keeps_its_deadline(perl_set, code):
+    out = _sleep_child(perl_set, code, "deadline")
+    assert out.returncode == 0, out.stderr
+    assert out.stdout == "None deadline b'' b''\n", out.stdout
+
+
+@pytest.mark.parametrize("code", [SLEEPS["sleep"], SLEEPS["select"]], ids=["sleep", "select"])
+def test_a_sleeping_guest_runs_out_of_fuel(perl_set, code):
+    out = _sleep_child(perl_set, code, "fuel")
+    assert out.returncode == 0, out.stderr
+    assert out.stdout == "None out of fuel b'' b''\n", out.stdout
