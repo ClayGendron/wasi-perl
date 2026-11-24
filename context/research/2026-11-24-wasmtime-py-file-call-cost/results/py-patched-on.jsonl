@@ -1,0 +1,7 @@
+{"kind": "read", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.469, "us_per_call_min": 0.466, "us_per_call_max": 0.474}
+{"kind": "eof", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.415, "us_per_call_min": 0.413, "us_per_call_max": 0.421}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.717, "us_per_call_min": 0.713, "us_per_call_max": 0.72}
+{"kind": "fdstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.523, "us_per_call_min": 0.521, "us_per_call_max": 0.815}
+{"kind": "pstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 1.236, "us_per_call_min": 1.041, "us_per_call_max": 1.321}
+{"kind": "open", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 1.494, "us_per_call_min": 1.487, "us_per_call_max": 1.538}
+{"kind": "clock", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.109, "us_per_call_min": 0.108, "us_per_call_max": 0.114}

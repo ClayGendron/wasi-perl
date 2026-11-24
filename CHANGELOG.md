@@ -6,6 +6,10 @@
 
 - Perl's seeds now come from the host's randomness. Before, the guest had no `/dev/urandom`, so Perl seeded its hash order, its internal random state and `srand` from the time of day, which can be guessed from when a call started; that weakened Perl's defence against hash flooding. Now the guest serves `/dev/urandom` and `/dev/random` itself, from WASI's `random_get`, which `perl.wasm` now imports; the host never sees the name. The device answers as Linux's does. An open with no access mode, as Perl's seed makes, now reads as on Linux, so `sysopen(F, $path, 0)` opens a handle for input where it failed with EINVAL. `docs/sandbox.md` lists what differs from native.
 
+### Changed
+
+- A call's fixed cost on the host is smaller: a bare warm call 3.9–4.5 ms → 1.4–1.8 ms, and a fresh process's first call about 135 ms → 114 ms, with 36 MiB less peak memory, on one Linux VM. wasmtime-py's version is read once per process, from its dist-info; `SHA256SUMS` is parsed once per stamp of the file; a rule's inputs are found only when a grant can break the rule; each compiled module is linked once; on Linux the checked `.cwasm` is copied into a sealed memory file that wasmtime maps, instead of being read into Python and copied again, so nothing done to the cache's file afterwards reaches the running module; and the engine states the four wasmtime defaults the speed depends on. Every rule is unchanged. Specification 014; the timings are in `context/research/2026-11-24-the-runners-fixed-cost-measured.md`.
+
 ## 0.1.0 — 2026-11-24
 
 The first release. One pinned set: Perl 5.42.3, built with wasi-sdk 34 for `wasm32-wasip1`, run with wasmtime 51.

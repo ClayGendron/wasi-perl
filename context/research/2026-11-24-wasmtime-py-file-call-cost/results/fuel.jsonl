@@ -1,0 +1,7 @@
+{"kind": "read", "instructions_per_call": 146.055}
+{"kind": "eof", "instructions_per_call": 146.2875}
+{"kind": "fstat", "instructions_per_call": 200.0585}
+{"kind": "fdstat", "instructions_per_call": 276.162}
+{"kind": "pstat", "instructions_per_call": 365.0565}
+{"kind": "open", "instructions_per_call": 385.022}
+{"kind": "clock", "instructions_per_call": 296.1875}
