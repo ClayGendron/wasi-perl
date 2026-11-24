@@ -65,3 +65,42 @@
 ## Verdict
 
 Lands. There are no High findings. The judge compares every byte of stdout and stderr, the exit code, traps, and the whole tree of the work directory. Normalisation is applied once and only to native results. The corpus is free of hash-order dependence under 9 seeds. The recorded-oracle contract behaves as specified. The four Mediums are to be fixed or answered in writing: committed tests for the recorded-oracle and known-difference logic; narrowing the blind `except`; re-running ruff on the tree merged with 004 before merge; and absolute and subfolder paths.
+
+## Round 2 (commit 51aa466)
+
+- **Same reviewer:** an agent (Claude), a fresh sub-agent of https://claude.ai/code/session_01ThzDEUwftdmy8zWBJK1gWa; not the author.
+- **Read:** the diff of 51aa466, the new `tests/oneliners/test_oracle_logic.py` (202 lines), and the spec's "Author's answers".
+
+### What I ran
+
+| Check | Command | Result |
+|---|---|---|
+| Logic tests (no perl) | `uv run --with pytest pytest tests/oneliners/test_oracle_logic.py -q` | `28 passed`. EXECUTED |
+| Corpus | `grep -c '^\[\[case\]\]'`; `sha256sum tests/oneliners/cases.toml` | 209 cases; sha256 `4fbf7aa1…1948`, as the landing notes say. EXECUTED |
+| Native determinism, plus logic and corpus checks | `WASI_PERL_ORACLE=build/native-install/bin/perl uv run --with pytest pytest tests/oneliners -q -x -m "not slow"` | `238 passed, 209 deselected`. EXECUTED |
+| Hash order, harder | the round-1 scratch sweep (8 more seeds, `PERL_PERTURB_KEYS=1`) | `unstable []`, 0 of 209. EXECUTED |
+| Recorded oracle | `record_oracle.py --perl … --out <scratch>`, then the round-1 round-trip and refusal script | `recorded 209 cases (corpus 4fbf7aa13b27)`. 0 round-trip mismatches. format, perl, sha and a missing case are refused. A JSON list now raises `StaleOracle`. EXECUTED |
+| Guest, same snapshot as round 1 | `WASI_PERL_ARTIFACTS=$PWD/build/guest-artifacts uv run --with ../004-runner --with pytest pytest tests/oneliners -k guest -q` | `43 failed, 166 passed`. The round-1 42 plus `paths-glob-subfolders` (File::Glob, known context). Every other `paths` and `env` case matches, absolute names included. `grep -ciE 'out of fuel\|deadline'` → 0. EXECUTED |
+| Ruff, 004's rule set | `ruff check --select E,F,I,UP,B,TID252 --line-length 100 --target-version py311`; `ruff format --line-length 100 --check` | `All checks passed!`, `5 files already formatted`. EXECUTED |
+| Merged tree | 004's `pyproject.toml`, `src/` and `tests/` with this commit's `tests/oneliners`: `ruff check`, `ruff format --check`, `pytest -m "not slow" tests` | ruff clean; `269 passed, 111 skipped, 216 deselected`. EXECUTED |
+
+### Each finding
+
+| Round-1 finding | Check | Status |
+|---|---|---|
+| M1: no committed tests of the recorded-oracle and known-difference logic | `choose_expected` and `verdict` are now in `oneliner_oracle.py`. The guest fixture and test call them (`test_oneliners.py:93-95`, `:149-153`), so the 28 checks cover the code that judges. They cover: a round trip with non-UTF-8 bytes and folders; each refusal (format, perl, corpus, missing case, not an object, not JSON, absent); native wins even over a stale file; a stale file raises rather than skips; neither oracle gives "none"; a refused perl raises; pass, xfail, listed-but-matching fails, outside-listed-fields fails, unlisted fails; a trap is always a difference; unknown keys and fixtures refused; the placeholder; `normalise`; links in `snapshot`. | Fixed |
+| M2: blind `except Exception` | `except wasi_perl.ArtifactsMissing` (`test_oneliners.py:113`). Anything else now raises. | Fixed |
+| M3: ruff clean only under 004's config | Answered: merge after 004's `pyproject.toml` lands, then re-run ruff on the merged tree. My simulated merge is clean. | Answered; this binds the merge order |
+| M4: no subfolder or absolute paths | The `{work}` placeholder expands to the host path natively (`oneliner_oracle.py:288`) and to `/work` in the guest (`test_oneliners.py:124`). `normalise` maps the native spelling back. There are 12 `paths` cases covering `-pi.bak`, `-i.orig` and `-iold/*` on `src/app/main.c` and on `{work}/src/...`, `$ARGV` for both spellings, `..` inside the grant, absolute `open`, writes and file tests, a missing absolute file, and a subfolder `glob`. 11 of them match in the guest. Decision 5 is amended. | Fixed |
+| L1–L8 | Fixed in code with a check, except L5. L5 is answered with a comment at `ORACLE_JSON_FORMAT`, which is acceptable: the key set is a fixed contract. The guest guard is now `fuel=10**11, deadline_s=None`. 0 fuel traps. | Fixed or answered |
+
+### New, Low only
+
+| Rank | Where | Finding | Suggested fix |
+|---|---|---|---|
+| Low | `tests/oneliners/oneliner_oracle.py:204-205` | `{work}` is replaced inside Perl code too (`paths-open-absolute`, `paths-write-absolute`, `paths-file-tests-absolute`). A host path holding `$` or `@` would interpolate in those double-quoted strings and change only the native run. pytest's `tmp_path` names are made of word characters, so this cannot happen today. A user-chosen `--basetemp` could trigger it. | In `run_native`, refuse a work directory whose path holds a character outside `[A-Za-z0-9_./-]`, with a clear message. |
+| Low | `context/specifications/006-the-one-liner-oracle.md:69` | Decision 10 still says the guest test "starts `perl.wasm` 195 times". The corpus is now 209. | Say 209, or "once per case". |
+
+### Verdict (round 2)
+
+Lands. All four round-1 Mediums are fixed or answered. M3's answer means this branch merges after 004's `pyproject.toml`, with ruff re-run on the merged tree. The two new findings are Low. The judge's own logic is now under committed, perl-free tests, and the guest test calls the same functions they check.
