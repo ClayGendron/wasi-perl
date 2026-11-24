@@ -31,10 +31,11 @@ Every refusal dies with one message:
 
 About `%SIG`:
 
-- A store of any value for a real signal dies, `'IGNORE'`, `'DEFAULT'` and `undef` included. A script that relies on a handler must not run on believing it has one.
+- A store of any value for a real signal, made by the program's own code, dies, `'IGNORE'`, `'DEFAULT'` and `undef` included. A script that relies on a handler must not run on believing it has one.
 - `local $SIG{ALRM}` dies where it is written. When its scope ends, the old value is put back quietly.
 - Reading `%SIG` works, and so do names that are not signals (Perl warns about those, as natively).
 - `delete $SIG{INT}` works: it puts back the default, which installs nothing.
+- The runtime's own library may store a handler. Core modules such as Math::Complex and Math::Trig do so while they load (`local $SIG{FPE}`), and they work. The handler is kept and never runs: the sandbox delivers no signals. What counts is where the statement is: a file under `/usr/local/lib/perl5/5.42/` (not `site_perl`), named with no `.` or `..` step. A module anywhere else, granted or not, is the program's own code, and its store is refused.
 - `$SIG{__WARN__}` and `$SIG{__DIE__}` are hooks, not signals. They work exactly as natively.
 
 `system("true") == 0 or die` dies with the `system` refusal: `system` never returns a status to compare.

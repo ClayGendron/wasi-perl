@@ -105,9 +105,7 @@ def test_refusal_message_is_dollar_at(guest):
 def test_refusal_line_numbers(guest, tmp_path: Path):
     r = guest("-e", 'print "one\\n";\n\nsystem "true";\n')
     assert r.stdout == b"one\n"
-    assert (
-        r.stderr == b"system is not available in the wasi-perl sandbox at -e line 3.\n"
-    )
+    assert r.stderr == b"system is not available in the wasi-perl sandbox at -e line 3.\n"
 
 
 # What is a hook, not a signal, works as natively.
@@ -190,11 +188,7 @@ def test_still_works(guest, native, code, out):
 def test_exit_and_end(guest, native):
     code = 'END { print "end $?\\n" } exit 3'
     g, n = guest("-e", code), native("-e", code)
-    assert (
-        (g.code, g.stdout, g.stderr)
-        == (n.code, n.stdout, n.stderr)
-        == (3, b"end 3\n", b"")
-    )
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr) == (3, b"end 3\n", b"")
 
 
 def test_still_imports_only_wasi(perl_wasm: Path):
@@ -299,9 +293,7 @@ def _reopen(guest, code: str, tmp: Path):
 
 
 @pytest.mark.parametrize("code", REOPEN, ids=range(len(REOPEN)))
-def test_reopen_standard_handle_matches_native(
-    guest, native_perl, tmp_path: Path, code
-):
+def test_reopen_standard_handle_matches_native(guest, native_perl, tmp_path: Path, code):
     g, n, gfiles, nfiles = _reopen(guest, code, tmp_path)
     assert gfiles == nfiles and gfiles
     assert (g.stdout, g.stderr) == (n.stdout, n.stderr)
@@ -334,9 +326,7 @@ FDOPEN = [
 
 
 @pytest.mark.parametrize("code", FDOPEN, ids=range(len(FDOPEN)))
-def test_fdopen_of_a_shared_descriptor_fails_cleanly(
-    guest, native_perl, tmp_path: Path, code
-):
+def test_fdopen_of_a_shared_descriptor_fails_cleanly(guest, native_perl, tmp_path: Path, code):
     g, n, gfiles, _ = _reopen(guest, code, tmp_path)
     assert n.returncode == 0 and b"fail" not in n.stdout + n.stderr
     assert g.code == 0
@@ -356,3 +346,73 @@ def test_dup_of_a_handle_fails_clearly(guest, native, tmp_path: Path):
     g = guest("-e", code)
     assert (g.stdout, g.stderr) == (b"", b"dup: Not supported\n")
     assert g.code == 95  # ENOTSUP, in Linux's numbering
+
+
+# The runtime's own library may store a handler while it loads (Math::Complex: local $SIG{FPE});
+# the handler is kept and never runs. Code anywhere else is the program's own and is refused.
+LIBRARY_SIG = (
+    "use Math::Trig; use Math::Complex;"
+    'printf "%.12f %.12f\\n", pi, deg2rad(90);'
+    'print cplx(1, 2) * cplx(3, 4), " ", sqrt(cplx(-4)), " ", cplx(3, 4)->abs, "\\n";'
+    'printf "%.12f\\n", tan(0.5);'
+)
+
+
+def test_library_modules_storing_handlers_load_as_natively(guest, native):
+    g, n = guest("-e", LIBRARY_SIG), native("-e", LIBRARY_SIG)
+    assert n.code == 0 and n.stdout.startswith(b"3.141592653590 1.570796326795\n")
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
+
+
+def test_library_handler_does_not_unlock_the_program(guest):
+    r = guest("-e", 'use Math::Complex; $SIG{FPE} = sub {}; print "not reached\\n"')
+    assert r.stdout == b""
+    assert r.stderr == b"signal handler for SIGFPE" + SUFFIX
+    assert_exit_refused(r, 255)
+
+
+MODULE = b"package Evil;\n$SIG{INT} = sub {};\n1;\n"
+
+
+@pytest.mark.parametrize(
+    ("guest_dir", "inc"),
+    [
+        ("/work", "/work"),
+        # A folder whose name only begins with the library's.
+        ("/usr/local/lib/perl5/5.42x", "/usr/local/lib/perl5/5.42x"),
+        # site_perl, inside the library's path, is where an embedder's own modules go.
+        ("/usr/local/lib/perl5/5.42/site_perl", "/usr/local/lib/perl5/5.42/site_perl"),
+    ],
+    ids=["granted", "lookalike", "site_perl"],
+)
+def test_user_module_storing_a_handler_is_refused(guest, tmp_path: Path, guest_dir, inc):
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "Evil.pm").write_bytes(MODULE)
+    grants = [*default_grants(), (folder, guest_dir, False)]
+    r = guest(f"-I{inc}", "-MEvil", "-e", 'print "not reached\\n"', grants=grants)
+    assert r.stdout == b""
+    msg = f"signal handler for SIGINT is not available in the wasi-perl sandbox at {inc}/Evil.pm line 2.\n"
+    assert r.stderr.startswith(msg.encode()), r.stderr
+    assert_exit_refused(r, 255)
+
+
+@pytest.mark.parametrize(
+    "inc",
+    [
+        "/usr/local/lib/perl5/5.42/../../../../../work",
+        "/usr/local/lib/perl5/5.42/./../../../../../work",
+    ],
+    ids=["climb", "dot-climb"],
+)
+def test_a_climb_out_of_the_library_reaches_nothing(guest, tmp_path: Path, inc):
+    # wasi-libc resolves a path inside the grant it starts in and refuses to climb out of it,
+    # so a file named through the library's path is always the library's own. The %SIG check
+    # also refuses any path with a "." or ".." component.
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "Evil.pm").write_bytes(MODULE)
+    grants = [*default_grants(), (folder, "/work", False)]
+    r = guest(f"-I{inc}", "-MEvil", "-e", 'print "not reached\\n"', grants=grants)
+    assert (r.code, r.stdout) == (2, b"")
+    assert r.stderr.startswith(b"Can't locate Evil.pm in @INC")

@@ -17,6 +17,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <wasi/libc.h>
 
 #define SANDBOX " is not available in the wasi-perl sandbox"
@@ -135,19 +136,56 @@ SSize_t __wrap_Perl_apply(pTHX_ I32 type, SV **mark, SV **sp)
     return __real_Perl_apply(aTHX_ type, mark, sp);
 }
 
+/* Whether path names a file inside dir: dir exactly, a slash, then components none of which is
+ * empty, "." or "..". So "/usr/local/lib/perl5/5.42x/A.pm" and "/usr/local/lib/perl5/5.42/../x"
+ * are not inside "/usr/local/lib/perl5/5.42". */
+static bool path_is_under(const char *path, const char *dir)
+{
+    size_t n = strlen(dir);
+    const char *p;
+    if (n == 0 || strncmp(path, dir, n) != 0 || path[n] != '/')
+        return FALSE;
+    for (p = path + n + 1;;) {
+        const char *end = strchr(p, '/');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == 0 || (len == 1 && p[0] == '.') || (len == 2 && p[0] == '.' && p[1] == '.'))
+            return FALSE;
+        if (!end)
+            return TRUE;
+        p = end + 1;
+    }
+}
+
+/* Whether the statement being run is in the runtime's own library: a file under privlib or
+ * archlib, which the embedder grants read-only, so no program can put a file there. site_perl,
+ * which lies inside privlib, is where an embedder's own modules would go; it counts as the
+ * program's code. */
+static bool in_runtime_library(pTHX)
+{
+    const char *file = PL_curcop ? CopFILE(PL_curcop) : NULL;
+    if (!file || path_is_under(file, SITELIB_EXP) || path_is_under(file, SITEARCH_EXP))
+        return FALSE;
+    return path_is_under(file, PRIVLIB_EXP) || path_is_under(file, ARCHLIB_EXP);
+}
+
 /* A store into %SIG. The __WARN__ and __DIE__ hooks are not signals and pass through, as do
  * names that are not signals (Perl warns about those). A store for a real signal, of any
- * value, dies: a script that relies on a handler must not run on believing it has one. Two
- * calls are let through. A delete (magic_clearsig calls this with no value) only puts back the
- * default, which installs nothing. The restore at the end of a local's scope (PL_localizing is
- * 2) puts back the value that was there before the refused store. */
+ * value, made by the program's own code dies: a script that relies on a handler must not run on
+ * believing it has one. Let through are:
+ * - a delete (magic_clearsig calls this with no value): it only puts back the default;
+ * - the restore at the end of a local's scope (PL_localizing is 2): it puts back the value
+ *   that was there before the refused store;
+ * - a store made by a statement in the runtime's own library. Core modules such as
+ *   Math::Complex (local $SIG{FPE}) store a handler while they load; the handler is kept and
+ *   never runs, since the sandbox delivers no signals. */
 __typeof__(Perl_magic_setsig) __real_Perl_magic_setsig;
 __typeof__(Perl_magic_setsig) __wrap_Perl_magic_setsig;
 int __wrap_Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
 {
     STRLEN len;
     const char *s = MgPV_const(mg, len);
-    if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0) {
+    if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0
+        && !in_runtime_library(aTHX)) {
         SV *msg = newSVpvf("signal handler for SIG%" UTF8f, UTF8fARG(0, len, s));
         sv_2mortal(msg);
         PL_localizing = 0;
