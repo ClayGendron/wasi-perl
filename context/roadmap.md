@@ -24,7 +24,7 @@ The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) propo
 
 - **Order: "1–4 first."** These are 013–016 below, agreed by the owner the same day ("Agree all four (Recommended)"). Then: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That makes 017–022, to be written on a later branch.
 - **The preload snapshot: "Install-time images only."** It may be built only as an image the embedder makes itself, so that its fixed hash seed is never published. It is specified after the leaner `@INC`.
-- **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** That root-cause study is running; its memo is to be written.
+- **wasmtime-py's 56 µs file call: "No, clone the library and determine the root cause first. Another option is we could build our own rust crate that compiles wasmtime."** The root cause is found (`research/2026-11-24-wasmtime-py-file-call-cost.md`): wasmtime's C API never sets `allow_blocking_current_thread`, so every file call is handed to another thread. A 19-line C API patch brings the calls to the CLI's speed. Sending it upstream waits on the owner.
 - **`NO_TAINT_SUPPORT`: "Keep -T."** It is not built.
 
 | Spec | What it delivers | After |
@@ -34,10 +34,13 @@ The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) propo
 | 015 | The runner's checks kept across calls: runtime-file identities per folder stamp, and a tree record in the module cache | 014 |
 | 016 | The guest's reads and writes: a 64 KiB PerlIO buffer, a SIMD `memchr`, and `isatty` answered for files the table looked at | 009, 010, 013 |
 
-Proposed next, not yet written:
-- mounts, wasi-python's protocol adapted (synthesis spec 5);
-- JSON and CSV in XS (6);
-- a leaner `@INC` (7);
-- docs for agents (8);
-- `wasm-opt -O3` (9);
-- the install-time preload image (10).
+Then, under "You can do all 10":
+
+| Spec | What it delivers | After |
+|---|---|---|
+| 017 | Mounts: files served from the embedder's code, with wasi-python 0.1.6's API and protocol unchanged | 014 |
+| 018 | JSON, CSV and diff: Cpanel::JSON::XS and Text::CSV_XS linked from pinned CPAN tarballs; JSON::MaybeXS, Text::CSV and Algorithm::Diff in the library | 016 |
+| 019 | The library index: lookups of missing library files answered in the guest | 013, 016, 018 |
+| 020 | Docs for agents: the fast way to write common programs, each example a check | 018 |
+| 021 | `wasm-opt -O3` after the last link | 019 |
+| 022 | A preload image the embedder makes at install time, with wasi-python's snapshot API | 019 |
