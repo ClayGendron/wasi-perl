@@ -21,3 +21,330 @@
 # and bug, and says what was seen for the others.
 
 [files]
+
+# subprocess
+"base/term.t" = { reason = "subprocess", note = "test 2 runs a child perl through backticks" }
+"comp/multiline.t" = { reason = "subprocess", note = "tests 5 and 6 run a child perl through backticks" }
+"comp/parser_run.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/bom.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/crlf_through.t" = { reason = "subprocess", note = "does io/through.t, which opens pipes to a child perl" }
+"io/data.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/errno.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/fflush.t" = { reason = "subprocess", note = "runs child perls through system" }
+"io/fs.t" = { reason = "subprocess", note = "gets the working directory from `pwd` and dies without it" }
+"io/inplace.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/iprefix.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/openpid.t" = { reason = "subprocess", note = "opens pipes to child perls and kills them" }
+"io/pvbm.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/tell.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"io/through.t" = { reason = "subprocess", note = "opens pipes to a child perl; dies \"open: Function not implemented\"" }
+"japh/abigail.t" = { reason = "subprocess", note = "every failing test runs a child perl" }
+"lib/no_load.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"lib/universal.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"mro/package_aliases.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"mro/package_aliases_utf8.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/anonsub.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/array.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/blocks.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/bop.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/caller.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/cmpchain.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/concat2.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/current_sub.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/debug.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/die_unwind.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/eval.t" = { reason = "subprocess", note = "tests run child perls through fresh_perl; also test 130 needs re (spec 002)" }
+"op/exec.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/gv.t" = { reason = "subprocess", note = "most failing tests run a child perl; also test 225 opens \"<&\" (no dup in WASI) and tests 268-269 need IO (spec 002)" }
+"op/heredoc.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/hexfp.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/hook/require.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/join.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/leaky-magic.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/lex.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/lex_assign.t" = { reason = "subprocess", note = "opens a pipe from a child perl at line 20 (test 171 reads it); the rest run child perls" }
+"op/lexsub.t" = { reason = "subprocess", note = "every failing test runs a child perl (fresh_perl, or -d with PERL5DB)" }
+"op/list.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/magic.t" = { reason = "subprocess", note = "opens a pipe to a child perl (CMDPIPE) and dies on the warning" }
+"op/multideref.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/my_stash.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/override.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/packagev.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/print.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/range.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/readline.t" = { reason = "subprocess", note = "tests read from pipes to a child perl; also misuses skip() when pipe is unimplemented (line 102)" }
+"op/recurse.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/repeat.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/reset.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/runlevel.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/sort.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/splice.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/split.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/sprintf2.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/srand.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/stash.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/stash_parse_gv.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/substr.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/tr_latin1.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/undef.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/utf8cache.t" = { reason = "subprocess", note = "test 1 reads Devel::Peek output from a child perl" }
+"op/utftaint.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/warn.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"op/while.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/bigfuzzy_not_utf8.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/pat_psycho.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/recompile.t" = { reason = "subprocess", note = "every test runs a child perl with -Dr" }
+"re/reg_60508.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/reg_eval.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/speed.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"re/substT.t" = { reason = "subprocess", note = "tests 162-164 run child perls through fresh_perl" }
+"re/subst_wamp.t" = { reason = "subprocess", note = "tests 162-164 run child perls through fresh_perl" }
+"run/cloexec.t" = { reason = "subprocess", note = "tests descriptor inheritance across exec; also reopening STDERR onto a file fails \"Not supported\" (line 89)" }
+"run/exit.t" = { reason = "subprocess", note = "every test reads $? from system" }
+"run/fresh_perl.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/script.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switch-I-and-M.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchC.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchF1.t" = { reason = "subprocess", note = "test 5 runs the script through system" }
+"run/switchF2.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchI.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchM.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchd.t" = { reason = "subprocess", note = "every test runs a child perl with -d" }
+"run/switcht.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"run/switchx.t" = { reason = "subprocess", note = "every test runs a child perl with -x" }
+"run/todo.t" = { reason = "subprocess", note = "every failing test runs a child perl (runperl/fresh_perl) or a command" }
+"test_pl/tempfile.t" = { reason = "subprocess", note = "tests 17-20 run child perls" }
+
+# signals
+"io/errnosig.t" = { reason = "signals", note = "alarm is unimplemented" }
+"mro/recursion_dfs.t" = { reason = "signals", note = "alarm is unimplemented" }
+"mro/recursion_dfs_utf8.t" = { reason = "signals", note = "alarm is unimplemented" }
+"op/kill0.t" = { reason = "signals", note = "kill(0, $$) is false: there are no processes to signal" }
+"op/sigdispatch.t" = { reason = "signals", note = "alarm is unimplemented" }
+
+# porting
+"porting/bench_selftest.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: no plan" }
+"porting/checkcase.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Cwd.pm" }
+"porting/checkcfgvar.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/cmp_version.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/cpphdrcheck.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Cwd.pm" }
+"porting/customized.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec.pm" }
+"porting/deprecation.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Data/Dumper.pm" }
+"porting/diag.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Data/Dumper.pm" }
+"porting/dual-life.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Cwd.pm" }
+"porting/exec-bit.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec.pm" }
+"porting/extrefs.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/header_parser.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/maintainers.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Cwd.pm" }
+"porting/perlfunc.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/podcheck.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate Cwd.pm" }
+"porting/regen.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: Can't locate File/Spec/Functions.pm" }
+"porting/test_testlist.t" = { reason = "porting", note = "checks the source tree; under the guest it stops at: ran 2 of 3; exit 44: Failed to open 'config.sh': No such file or directory at porting/test_testlist.t line 43." }
+
+# platform
+"benchmark/gh7094-speed-up-keys-on-empty-hash.t" = { reason = "platform", note = "a wall-clock benchmark (t/TEST runs benchmark/ only with PERL_BENCHMARK); its timing ratios vary run to run (2.2 and 10.4 against a bound of 0.25) and assert time, not operations" }
+"bigmem/regexp.t" = { reason = "platform", note = "wasm32 is a 32-bit target: the pattern at line 38 is compiled before the PERL_TEST_MEMORY skip and is \"Regexp out of space\" with 32-bit sizes" }
+"op/fh.t" = { reason = "platform", note = "open of a duplicated handle (\">&STDOUT\", \">&STDERR\") fails: WASI preview1 has no dup (tests 6 and 8)" }
+"op/filetest.t" = { reason = "platform", note = "chmod is not implemented under WASI (line 34), so file modes cannot be set" }
+"op/pack.t" = { reason = "platform", note = "opens the perl binary through $^X (./perl) to pack it; the guest has no perl executable file" }
+"op/require_37033.t" = { reason = "platform", note = "WASI does not reuse the lowest free descriptor: after STDIN is closed a new file gets 8, not 0 (test 7)" }
+"op/time.t" = { reason = "platform", note = "wasi-libc has no time-zone database: changing $ENV{TZ} does not change localtime (test 7)" }
+"op/write.t" = { reason = "platform", note = "open of a duplicated handle (\">&STDOUT\", \">&STDERR\") fails: WASI preview1 has no dup (line 315, open LEX, \">&STDOUT\" or die)" }
+"win32/crypt.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): checks Windows crypt salts and errno" }
+"win32/fs.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): calls Win32::FsType" }
+"win32/runenv.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): requires Win32.pm" }
+"win32/seekdir.t" = { reason = "platform", note = "Windows only (t/TEST runs win32/ only on MSWin32): checks Windows telldir past the end (tests 181, 184)" }
+
+# bug
+"bigmem/stack.t" = { reason = "bug", note = "needs XS::APItest (spec 002)" }
+"bigmem/stack_over.t" = { reason = "bug", note = "needs XS::APItest (spec 002)" }
+"class/utf8.t" = { reason = "bug", note = "needs IO::File (spec 002)" }
+"comp/require.t" = { reason = "bug", note = "needs Cwd (spec 002)" }
+"io/argv.t" = { reason = "bug", note = "needs File::Spec (spec 002)" }
+"io/crlf.t" = { reason = "bug", note = "needs IO::File (spec 002)" }
+"io/dup.t" = { reason = "bug", note = "reopening STDOUT/STDERR onto a file fails \"Not supported\": Perl needs dup2, which the build stubs; WASI fd_renumber could serve it (line 22); the file then tests dup, which WASI lacks" }
+"io/eintr.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"io/eintr_print.t" = { reason = "bug", note = "needs Time::HiRes (spec 002)" }
+"io/iofile.t" = { reason = "bug", note = "needs IO (spec 002): STDOUT->autoflush cannot load IO::File" }
+"io/layers.t" = { reason = "bug", note = "needs Encode and PerlIO::encoding (spec 002) for :encoding(cp1047); the :pop checks (tests 21-26) see a different layer stack, unexplained" }
+"io/open.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"io/perlio.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"io/perlio_open.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"io/scalar.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"io/scalar_ungetc.t" = { reason = "bug", note = "needs IO::Handle (spec 002)" }
+"lib/croak.t" = { reason = "bug", note = "needs Cwd (spec 002)" }
+"lib/deprecate.t" = { reason = "bug", note = "needs File::Spec (spec 002)" }
+"lib/proxy_constant_subs.t" = { reason = "bug", note = "needs B (spec 002)" }
+"mro/basic.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_01_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_01_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_01_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_01_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_02_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_02_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_02_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_02_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_03_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_03_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_03_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_03_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_04_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_04_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_04_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_04_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_05_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_05_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_05_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_05_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/basic_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/c3_with_overload.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/c3_with_overload_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/complex_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/complex_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/complex_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/complex_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/dbic_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/dbic_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/dbic_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/dbic_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/inconsistent_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/inconsistent_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isa_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isa_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isa_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isa_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isarev.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/isarev_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_NEXT.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_NEXT_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_edgecases.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_edgecases_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_goto.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_goto_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_inanon.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_inanon_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_ineval.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_ineval_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_method.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_method_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_skip.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/next_skip_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/overload_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/overload_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/overload_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/pkg_gen.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/pkg_gen_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/recursion_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/recursion_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/vulcan_c3.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/vulcan_c3_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/vulcan_dfs.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"mro/vulcan_dfs_utf8.t" = { reason = "bug", note = "needs mro (spec 002)" }
+"op/aassign.t" = { reason = "bug", note = "needs List::Util (spec 002)" }
+"op/attrhand.t" = { reason = "bug", note = "needs attributes (spec 002)" }
+"op/attrproto.t" = { reason = "bug", note = "needs attributes (spec 002): attribute handlers are never called" }
+"op/attrs.t" = { reason = "bug", note = "needs attributes (spec 002)" }
+"op/chdir.t" = { reason = "bug", note = "needs File::Spec::Functions (spec 002)" }
+"op/closure.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/coreamp.t" = { reason = "bug", note = "needs File::Spec::Functions (spec 002)" }
+"op/coresubs.t" = { reason = "bug", note = "needs B (spec 002)" }
+"op/decl-refs.t" = { reason = "bug", note = "needs attributes (spec 002)" }
+"op/defins.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/die_exit.t" = { reason = "bug", note = "reopening STDOUT/STDERR onto a file fails \"Not supported\": Perl needs dup2, which the build stubs; WASI fd_renumber could serve it (line 61); the tests then run child perls" }
+"op/dump.t" = { reason = "bug", note = "needs File::Spec (spec 002)" }
+"op/each.t" = { reason = "bug", note = "needs Hash::Util (spec 002)" }
+"op/filehandle.t" = { reason = "bug", note = "needs IO::File (spec 002)" }
+"op/getpid.t" = { reason = "bug", note = "needs attributes (spec 002)" }
+"op/glob.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/goto.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/goto_xs.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"op/groups.t" = { reason = "bug", note = "needs POSIX (spec 002)" }
+"op/hash-clear-placeholders.t" = { reason = "bug", note = "needs Devel::Peek (spec 002)" }
+"op/hash-rt85026.t" = { reason = "bug", note = "needs Devel::Peek (spec 002)" }
+"op/hash.t" = { reason = "bug", note = "needs Hash::Util (spec 002)" }
+"op/incfilter.t" = { reason = "bug", note = "needs Filter::Util::Call (spec 002)" }
+"op/lc.t" = { reason = "bug", note = "needs List::Util (spec 002)" }
+"op/local.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/lvref.t" = { reason = "bug", note = "needs File::Glob (spec 002): test 174 compiles a glob" }
+"op/method.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"op/numify_chkflags.t" = { reason = "bug", note = "needs Devel::Peek (spec 002)" }
+"op/quotemeta.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"op/readdir.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/readline_nb.t" = { reason = "bug", note = "needs IO::Select (spec 002)" }
+"op/ref.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/require_errors.t" = { reason = "bug", note = "needs Cwd (spec 002)" }
+"op/signame_canonical.t" = { reason = "bug", note = "needs Data::Dumper (spec 002)" }
+"op/signatures.t" = { reason = "bug", note = "needs File::Spec::Functions (spec 002)" }
+"op/smartmatch.t" = { reason = "bug", note = "needs Scalar::Util (spec 002)" }
+"op/split_unicode.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/stat.t" = { reason = "bug", note = "needs File::Spec (spec 002)" }
+"op/state.t" = { reason = "bug", note = "needs attributes (spec 002): the :shared attribute in an eval fails, so stateful_attr is undefined (line 195)" }
+"op/sub.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/sub_lval.t" = { reason = "bug", note = "needs Hash::Util (spec 002)" }
+"op/svflags.t" = { reason = "bug", note = "needs B (spec 002)" }
+"op/taint.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/tie.t" = { reason = "bug", note = "needs FOO (spec 002)" }
+"op/tie_fetch_count.t" = { reason = "bug", note = "needs File::Glob (spec 002)" }
+"op/tr.t" = { reason = "bug", note = "needs re (spec 002)" }
+"op/universal.t" = { reason = "bug", note = "dies with no message after test 112 (near line 212, inside a $SIG{__WARN__} that dies); unexplained" }
+"perf/opcount.t" = { reason = "bug", note = "needs B (spec 002)" }
+"perf/optree.t" = { reason = "bug", note = "needs B (spec 002)" }
+"perf/taint.t" = { reason = "bug", note = "needs Scalar::Util (spec 002)" }
+"re/alpha_assertions.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/anyof.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/charset.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/fold_grind_8.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/fold_grind_T.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/fold_grind_a.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/fold_grind_aa.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/fold_grind_d.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/fold_grind_l.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/fold_grind_u.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/opt.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/overload.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/pat.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/pat_advanced.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/pat_re_eval.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/pat_rt_report.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/reg_eval_scope.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/reg_fold.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/reg_mesg.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/regex_sets.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/regex_sets_compat.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/regexp.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_noamp.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_normal.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/regexp_notrie.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_qr.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_qr_embed.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_trielist.t" = { reason = "bug", note = "needs re (spec 002): _charnames.pm, which uses re, fails to load at test 1725" }
+"re/regexp_unicode_prop.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/rxcode.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/script_run.t" = { reason = "bug", note = "needs re (spec 002)" }
+"re/subst.t" = { reason = "bug", note = "needs Hash::Util (spec 002)" }
+"re/uniprops01.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops02.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops03.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops04.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops05.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops06.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops07.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops08.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops09.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"re/uniprops10.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"run/switches.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"test_pl/can_isa_ok.t" = { reason = "bug", note = "needs Scalar::Util (spec 002)" }
+"uni/attrs.t" = { reason = "bug", note = "needs attributes (spec 002)" }
+"uni/fold.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/gv.t" = { reason = "bug", note = "needs Encode (spec 002)" }
+"uni/labels.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/lex_utf8.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/lower.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/method.t" = { reason = "bug", note = "needs Encode (spec 002)" }
+"uni/overload.t" = { reason = "bug", note = "needs POSIX (spec 002): loc_tools.pl dies \"Invalid locale category name\" without POSIX's LC_ constants" }
+"uni/parser.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/title.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/upper.t" = { reason = "bug", note = "needs re (spec 002)" }
+"uni/variables.t" = { reason = "bug", note = "needs re (spec 002)" }
+"win32/stat.t" = { reason = "bug", note = "needs Fcntl (spec 002)" }
+"win32/symlink.t" = { reason = "bug", note = "needs Cwd (spec 002)" }
