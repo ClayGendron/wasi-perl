@@ -181,9 +181,9 @@ def test_ok_at_least_is_required(tmp_path):
         load_exclusions(bad)
 
 
-def outcome(name: str, status: str, oks: int = 1, refusal: bool = True) -> run_suite.Outcome:
+def outcome(name: str, status: str, oks: int = 1, signature: bool = True) -> run_suite.Outcome:
     return run_suite.Outcome(
-        name, status, None, 0, None, 1, 1, [], 0, None, 0.0, [], oks=oks, refusal_seen=refusal
+        name, status, None, 0, None, 1, 1, [], 0, None, 0.0, [], oks=oks, signature_seen=signature
     )
 
 
@@ -218,12 +218,28 @@ def test_an_excluded_file_that_reaches_fewer_oks_has_regressed():
     assert board["regressed"] == {}
 
 
+def test_shows_guards_any_reason():
+    exclusions = {"op/x.t": run_suite.Exclusion("bug", "traps", ok_at_least=0, shows="trapped: x")}
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", signature=False)], exclusions)
+    assert board["regressed"] == {"op/x.t": "its output lacks the entry's shows pattern"}
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", signature=True)], exclusions)
+    assert board["regressed"] == {}
+
+
+def test_an_edited_tree_has_another_digest(tmp_path):
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "a.t").write_text("print 1")
+    before = run_suite.tree_digest(tmp_path)
+    (tmp_path / "t" / "a.t").write_text("print 2")
+    assert run_suite.tree_digest(tmp_path) != before
+
+
 @pytest.mark.parametrize("reason", run_suite.REFUSAL_REASONS)
 def test_a_refusal_exclusion_must_show_the_refusal(reason):
     exclusions = {"op/x.t": run_suite.Exclusion(reason, ok_at_least=1)}
-    board = run_suite.scoreboard([outcome("op/x.t", "fail", refusal=False)], exclusions)
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", signature=False)], exclusions)
     assert list(board["regressed"]) == ["op/x.t"]
-    board = run_suite.scoreboard([outcome("op/x.t", "fail", refusal=True)], exclusions)
+    board = run_suite.scoreboard([outcome("op/x.t", "fail", signature=True)], exclusions)
     assert board["regressed"] == {}
 
 

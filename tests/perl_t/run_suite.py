@@ -192,27 +192,30 @@ def strict_tap(test: str) -> bool:
 @dataclass(frozen=True)
 class Exclusion:
     """One excluded file. `ok_at_least` is how many "ok" results it reached when it was
-    classified: a run where it reaches fewer has regressed, as has a refusal-reason file whose
-    output no longer shows the refusal."""
+    classified: a run where it reaches fewer has regressed, as has a file whose output no longer
+    shows its failure's signature."""
 
     reason: str
     note: str = ""
     ok_at_least: int = 0
-    # For a refusal reason: a pattern its output shows where the file catches the refusal and
-    # never prints it (the note says where it is refused); else the refusal message itself.
+    # The failure's signature: a pattern the file's output (stdout, stderr, and a line
+    # "trapped: <why>" if it trapped) must show. A refusal reason without one must show the
+    # refusal message itself; a refusal-reason file that catches the refusal names here what
+    # its output shows instead, and its note says where it is refused.
     shows: str | None = None
 
     def evidence(self) -> re.Pattern[str] | None:
-        if self.reason not in REFUSAL_REASONS:
-            return None
-        return re.compile(self.shows if self.shows is not None else re.escape(REFUSAL), re.M)
+        if self.shows is not None:
+            return re.compile(self.shows, re.M)
+        if self.reason in REFUSAL_REASONS:
+            return re.compile(re.escape(REFUSAL), re.M)
+        return None
 
 
 def load_exclusions(path: Path = EXCLUSIONS) -> dict[str, Exclusion]:
     """The exclusion list: test file (relative to t/) -> its reason, note, ok_at_least and
     shows. Raises ValueError on an unknown reason, a missing note where one is required, a
-    missing or negative ok_at_least, a shows that is not a refusal's or not a pattern, or an
-    unknown key."""
+    missing or negative ok_at_least, a shows that is not a pattern, or an unknown key."""
     data = tomllib.loads(path.read_text())
     files = data.get("files", {})
     out: dict[str, Exclusion] = {}
@@ -235,8 +238,8 @@ def load_exclusions(path: Path = EXCLUSIONS) -> dict[str, Exclusion]:
             raise ValueError(f"{name}: ok_at_least must be a whole number of results")
         shows = entry.get("shows")
         if shows is not None:
-            if reason not in REFUSAL_REASONS or not isinstance(shows, str) or not note.strip():
-                raise ValueError(f"{name}: shows is for a refusal reason, with a note")
+            if not isinstance(shows, str) or not shows or not note.strip():
+                raise ValueError(f"{name}: shows is a pattern, given with a note")
             try:
                 re.compile(shows)
             except re.error as e:
@@ -301,17 +304,35 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def tree_digest(tree: Path) -> str:
+    """One SHA-256 over every path under `tree`, in order, with each file's bytes or each
+    link's target, so an edit anywhere in the unpacked tree changes it."""
+    h = hashlib.sha256()
+    for p in sorted(tree.rglob("*")):
+        rel = p.relative_to(tree).as_posix().encode()
+        if p.is_symlink():
+            h.update(b"L" + rel + b"\0" + os.readlink(p).encode() + b"\0")
+        elif p.is_file():
+            h.update(b"F" + rel + b"\0" + _sha256(p).encode() + b"\0")
+        else:
+            h.update(b"D" + rel + b"\0")
+    return h.hexdigest()
+
+
 def pristine_tree(tarball: Path | None = None) -> Path:
     """build/perl-5.42.3/, unpacked from the pinned tarball after its hash is checked. The
-    unpacked tree is reused only while its stamp holds the pinned hash; otherwise it is
-    unpacked again. It is never written to: each run works on a copy."""
+    unpacked tree is reused only while its stamp holds the pinned hash and the tree's own
+    digest still matches the one taken when it was unpacked; otherwise it is unpacked again.
+    It is never written to: each run works on a copy."""
     want = _expected_sha256()
     if want is None:
         raise SystemExit(f"no pinned hash for {TARBALL_NAME} in downloads/SHA256SUMS")
     tree = BUILD / f"perl-{PERL_VERSION}"
     stamp = BUILD / f"perl-{PERL_VERSION}.sha256"
-    if (tree / "t" / "TEST").is_file() and stamp.is_file() and stamp.read_text().strip() == want:
-        return tree
+    if (tree / "t" / "TEST").is_file() and stamp.is_file():
+        lines = stamp.read_text().split()
+        if lines[:1] == [want] and lines[1:2] == [tree_digest(tree)]:
+            return tree
     tarball = tarball or find_tarball()
     if not tarball.is_file():
         raise SystemExit(f"no {TARBALL_NAME}: run scripts/00_download.sh or set WASI_PERL_TARBALL")
@@ -323,7 +344,7 @@ def pristine_tree(tarball: Path | None = None) -> Path:
     BUILD.mkdir(parents=True, exist_ok=True)
     with tarfile.open(tarball) as tf:
         tf.extractall(BUILD, filter="data")
-    stamp.write_text(want + "\n")
+    stamp.write_text(f"{want}\n{tree_digest(tree)}\n")
     return tree
 
 
@@ -412,7 +433,7 @@ class Outcome:
     seconds: float
     truncated: list[str]
     oks: int = 0
-    refusal_seen: bool = False
+    signature_seen: bool = False
     stdout_tail: str = ""
     stderr_tail: str = ""
 
@@ -451,8 +472,8 @@ def run_one(
     stdout = done.stdout.decode("utf-8", "replace")
     tap = parse_tap(stdout, strict=strict_tap(test))
     stderr = done.stderr.decode("utf-8", "replace")
-    pattern = evidence or re.compile(re.escape(REFUSAL))
-    refusal_seen = bool(pattern.search(stdout) or pattern.search(stderr))
+    trap = f"trapped: {done.trapped}\n" if done.trapped is not None else ""
+    signature_seen = evidence is None or any(evidence.search(t) for t in (stdout, stderr, trap))
     why: str | None
     if done.trapped is not None:
         why = f"trapped: {done.trapped}"
@@ -487,7 +508,7 @@ def run_one(
         seconds=round(seconds, 2),
         truncated=list(done.truncated),
         oks=tap.oks,
-        refusal_seen=refusal_seen,
+        signature_seen=signature_seen,
         stdout_tail="" if status == "pass" else _tail(done.stdout),
         stderr_tail="" if status == "pass" else _tail(done.stderr),
     )
@@ -527,9 +548,11 @@ def scoreboard(outcomes: list[Outcome], exclusions: dict[str, Exclusion]) -> dic
             guarded += ex.ok_at_least
             if o.oks < ex.ok_at_least:
                 regressed[o.file] = f"{o.oks} ok, fewer than the {ex.ok_at_least} recorded"
-            elif ex.reason in REFUSAL_REASONS and not o.refusal_seen:
-                shown = "what its entry shows" if ex.shows is not None else "a refusal"
-                regressed[o.file] = f"a {ex.reason} exclusion, but no {shown} in its output"
+            elif ex.evidence() is not None and not o.signature_seen:
+                if ex.shows is not None:
+                    regressed[o.file] = "its output lacks the entry's shows pattern"
+                else:
+                    regressed[o.file] = f"a {ex.reason} exclusion with no refusal in its output"
     return {
         "run": len(outcomes),
         "passed": sorted(passed),
