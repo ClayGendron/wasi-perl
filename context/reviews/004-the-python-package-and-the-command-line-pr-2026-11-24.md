@@ -87,3 +87,48 @@ The cache folder came out 0700 and both `.cwasm` files 0600 (EXECUTED, `ls -la`)
 ## Verdict
 
 Does not land: finding 1 is High. On POSIX, a host path with a backslash, which a guest can create inside a writable grant, resolves to a folder outside every grant. The read and the write through it were both EXECUTED. Fix 1. Fix or answer 2, 3 and 4 in writing. Then a fresh review.
+
+## Round 2 (fix commit `571f50b`)
+
+Reviewer: an agent (Claude), a fresh sub-agent of https://claude.ai/code/session_01ThzDEUwftdmy8zWBJK1gWa; not the author
+
+I read `git show 571f50b` and the specification's "Author's answers", and ran the round-1 probes again against the same sealed copy of spec 001's perl.wasm. `sha256sum -c SHA256SUMS` still passes on that copy.
+
+### What was run
+
+```
+$ uv run pytest -q
+149 passed, 11 skipped, 4 warnings in 9.35s                                        EXECUTED
+$ WASI_PERL_ARTIFACTS=<sealed copy> uv run pytest -q -rsx
+157 passed, 1 skipped (root), 2 xfailed (exit 256, exit -1), 4 warnings in 11.89s  EXECUTED
+$ uv run ruff check && uv run ruff format --check        # bare, README included
+All checks passed! / 22 files already formatted                                    EXECUTED
+```
+
+### Each finding
+
+| # | Round 1 | Round 2 |
+|---|---|---|
+| 1 | High | **Fixed.** `_parts` splits at `os.sep`, and at `os.altsep` only where one exists, for both host paths and link targets. EXECUTED with perl.wasm, the round-1 reproduction: a guest makes `/out/..\secret`. A later read-only grant of that folder lists only `.` and `..`. A later writable grant reads nothing of `secret` (`No such file or directory`), and `secret` still holds only `s.txt`. Three new checks cover this, one of them with the real perl.wasm. |
+| 2 | Medium | **Fixed.** EXECUTED: a writable grant of `/usr/local/lib/python3.13` (stdlib), of the venv's `lib/python3.13`, of `site-packages` and of `.venv/bin` is each refused with "reaches the runtime's own files". This now matches wasi-python's list. |
+| 3 | Medium | **Answered, and the answer is accepted.** The mask belongs in the guest, because −1 collides with the "never exited" sentinel, so the runner cannot fix it alone. spec 003's build supplies the mask. `test_exit_256_is_0` and `test_exit_minus_1_is_255` are strict xfails, so they will fail loudly once the masking build is merged. Whoever merges must not drop them. The runner deliberately does not mask a second time, which I accept: a broken contract stays visible. |
+| 4 | Medium | **Fixed.** See "The live-call registry" below. The README and Decision 4 no longer say a guest cannot cause the race. The post-preopen identity check, which would stop writers outside the process, remains a stated later specification. |
+| 5–13 | Low | **Fixed or answered as stated in the specification.** The export now gets unlimited fuel and no epoch deadline (`test_the_status_is_read_even_with_no_fuel_left`). The cache folder descriptor is checked again before the file is opened, and the open is `O_NONBLOCK`. The `cwd` skip is gone and the check passes. No specification numbers remain under `tests/`. The README now carries run outputs and passes bare ruff. A read-only grant above a cache is allowed on purpose, and the reason now reads "never plants". The write-refusal check now asserts the exact EPERM text. A linked `lib`, `lib/perl5` or `dev` is refused. |
+
+### The live-call registry (`_grants.hold` and `let_go`, `runner.run`)
+
+- **Lock.** `_live_lock` is a leaf lock. Inside it, `hold`, `let_go` and `live_count` touch only `_live` and `_tokens`, and none of them calls out or takes another lock, so it cannot deadlock. The check and the insert form one critical section, so of two calls starting at once, the second sees the first. A `ValueError` raised inside `with` releases the lock and leaves nothing registered.
+- **Ordering closes the race.** `hold` runs after the walk (`judge`) and before any preopen, and a guest runs only after its own call's `hold`. Take call B's walk-to-preopen window and call A's guest run. If they overlap, then either A was registered when B's `hold` ran, so B is refused, or B was registered when A's `hold` ran, so A is refused. Either way the swap cannot land.
+- **The rule.** A grant is refused when it is at, inside or above a live writable grant, and a writable grant is refused when it is at, inside or above any live grant. Both are compared by identity chain. Two read-only grants of one folder may run at once.
+- **Release on every exit path.** `hold` is followed at once by `try: _call(...) finally: let_go(token)`, and `_call` closes the store in its own `finally`. So the registry is cleared after a normal end, an exit, a trap or a deadline, and after any exception, `BaseException` included. EXECUTED: with `runner._call` patched to raise `KeyboardInterrupt`, `live_count()` is back to 0 afterwards. Eight concurrent calls on separate writable folders all succeed and leave 0 live. `test_a_refused_call_holds_nothing` covers a refusal and a trap.
+- **Scope.** The registry covers one process only. Another process, or a second interpreter, is still the "another writer" named in "Not protected". That is stated, and it is no wider than wasi-python's own guard of this kind.
+
+### New findings
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| 14 | Low | `tests/runner/test_live_grants.py:18-22` | Call A is held open only by `deadline_s=2`. If the body's calls take longer than 2 s on a slow or loaded runner, A ends first, and the "refused" assertions fail. That would be a flaky failure, not a false pass, so it does not weaken the check. The wait polls the registry, not a clock, which is allowed. | Give A a longer deadline, for example 30 s, and keep the body short, or add an assertion that A is still alive after the body. Do this when convenient. |
+
+### Verdict
+
+Lands: no High findings remain. The High is fixed and EXECUTED against the real perl.wasm. Mediums 2 and 4 are fixed. Medium 3 is answered, and its strict xfails must flip when spec 003's masking build merges. One new Low remains open (finding 14), along with the post-preopen identity check that the specification has deferred.
