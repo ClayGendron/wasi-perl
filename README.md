@@ -10,7 +10,7 @@ wasi-perl is Perl 5.42 compiled to WebAssembly (`wasm32-wasip1`) as one static b
 
 Run it from Python, from the command line, or load the same `perl.wasm` into any WebAssembly host that supports exception handling.
 
-Every release is tested on Linux (x86-64 and arm64), macOS (arm64) and Windows (x86-64): Perl's own `t/` suite, a set of agent-style one-liners compared byte for byte with native perl 5.42.3, and sandbox escape tests. [Modules](https://github.com/ClayGendron/wasi-perl/blob/main/docs/modules.md) lists what is linked in and what is left out. [The sandbox](https://github.com/ClayGendron/wasi-perl/blob/main/docs/sandbox.md) lists what a guest cannot do: `fork`, `exec`, `system`, backticks, pipe opens and signal handlers die with "… is not available in the wasi-perl sandbox".
+Every release is tested on Linux (x86-64 and arm64), macOS (arm64) and Windows (x86-64): Perl's own `t/` suite, a set of agent-style one-liners compared byte for byte with native perl 5.42.3 (two differ on Windows, as its filesystem does), and sandbox escape tests. [Modules](https://github.com/ClayGendron/wasi-perl/blob/main/docs/modules.md) lists what is linked in and what is left out. [The sandbox](https://github.com/ClayGendron/wasi-perl/blob/main/docs/sandbox.md) lists what a guest cannot do: `fork`, `exec`, `system`, backticks, pipe opens and signal handlers die with "… is not available in the wasi-perl sandbox".
 
 # Installation and quick start
 
