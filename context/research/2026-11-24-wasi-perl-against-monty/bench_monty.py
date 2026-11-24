@@ -13,6 +13,9 @@ Subcommands:
   memory DATA OUT.json              VmHWM of a fresh worker after each workload
   first DATA                        one fresh process: import, pool, first and second call
   hostdata DATA OUT.json            read_big and read_small through inputs and host functions
+  paced MODE DATA OUT.json          hello with 0, 50 ms and 1 s of sleep before each call, 15 each
+  cap DATA OUT.json                 one default checkout, one feed that opens and reads N files
+  limits DATA OUT.json              checkout calls with and without memory and time limits, interleaved
   idle OUT.json                     a new checkout and hello after 1 s asleep, 15 times (Monty's method)
 """
 
@@ -234,12 +237,88 @@ def idle(dest: Path) -> None:
     dest.write_text(json.dumps(res, indent=1))
 
 
+GAPS = (0.0, 0.05, 1.0)
+
+
+def paced(mode: str, data: Path, dest: Path) -> None:
+    """With one session per worker the pool spawns the next worker as each session ends, so a
+    pause between calls lets it be ready: time hello after each pause."""
+    c = Caller(mode, data)
+    res = {}
+    for gap in GAPS:
+        for _ in range(3):
+            c("hello")
+        ts = []
+        for _ in range(15):
+            time.sleep(gap)
+            ts.append(c("hello")[0])
+        res[f"gap_{gap}s"] = summary(ts)
+        print(mode, gap, res[f"gap_{gap}s"], flush=True)
+    c.close()
+    dest.write_text(json.dumps(res, indent=1))
+
+
+def cap(data: Path, dest: Path) -> None:
+    """The default budget of 1,000 host round trips binds within one call: each open and read is one."""
+    import pydantic_monty as pm
+
+    mount = pm.MountDir(host_path=str(data), virtual_path="/data", mode="read-only")
+    code = "n = 0\nfor i in range({k}):\n    n += len(open(f'/data/small/f{{i % 100}}.txt').read())\nprint(n)"
+    res = {}
+    with pm.Monty() as pool:
+        for k in (400, 450, 500, 550, 600):
+            out = pm.CollectString()
+            try:
+                with pool.checkout() as sess:
+                    sess.feed_run(code.format(k=k), mount=mount, print_callback=out)
+                res[str(k)] = "ok " + out.output.strip()
+            except pm.MontyError as e:
+                res[str(k)] = f"{type(e).__name__}: {str(e).splitlines()[-1][:120]}"
+            print(k, res[str(k)], flush=True)
+    mount.close()
+    dest.write_text(json.dumps(res, indent=1))
+
+
+LIMIT_WORK = ["hello", "fib25", "loop", "grep_log", "wordfreq", "json_decode"]
+LIMITS = {"max_memory": 1 << 30, "max_feed_duration_secs": 60.0}
+
+
+def limits(data: Path, dest: Path) -> None:
+    """Monty's limits are off unless set; ours are on. The same calls with a 1 GiB and 60 s cap,
+    like wasi-perl's defaults, interleaved with calls that set none."""
+    import pydantic_monty as pm
+
+    mount = pm.MountDir(host_path=str(data), virtual_path="/data", mode="read-only")
+    res = {}
+    with pm.Monty() as pool:
+        for n in LIMIT_WORK:
+            ts: dict[str, list[float]] = {"none": [], "limits": []}
+            k = REPS.get(n, DEFAULT_REPS)
+            for i in range(k + 2):
+                for arm, lim in (("none", None), ("limits", LIMITS)):
+                    t = time.perf_counter()
+                    with pool.checkout(limits=lim) as sess:
+                        sess.feed_run(W[n][1], mount=mount, print_callback=pm.CollectString())
+                    if i >= 2:
+                        ts[arm].append(time.perf_counter() - t)
+            res[n] = {arm: summary(v) for arm, v in ts.items()}
+            print(n, res[n], flush=True)
+    mount.close()
+    dest.write_text(json.dumps(res, indent=1))
+
+
 if __name__ == "__main__":
     cmd, *a = sys.argv[1:]
     if cmd == "calls":
         calls(a[0], Path(a[1]), Path(a[2]), int(a[3]) if len(a) > 3 else None)
     elif cmd == "first":
         first(Path(a[0]))
+    elif cmd == "paced":
+        paced(a[0], Path(a[1]), Path(a[2]))
+    elif cmd == "cap":
+        cap(Path(a[0]), Path(a[1]))
+    elif cmd == "limits":
+        limits(Path(a[0]), Path(a[1]))
     elif cmd == "idle":
         idle(Path(a[0]))
     else:

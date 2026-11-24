@@ -9,6 +9,7 @@ Subcommands:
   first CACHE DATA            one fresh process: import, first call, second call; prints JSON
   stdin DATA OUT.json         read_big through stdin instead of a grant
   idle OUT.json               hello after the process has slept 1 s, 15 times (Monty's own method)
+  paced DATA OUT.json         hello with 0, 50 ms and 1 s of sleep before each call, 15 calls each
   flag LIBDIR DATA OUT.json [--blocking]
                               warm calls through a wasmtime-py copy whose C API carries the
                               allow_blocking_current_thread patch (the file-call memo's), with the
@@ -160,6 +161,25 @@ def idle(dest: Path) -> None:
     dest.write_text(json.dumps(res, indent=1))
 
 
+GAPS = (0.0, 0.05, 1.0)
+
+
+def paced(data: Path, dest: Path) -> None:
+    """An agent pauses between calls; time hello after each pause, as Monty's own script does."""
+    call = caller(data)
+    res = {}
+    for gap in GAPS:
+        for _ in range(3):
+            call("hello")
+        ts = []
+        for _ in range(15):
+            time.sleep(gap)
+            ts.append(call("hello")[0])
+        res[f"gap_{gap}s"] = summary(ts)
+        print(gap, res[f"gap_{gap}s"], flush=True)
+    dest.write_text(json.dumps(res, indent=1))
+
+
 FLAG_WORK = ["hello", "sum_csv", "grep_log", "split_join", "wordfreq", "read_big", "read_small"]
 
 
@@ -197,6 +217,8 @@ if __name__ == "__main__":
     cmd, *a = sys.argv[1:]
     if cmd == "first":
         first(a[0], Path(a[1]))
+    elif cmd == "paced":
+        paced(Path(a[0]), Path(a[1]))
     elif cmd == "flag":
         flag(a[0], Path(a[1]), Path(a[2]), "--blocking" in a)
     elif cmd == "idle":

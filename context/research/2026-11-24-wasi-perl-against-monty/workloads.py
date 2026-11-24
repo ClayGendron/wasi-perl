@@ -1,5 +1,5 @@
 """The same tasks written once in Perl (for wasi-perl and native perl) and once in the Python
-subset Monty runs. Both sides must print the same stdout; `check.py` compares them.
+subset Monty runs. Both sides must print the same stdout; `tables.py` compares them (its `check`).
 
 Data lives under /data in both sandboxes: a read-only grant for wasi-perl, a read-only
 `MountDir` for Monty. The inputs are the baseline memo's (`make_data`), plus 100 small files.

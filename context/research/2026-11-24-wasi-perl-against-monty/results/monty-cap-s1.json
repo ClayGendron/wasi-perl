@@ -1,0 +1,7 @@
+{
+ "400": "ok 409600",
+ "450": "ok 460800",
+ "500": "ok 512000",
+ "550": "MontyRuntimeError: RuntimeError: suspension limit 1000 exceeded",
+ "600": "MontyRuntimeError: RuntimeError: suspension limit 1000 exceeded"
+}
