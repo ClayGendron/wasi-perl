@@ -207,6 +207,13 @@ CHANGES = {
     "a file in the moved placeholder, an empty folder in its place": MOVE
     + ' mkdir("/t/$name") or die; put("/t/moved/mount/kept");',
     "a file beside the placeholder": 'put("/t/$name/kept");',
+    # The case a guest that is not the superuser can still make inside the call's own folder,
+    # so a tree removal of `mount` is caught as any user: the placeholder set aside, and a
+    # `mount` of the guest's own, holding a file, where it was.
+    "a folder of its own holding a file in the placeholder's place": (
+        'rename("/t/$name/mount", "/t/$name/aside") or die "aside: $!";'
+        ' mkdir("/t/$name/mount") or die "mkdir: $!"; put("/t/$name/mount/kept");'
+    ),
 }
 # Windows will not rename a folder below which a handle is open, and the call's store holds the
 # placeholder open as each mount's preopen (wasmtime opens a Windows grant's folders and files
@@ -225,6 +232,15 @@ MOVE_BY_SYSTEM = {
     "darwin": "ok",
     "win32": "refused rename: Permission denied",
 }
+# Setting the placeholder aside is a rename of the very folder the store holds open as a
+# preopen, which Windows refuses for the same reason (INFERRED from the move's refusal above;
+# the first Windows run of this case confirms it).
+ASIDE_BY_SYSTEM = {
+    "linux": "ok",
+    "darwin": "ok",
+    "win32": "refused aside: Permission denied",
+}
+ASIDE = "a folder of its own holding a file in the placeholder's place"
 
 
 @pytest.mark.parametrize("change", list(CHANGES))
@@ -253,6 +269,20 @@ def test_the_clean_up_removes_only_an_empty_folder(perl, tmp_path, monkeypatch, 
     answer = lines(done)["change"].split(" at -e line ")[0]
     assert (victim / "mount").is_dir()  # outside every grant: never touched
     moves = CHANGES[change].startswith(MOVE)
+    if change == ASIDE:
+        assert answer == ASIDE_BY_SYSTEM[sys.platform]
+        if answer != "ok":
+            assert list(temp.iterdir()) == []  # nothing changed: both are gone
+            return
+        (made,) = [p.name for p in temp.iterdir()]
+        # The guest's `mount` holds its file, and is left; the runner's own placeholder, set
+        # aside, is left too, since the clean-up removes `mount` by name in the folder it holds;
+        # so the folder is not empty, and is left.
+        assert sorted(os.listdir(temp / made)) == ["aside", "mount"]
+        assert os.listdir(temp / made / "mount") == ["kept"]
+        assert (temp / made / "mount" / "kept").read_bytes() == b"guest"
+        assert os.listdir(temp / made / "aside") == []
+        return
     if moves and sys.platform == "win32":
         assert answer == MOVE_BY_SYSTEM["win32"]
         assert list(temp.iterdir()) == []  # no move: the placeholder and its folder are gone
