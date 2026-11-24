@@ -201,6 +201,9 @@ def checked() -> tuple[Artifacts, str]:
 def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
     listed = {name for name in sums if name.startswith(("lib/", "dev/"))}
     present = set()
+    for top in ("lib", "lib/perl5", "dev"):
+        if stat.S_ISLNK(os.lstat(root / top).st_mode):
+            raise ArtifactsMissing(f"{root / top} is a link; a set holds no links")
     for top in ("lib", "dev"):
         for dirpath, dirnames, filenames in os.walk(root / top, followlinks=False):
             for name in filenames + [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:

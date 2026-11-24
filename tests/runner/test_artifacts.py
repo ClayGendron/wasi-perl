@@ -72,3 +72,13 @@ def test_dev_null_must_be_empty(found):
 def test_a_set_given_is_used_as_given(standin, standin_dir):
     (standin_dir / "SHA256SUMS").unlink()
     assert run(["hello"], artifacts=standin).stdout == b"hello\n"
+
+
+def test_a_linked_library_folder_is_refused(found, tmp_path):
+    import shutil
+
+    lib = found / "lib"
+    shutil.move(lib, tmp_path / "elsewhere")
+    lib.symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(ArtifactsMissing, match="link"):
+        run(["hello"])

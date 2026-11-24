@@ -119,9 +119,7 @@ def perl():
     """The real perl.wasm's set, as given (unchecked), or a skip naming the build."""
     d = _perl_dir()
     if d is None:
-        pytest.skip(
-            "no perl.wasm: set $WASI_PERL_ARTIFACTS or build it with scripts/build.sh (spec 001)"
-        )
+        pytest.skip("no perl.wasm: set $WASI_PERL_ARTIFACTS or build it with scripts/build.sh")
     from wasi_perl import Artifacts
 
     return Artifacts.at(d)

@@ -26,7 +26,9 @@ from typing import Any, NamedTuple
 CACHE_ENV = "WASI_PERL_CACHE"
 WINDOWS = os.name == "nt"
 _DIR_OPEN = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-_FILE_OPEN = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+# Non-blocking, so a FIFO put at a .cwasm's name never holds the open.
+_FILE_OPEN = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+_FILE_OPEN |= getattr(os, "O_BINARY", 0)
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 
 
@@ -225,6 +227,10 @@ def read(cwasm: Path) -> tuple[bytes | None, bool]:
         else:
             dir_fd = os.open(cwasm.parent, _DIR_OPEN)
             try:
+                # The folder the file is opened in is judged as `folder` judged it, by its open
+                # descriptor, so a folder swapped in since is not read from.
+                if _as_made(os.fstat(dir_fd), is_dir=True) is not None:
+                    return None, False
                 fd = os.open(cwasm.name, _FILE_OPEN, dir_fd=dir_fd)
             finally:
                 os.close(dir_fd)

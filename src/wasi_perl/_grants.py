@@ -9,8 +9,10 @@ by spelling, so `~/LIBRARY/CACHES` on a case-insensitive disk is `~/Library/Cach
 
 from __future__ import annotations
 
+import itertools
 import os
 import stat
+import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,6 +118,16 @@ def _can_write(folder: str) -> bool:
     return os.access(folder, os.W_OK)
 
 
+def _parts(text: str) -> list[str]:
+    """The components of a path as this system reads it: split at `os.sep`, and at `os.altsep`
+    only where the system has one (Windows' `/`). On POSIX a backslash is an ordinary character
+    of a name, and a guest can make a folder named `..\\x`; read as a separator it would turn
+    that name into a climb."""
+    if os.altsep:
+        text = text.replace(os.altsep, os.sep)
+    return [p for p in text.split(os.sep) if p]
+
+
 def resolve(where: str, host: str | os.PathLike[str]) -> Path:
     """The host folder, resolved link by link from the absolute path. A link is followed only if
     the folder holding it is one this user cannot write, so a link a guest could have left in a
@@ -127,7 +139,7 @@ def resolve(where: str, host: str | os.PathLike[str]) -> Path:
         text = os.path.join(os.getcwd(), text)
     drive, rest = os.path.splitdrive(text)
     root = drive + os.sep
-    pending = [p for p in rest.replace("\\", "/").split("/") if p]
+    pending = _parts(rest)
     current = root
     links = 0
     while pending:
@@ -159,7 +171,7 @@ def resolve(where: str, host: str | os.PathLike[str]) -> Path:
                 drive, target_rest = os.path.splitdrive(target)
                 current = (drive or os.path.splitdrive(current)[0]) + os.sep
                 target = target_rest
-            pending = [p for p in target.replace("\\", "/").split("/") if p] + pending
+            pending = _parts(target) + pending
             continue
         current = step
     if not stat.S_ISDIR(os.stat(current).st_mode):
@@ -189,11 +201,55 @@ def _exists(path: Path) -> Identity | None:
 
 
 class Placed(NamedTuple):
-    """A grant as wasmtime opens it: the resolved host folder, the guest path, the mode."""
+    """A grant as wasmtime opens it: the resolved host folder, the guest path, the mode, and the
+    identities of the folder and its ancestors, which the live calls' registry compares."""
 
     host: Path
     guest: str
     writable: bool
+    chain: tuple[Identity, ...] = ()
+
+
+# The grants of the calls running now in this process, by call. A guest of one call writes its
+# writable grants while another call is between its walk and wasmtime's own open, so one call's
+# writable grant must never be on another live call's way, nor hold another's read-only grant.
+_live_lock = threading.Lock()
+_live: dict[int, tuple[tuple[str, Placed], ...]] = {}
+_tokens = itertools.count(1)
+
+
+def live_count() -> int:
+    with _live_lock:
+        return len(_live)
+
+
+def hold(placed: Sequence[Placed]) -> int:
+    """Register a starting call's grants, once each is checked against every live call's: a grant
+    at, inside or above a live writable grant is refused, and a writable grant at, inside or above
+    any live grant. The check and the registration are one step under the lock, so of two calls
+    that start at once, the second sees the first. Returns the token `let_go` takes."""
+    with _live_lock:
+        for i, p in enumerate(placed):
+            for others in _live.values():
+                for where, q in others:
+                    if not (q.writable or p.writable):
+                        continue  # two calls may read one folder at once
+                    if q.chain[0] in p.chain or p.chain[0] in q.chain:
+                        mode = "writable" if q.writable else "read-only"
+                        raise ValueError(
+                            f"grants[{i}] at {p.guest}: {p.host} is at, inside or above the "
+                            f"{mode} {where} of a call running now ({q.host}), whose guest could "
+                            "change it, or it theirs; grant a folder apart from it, or wait for "
+                            "that call to end"
+                        )
+        token = next(_tokens)
+        _live[token] = tuple((f"grant at {p.guest}", p) for p in placed)
+        return token
+
+
+def let_go(token: int) -> None:
+    with _live_lock:
+        _live.pop(token, None)
 
 
 def judge(
@@ -231,7 +287,7 @@ def judge(
                         f"{where}: a writable grant of {host} reaches the runtime's own files at "
                         f"{r}, which the next call trusts; grant it read-only, or another folder"
                     )
-        placed.append(Placed(host, g.guest, g.writable))
+        placed.append(Placed(host, g.guest, g.writable, mine))
         chains.append(mine)
     for i, p in enumerate(placed):
         if p.writable:

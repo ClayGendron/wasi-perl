@@ -195,11 +195,22 @@ def _trap_name(wt: Any, e: Any) -> str:
 
 def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
     """The folders a writable grant may not reach: the set's, this package's and wasmtime-py's,
-    since a guest that rewrote any of them would change what the next call runs."""
+    and the host Python's own code (its stdlib, its site-packages and scripts, and the user's
+    site-packages it imports at start-up), since a guest that rewrote any of them would change
+    what the next call or the next host process runs. As wasi-python's rule."""
+    import site
+    import sysconfig
+
     import wasmtime
 
     folders = [found.perl.parent, found.manifest.parent, found.sums.parent, found.lib, found.dev]
     folders += [Path(wasi_perl.__file__).parent, Path(wasmtime.__file__).parent]
+    paths = sysconfig.get_paths()
+    keys = ("stdlib", "platstdlib", "purelib", "platlib", "scripts")
+    own = [Path(paths[k]) for k in keys if k in paths]
+    if site.ENABLE_USER_SITE:
+        own.append(Path(site.getusersitepackages()))
+    folders += [d for d in own if d.is_dir()]  # one not there holds no code to rewrite
     return tuple(dict.fromkeys(Path(os.path.abspath(f)) for f in folders))
 
 
@@ -276,6 +287,24 @@ def run(
     module = _engines.module(metered, found.perl, want, cache.folder)
     engine = _engines.engine(metered)
 
+    token = _grants.hold(placed)  # until the store, which holds the grants open, is closed
+    try:
+        return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
+    finally:
+        _grants.let_go(token)
+
+
+def _call(
+    wt: Any,
+    engine: Any,
+    module: Any,
+    found: Artifacts,
+    placed: tuple[_grants.Placed, ...],
+    inputs: _limits.Inputs,
+    guest_env: dict[str, str],
+    limits: _limits.Limits,
+) -> Completed:
+    metered = limits.fuel is not None
     out = _Stream("stdout", limits.output_bytes)
     err = _Stream("stderr", limits.output_bytes)
     store = wt.Store(engine)
@@ -330,6 +359,11 @@ def run(
             # Read before the status export runs, which spends a little fuel of its own.
             fuel_used = limits.fuel - store.get_fuel() if is_metered else 0  # type: ignore[operator]
         if read_status and instance is not None:
+            # The guest may have reached its exit with no fuel or time left; the export gets a
+            # budget of its own, so it answers rather than trapping. A trap never reaches here.
+            if is_metered:
+                store.set_fuel(UNMETERED)
+            store.set_epoch_deadline(_limits.NO_DEADLINE)
             status = _exit_status(wt, store, instance)
             if status is not None:
                 exit_code, trapped = status, None

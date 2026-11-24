@@ -10,7 +10,7 @@ wasi-perl is Perl 5.42 compiled to WebAssembly (`wasm32-wasip1`) as one static b
 
 Run it from Python, from the command line, or load the same `perl.wasm` into any WebAssembly host that supports exception handling.
 
-> **Status.** 0.1.0 is being built. The outputs below marked *(not yet run)* are what the specification promises; they are replaced with real runs once `perl.wasm` is built.
+> **Status.** 0.1.0 is being built. The outputs below were run with the first `perl.wasm` (before the core XS modules are linked in).
 
 # Installation and quick start
 
@@ -19,7 +19,6 @@ $ pip install wasi-perl
 $ wasi-perl run -- -e 'print "hello, WebAssembly\n"'
 {"exit_code": 0, "fuel_used": null, "stderr": "", "stdout": "hello, WebAssembly\n", "trapped": null, "truncated": []}
 ```
-*(not yet run)*
 
 Requires Python 3.11 or later and installs `wasmtime` (`>=51,<52`). The first call compiles `perl.wasm` and keeps the compiled module in a cache folder of your own (`~/.cache/wasi_perl` on Linux, `~/Library/Caches/wasi_perl` on macOS, `%LOCALAPPDATA%\wasi_perl\cache` on Windows, or `$WASI_PERL_CACHE`).
 
@@ -35,7 +34,6 @@ print(done.exit_code, done.stdout.decode())
 ```
 0 2,4,6,8,10
 ```
-*(not yet run)*
 
 `run` returns a `Completed` with `exit_code`, `stdout`, `stderr` (bytes), `trapped` (`None`, `"deadline"`, `"out of fuel"`, or wasmtime's words for another trap), `fuel_used` and `truncated`. An uncaught `die` is exit code 255, as in native Perl. Nothing the program does makes `run` raise.
 
@@ -53,13 +51,13 @@ Path("shared/hello.txt").write_text("hello from shared\n")
 Path("private").mkdir(exist_ok=True)
 Path("private/secret.txt").write_text("secret\n")
 
-code = r'''
+code = r"""
 for my $path ("/shared/hello.txt", "/private/secret.txt", "/shared/../private/secret.txt") {
     if (open(my $f, "<", $path)) { print "$path -> ", scalar <$f> }
     else { print "$path -> $!\n" }
 }
 open(my $out, ">", "/shared/new.txt") or print "write to /shared -> $!\n";
-'''
+"""
 
 done = run(["-e", code], grants=[Grant("shared", "/shared")])
 print(done.stdout.decode())
@@ -71,13 +69,15 @@ print(done.stdout.decode())
 /shared/../private/secret.txt -> Operation not permitted
 write to /shared -> Operation not permitted
 ```
-*(not yet run)*
 
 A one-liner edits files in place only in a writable grant, and `cwd` sets the working folder:
 
 ```python
-run(["-pi", "-e", "s/colour/color/g", "notes.txt"],
-    grants=[Grant("docs", "/docs", writable=True)], cwd="/docs")
+run(
+    ["-pi", "-e", "s/colour/color/g", "notes.txt"],
+    grants=[Grant("docs", "/docs", writable=True)],
+    cwd="/docs",
+)
 ```
 
 What the guest always sees, read-only: the Perl library at `/usr/local/lib/perl5` and an empty `/dev/null`. There is no `/`, no `/tmp` and no `HOME` unless you grant them. The guest's environment is exactly `env=` (plus `PWD` from `cwd=`); nothing of your own environment reaches it.
@@ -95,16 +95,16 @@ spin = ["-e", "1 while 1"]
 print(run(spin, deadline_s=1).trapped)
 print(run(spin, fuel=10_000_000).trapped)
 print(run(["-e", 'print "x" x 10_000_000'], output_bytes=1_000_000).truncated)
-print(run(["-e", '$x = "x" x (512 * 1024 * 1024)'], memory_bytes=128 << 20).exit_code)
+done = run(["-e", 'my $n = 512 << 20; my $x = "x" x $n'], memory_bytes=128 << 20)
+print(done.exit_code, done.stderr)
 ```
 
 ```
 deadline
 out of fuel
 ('stdout',)
-1
+1 b'Out of memory in perl:util:safesysrealloc\n'
 ```
-*(not yet run)*
 
 # From any language
 
@@ -118,7 +118,9 @@ The command exits 0 when the call returned (the JSON says how the program ended)
 
 # Not protected
 
-- A host folder swapped by another writer between the runner's check and wasmtime's own open of it (the guest cannot do this; another process of yours could).
+- A FIFO (named pipe) inside a grant: a guest that opens one waits inside the host's own `open`, beyond the deadline's reach, until something writes to it. Grant folders that hold no FIFO.
+- Symbolic links a guest leaves in a writable grant. The guest cannot follow one out of the grant, but your own program, reading the folder afterwards, can.
+- A host folder swapped by another writer between the runner's check and wasmtime's own open of it. Within one process the runner keeps a registry of the grants of the calls running now, and refuses a grant at, inside or above another live call's writable grant (and a writable grant over another live call's grant), so no guest of this process can do it; another process, or another guest of another process, with write access to a folder on the way still could.
 - Disk use inside a writable grant, and anything a writable grant holds that a later call reads.
 - Timing, the real clock and entropy.
 

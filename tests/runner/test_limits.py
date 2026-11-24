@@ -28,6 +28,13 @@ def test_a_status_wasmtime_refuses_is_read_from_the_guest(standin):
     assert (done.exit_code, done.trapped) == (255, None) and done.fuel_used > 0
 
 
+def test_the_status_is_read_even_with_no_fuel_left(standin):
+    # Fuel is counted exactly, so a cap of what the program spent leaves none for the export.
+    spent = run(["exit", "255"], fuel=10**9, artifacts=standin).fuel_used
+    done = run(["exit", "255"], fuel=spent, artifacts=standin)
+    assert (done.exit_code, done.trapped, done.fuel_used) == (255, None, spent)
+
+
 def test_a_trap_is_never_read_as_an_exit(standin):
     # The guest has recorded a status, then traps: the trap stands.
     done = run(["trap-after-exit-status"], artifacts=standin)
