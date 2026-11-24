@@ -1,0 +1,165 @@
+# The release: on a pushed v* tag, the whole of ci.yml (build, the four-system test of the
+# installed wheel, Perl's own suite), then build provenance for every asset, the GitHub release, and
+# the wheel and sdist on PyPI by trusted publishing.
+#
+# A manual dispatch runs ci.yml alone: only a pushed tag attests, releases or publishes. PyPI trusts
+# this file through a publisher the owner registers (owner ClayGendron, repository wasi-perl,
+# workflow release.yml, environment pypi); no token is stored anywhere.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+# Releases are never cancelled; a second run of the same ref waits for the first.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.9.22"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ci:
+    name: ci
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  attest:
+    name: attest the release assets
+    # The tag must name the version the wheel carries, or nothing is signed or published. A
+    # signature is permanent in the public transparency log, so only a pushed tag signs.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: release-assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-assets
+      - name: The tag names the wheel's version
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          ls release-assets
+          for want in "wasi_perl-$version-py3-none-any.whl" "wasi_perl-$version.tar.gz" \
+            perl.wasm MANIFEST SHA256SUMS; do
+            if [ ! -f "release-assets/$want" ]; then
+              echo "release-assets/ has no $want: the tag $GITHUB_REF_NAME and the build disagree"
+              exit 1
+            fi
+          done
+          if [ "$(find release-assets -mindepth 1 | wc -l)" -ne 5 ]; then
+            echo "release-assets/ holds other files than the five release assets"
+            exit 1
+          fi
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-assets/*
+      - name: Verify each asset as a user will
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for asset in release-assets/*; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF" \
+              --source-ref "$GITHUB_REF" --deny-self-hosted-runners
+          done
+
+  github-release:
+    name: the GitHub release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [ci, attest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: release-assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-assets
+      # The notes are the version's own section of CHANGELOG.md, from its heading to the next.
+      - name: Write the release notes
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## / { inside = ($0 ~ "^## \\[?" v "\\]?([ ]|$)") ; next }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          prerelease=""
+          case "$version" in *a*|*b*|*rc*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" \
+            --title "wasi-perl $version" --notes-file notes.md --verify-tag $prerelease
+
+  publish:
+    name: publish the wheel and sdist on PyPI
+    # Trusted publishing alone: the job's OIDC token is exchanged for a PyPI token bound to this
+    # repository, release.yml and the pypi environment. Only the wheel and the sdist go to PyPI.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [ci, attest, github-release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Only the wheel and the sdist
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          want=$(printf '%s\n' "wasi_perl-$version-py3-none-any.whl" "wasi_perl-$version.tar.gz")
+          if [ "$(find dist -mindepth 1 -printf '%f\n' | LC_ALL=C sort)" != "$(echo "$want" | LC_ALL=C sort)" ]; then
+            echo "dist/ holds other files than the wheel and the sdist of $version"
+            exit 1
+          fi
+      - name: Upload through trusted publishing
+        run: uv publish --no-config --trusted-publishing always dist/*
