@@ -127,9 +127,10 @@ ROWS = [
     ("exists-other-case", f'-e "{L}/5.42/STRICT.PM"', "ENOENT", STAT),
     ("read-other-case", f'open(my $f, "<", "{L}/5.42/Strict.pm")', "ENOENT", OPEN),
     ("below-other-case", f'stat("{L}/5.42/Strict.pm/x")', "ENOENT", STAT),
-    # Windows rewrites these to a name it may find.
+    # Windows rewrites these to a name it may find, or takes them for a device.
     ("stat-trailing-dot", f'stat("{L}/5.42/strict.pm.")', "ENOENT", STAT),
     ("stat-short-name", f'stat("{L}/5.42/STRICT~1.PM")', "ENOENT", STAT),
+    ("stat-device-name", f'stat("{L}/5.42/con.pm")', "ENOENT", STAT),
     # The host refuses these before it looks the name up.
     ("stat-long-component", f'stat("{L}/5.42/" . ("a" x 256))', "ENAMETOOLONG", STAT),
     ("read-long-component", f'open(my $f, "<", "{L}/5.42/" . ("a" x 256))', "ENAMETOOLONG", OPEN),
@@ -188,3 +189,24 @@ def test_a_set_passed_as_given_serves_only_the_library_it_was_built_with(perl, t
         artifacts=Artifacts.at(copy),
     )
     assert (granted.exit_code, granted.stdout, granted.stderr) == (0, b"added\n", b""), granted
+
+
+def test_a_host_that_finds_a_name_in_another_case_is_heard(perl, tmp_path):
+    """A library copy that holds 5.42/Strict.pm and 5.42/TEXT/ABBREV.pm beside the files the
+    index lists answers those names as a host whose names ignore case would. The guest must ask
+    it, and see what it finds."""
+    from wasi_perl import Artifacts, run
+
+    copy = tmp_path / "set"
+    shutil.copytree(perl.perl.parent, copy)
+    lib = copy / "lib" / "perl5" / "5.42"
+    shutil.copy(lib / "strict.pm", lib / "Strict.pm")
+    (lib / "TEXT").mkdir()
+    shutil.copy(lib / "Text" / "Abbrev.pm", lib / "TEXT" / "ABBREV.pm")
+    arts = Artifacts.at(copy)
+    done = run(["-e", 'require TEXT::ABBREV; print "loaded\\n"'], artifacts=arts)
+    assert (done.exit_code, done.stdout, done.stderr) == (0, b"loaded\n", b""), done
+    done = run(["-e", "require Strict"], artifacts=arts)
+    assert done.exit_code == 255, done
+    assert done.stderr.startswith(b"Incorrect use of pragma 'strict' at "), done
+    assert f"at {L}/5.42/Strict.pm line ".encode() in done.stderr, done

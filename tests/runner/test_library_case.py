@@ -37,10 +37,28 @@ def test_a_name_in_another_case_is_found_as_the_host_finds_it(perl):
 
 
 def test_require_in_another_case_loads_as_the_host_finds_it(perl):
-    found = _host_finds(perl, "Strict.pm")
-    done = run(["-e", 'require Strict; print "loaded\\n"'], artifacts=perl)
+    # Text::Abbrev has no guard against its own name in another case, so a host that finds
+    # TEXT/ABBREV.pm loads it.
+    assert _host_finds(perl, "Text/Abbrev.pm")
+    found = _host_finds(perl, "TEXT/ABBREV.pm")
+    done = run(["-e", 'require TEXT::ABBREV; print "loaded\\n"'], artifacts=perl)
     if found:
         assert (done.exit_code, done.stdout, done.stderr) == (0, b"loaded\n", b""), done
+    else:
+        assert done.exit_code == 2, done
+        assert done.stderr.startswith(b"Can't locate TEXT/ABBREV.pm in @INC"), done
+
+
+def test_require_strict_in_another_case_reaches_the_host_file(perl):
+    # strict.pm refuses to be loaded by a name in another case ("Incorrect use of pragma"), so
+    # where the host finds Strict.pm the require reads that file and fails in it; where the host
+    # does not, it fails to find it.
+    found = _host_finds(perl, "Strict.pm")
+    done = run(["-e", "require Strict"], artifacts=perl)
+    if found:
+        assert done.exit_code == 255, done
+        assert b"Can't locate" not in done.stderr, done
+        assert f"at {GUEST}/Strict.pm line ".encode() in done.stderr, done
     else:
         assert done.exit_code == 2, done
         assert done.stderr.startswith(b"Can't locate Strict.pm in @INC"), done

@@ -260,7 +260,9 @@ PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t h
  * a host may read otherwise than the index would: one with an empty or `..` component (`.`
  * components are dropped), a component longer than 255 bytes, which the host refuses; a byte that
  * is not ASCII, which wasmtime refuses when it is not UTF-8; and a component Windows rewrites
- * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`.
+ * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`,
+ * and one whose stem, the part before its first `.`, Windows takes for a device in any case: CON,
+ * PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, CONIN$ and CONOUT$.
  * An index of no names is no index: every lookup is the host's.
  *
  * The index is the library the module was built with. A set whose library differs is the
@@ -311,10 +313,41 @@ static uint32_t index_find(uint32_t lo, uint32_t hi, size_t off, const char *k, 
     return lo;
 }
 
+/* Whether k[0..n) is `word`, written lowercase, with A to Z as a to z. */
+static int fold_is(const char *k, const char *word, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (fold((unsigned char)k[i]) != (unsigned char)word[i])
+            return 0;
+    }
+    return 1;
+}
+
+/* Whether a component's stem, the part before its first `.`, is a Windows device name. Only a
+ * stem of 3, 4, 6 or 7 bytes can be one, so most components cost a length. */
+static int is_device(const char *p, size_t n)
+{
+    const char *dot = memchr(p, '.', n);
+    size_t stem = dot != NULL ? (size_t)(dot - p) : n;
+    switch (stem) {
+    case 3:
+        return fold_is(p, "con", 3) || fold_is(p, "prn", 3) || fold_is(p, "aux", 3) ||
+               fold_is(p, "nul", 3);
+    case 4:
+        return p[3] >= '1' && p[3] <= '9' && (fold_is(p, "com", 3) || fold_is(p, "lpt", 3));
+    case 6:
+        return fold_is(p, "conin$", 6);
+    case 7:
+        return fold_is(p, "conout$", 7);
+    default:
+        return 0;
+    }
+}
+
 /* Whether a component, not `.` or `..`, reads the same to every host. */
 static int index_plain(const char *p, size_t n)
 {
-    if (n > INDEX_NAME_MAX || p[n - 1] == '.' || p[n - 1] == ' ')
+    if (n > INDEX_NAME_MAX || p[n - 1] == '.' || p[n - 1] == ' ' || is_device(p, n))
         return 0;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)p[i];

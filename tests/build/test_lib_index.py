@@ -192,8 +192,9 @@ def test_a_create_reaches_the_host(probes, probe_lib, wasmtime_cli):
 
 # Each a path the host may answer otherwise than the index would: a name in another case, which
 # a host whose names ignore case finds; a name Windows rewrites (a trailing "." or blank, a "~"
-# of a short name, a "\\" or a ":"); a component longer than the host's 255 bytes; a byte that
-# is not ASCII, which wasmtime refuses when it is not UTF-8.
+# of a short name, a "\\" or a ":") or takes for a device (CON, NUL, COM1 and the rest); a
+# component longer than the host's 255 bytes; a byte that is not ASCII, which wasmtime refuses
+# when it is not UTF-8.
 HOST_PATHS = [
     ("stat", "5.42/a.pmc"),
     ("stat", "5.42/A.PM"),
@@ -205,6 +206,12 @@ HOST_PATHS = [
     ("stat", "5.42/B~1/x.pm"),
     ("stat", "5.42/A\\B.pm"),
     ("stat", "5.42/A:B.pm"),
+    # A Windows device name, whatever follows its first ".".
+    ("stat", "5.42/CON"),
+    ("stat", "5.42/con.pm"),
+    ("stat", "5.42/LPT1.x"),
+    ("stat", "5.42/Nul.txt/x"),
+    ("stat", "5.42/conout$"),
     ("stat", "5.42/" + "a" * 256),
     ("stat", "a" * 300 + "/x"),
     # The byte 0xe9 alone, which the probe reads from "%e9".
