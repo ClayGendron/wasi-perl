@@ -14,12 +14,12 @@ output callback, which wasmtime-py would print and drop, is never in place."""
 from __future__ import annotations
 
 import contextlib
-import ctypes
 import signal
 import threading
 from collections.abc import Iterator
 from typing import Any
 
+from wasi_perl import _wasmtime_ffi
 from wasi_perl._engines import TICKER
 
 POLL_TICKS = 5  # the callback runs at least this often: every 50 ms of a computing guest
@@ -44,21 +44,13 @@ class Stop:
 
 
 def _error(word: str) -> int:
-    from wasmtime import _ffi as ffi
-
-    err = ffi.wasmtime_error_new((PREFIX + word).encode())
-    return ctypes.cast(err, ctypes.c_void_p).value or 0
+    return _wasmtime_ffi.error(PREFIX + word)
 
 
 def arm(store: Any, stop: Stop) -> None:
-    """Install `stop`'s callback on `store`, through the C API wasmtime-py does not wrap."""
-    from wasmtime import _bindings
-    from wasmtime import _ffi as ffi
+    """Install `stop`'s callback on `store`."""
 
-    binding = _bindings._wasmtime_store_epoch_deadline_callback
-    callback_type, finalizer_type = binding.argtypes[1], binding.argtypes[3]
-
-    def on_epoch(_context: Any, _data: Any, delta: Any, kind: Any) -> int:
+    def on_epoch(delta: Any, kind: Any) -> int:
         try:
             if stop.interrupted:
                 return _error(INTERRUPTED)
@@ -73,10 +65,7 @@ def arm(store: Any, stop: Stop) -> None:
             stop.interrupted = True
             return _error(INTERRUPTED)
 
-    callback = callback_type(on_epoch)
-    finalizer = finalizer_type(lambda _data: None)
-    stop.keep += [callback, finalizer]
-    ffi.wasmtime_store_epoch_deadline_callback(store.ptr(), callback, None, finalizer)
+    stop.keep += _wasmtime_ffi.on_epoch(store, on_epoch)
 
 
 def word(text: str) -> str | None:

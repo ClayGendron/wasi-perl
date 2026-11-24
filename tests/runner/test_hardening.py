@@ -154,10 +154,9 @@ def test_a_wasmtime_error_at_the_guests_start_is_a_trap(tmp_path, standin, monke
     gone.mkdir()
     real_hold = _grants.hold
 
-    def hold_then_remove(placed):  # the folder vanishes between the check and wasmtime's open
-        token = real_hold(placed)
+    def hold_then_remove(placed, slot):  # the folder vanishes between the check and the open
+        real_hold(placed, slot)
         gone.rmdir()
-        return token
 
     monkeypatch.setattr(_grants, "hold", hold_then_remove)
     done = run(["hello"], grants=[Grant(gone, "/g")], artifacts=standin)
@@ -222,3 +221,112 @@ def test_the_command_exits_130_on_ctrl_c(standin_dir):
     except subprocess.TimeoutExpired:
         pytest.fail("Ctrl-C never reached the guest")
     assert (out.returncode, out.stdout) == (130, b"")
+
+
+LOW_LIMIT = r"""
+import resource, sys, threading
+from wasi_perl import Artifacts, TooManyCalls, _limits, run
+soft, hard = int(sys.argv[2]), sys.argv[3]
+resource.setrlimit(resource.RLIMIT_NOFILE, (soft, soft if hard == "same" else
+                   resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+a = Artifacts.at(sys.argv[1])
+print("alone", run(["hello"], artifacts=a).exit_code)
+done = {}
+t = threading.Thread(target=lambda: done.update(a=run(["spin"], deadline_s=2, artifacts=a)))
+t.start()
+while _limits.descriptors_reserved() == 0 and t.is_alive():
+    threading.Event().wait(0.001)
+results = []
+for _ in range(2):
+    try:
+        results.append(run(["hello"], artifacts=a).exit_code)
+    except TooManyCalls:
+        results.append("TooManyCalls")
+t.join()
+print("beside", results, done["a"].trapped)
+"""
+
+
+def _low_limit(standin_dir, soft, hard):
+    resource = pytest.importorskip("resource")
+    del resource
+    out = subprocess.run(
+        [sys.executable, "-c", LOW_LIMIT, str(standin_dir), str(soft), hard],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert out.returncode == 0, out.stderr
+    return out.stdout.splitlines()
+
+
+def test_one_call_always_runs_under_a_low_limit(standin_dir):
+    # macOS's usual soft limit is 256, and here the hard limit is lowered too, so it cannot be
+    # raised: one call runs alone; one beside it is refused, as the budget is spent.
+    lines = _low_limit(standin_dir, 256, "same")
+    assert lines == ["alone 0", "beside ['TooManyCalls', 'TooManyCalls'] deadline"]
+
+
+def test_the_soft_limit_is_raised_toward_the_hard_limit(standin_dir):
+    # A soft limit of 256 under a higher hard limit is raised once, so calls run side by side.
+    lines = _low_limit(standin_dir, 256, "keep")
+    assert lines == ["alone 0", "beside [0, 0] deadline"]
+
+
+def test_a_reservation_is_released_on_every_path(standin, monkeypatch):
+    before = _limits.descriptors_reserved()
+
+    real = _limits.reserve_descriptors
+
+    def interrupted(*a, **k):  # Ctrl-C the instant the reservation is made
+        got = real(*a, **k)
+        del got
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(_limits, "reserve_descriptors", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run(["hello"], artifacts=standin)
+    assert _limits.descriptors_reserved() == before
+
+
+def test_wasmtime_52_is_refused(standin, monkeypatch):
+    monkeypatch.setattr(_engines, "wasmtime_version", lambda: "52.0.0")
+    with pytest.raises(ImportError, match="52.0.0"):
+        run(["hello"], artifacts=standin)
+
+
+def test_the_writable_registry_is_bounded(tmp_path, standin, monkeypatch):
+    monkeypatch.setattr(_grants, "EVER_WRITABLE_MAX", 5)
+    monkeypatch.setattr(_grants, "_ever_writable", {})
+    monkeypatch.setattr(_grants, "_ever_overflowed", False)
+    for i in range(12):  # folders granted, then gone: pruned, nothing to fear in them
+        d = tmp_path / f"d{i}"
+        d.mkdir()
+        run(["hello"], grants=[Grant(d, "/w", writable=True)], cache_dir=False, artifacts=standin)
+        shutil.rmtree(d)
+    assert len(_grants._ever_writable) <= 5
+    assert not _grants._ever_overflowed
+    kept = []
+    for i in range(7):  # folders that stay: past the bound the disk cache is turned off
+        d = tmp_path / f"k{i}"
+        d.mkdir()
+        kept.append(d)
+        run(["hello"], grants=[Grant(d, "/w", writable=True)], cache_dir=False, artifacts=standin)
+    assert _grants._ever_overflowed
+    assert _grants.granted_writable(tmp_path / "anything")  # every cache refused from now on
+
+
+def test_a_folder_the_walk_cannot_list_is_refused(tmp_path, standin, standin_dir, monkeypatch):
+    os.link(standin_dir / "perl.wasm", tmp_path / "elsewhere.wasm")  # a runtime file, two names
+    w = tmp_path / "w"
+    (w / "sub").mkdir(parents=True)
+    real_walk = os.walk
+
+    def failing_walk(top, *args, onerror=None, **kw):
+        if onerror is not None:
+            onerror(PermissionError(13, "Permission denied", str(w / "sub")))
+        yield from real_walk(top, *args, onerror=onerror, **kw)
+
+    monkeypatch.setattr(_grants.os, "walk", failing_walk)
+    with pytest.raises(ValueError, match="cannot search"):
+        run(["hello"], grants=[Grant(w, "/w", writable=True)], artifacts=standin)

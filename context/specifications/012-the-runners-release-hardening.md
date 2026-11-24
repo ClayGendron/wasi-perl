@@ -54,8 +54,34 @@ The one skip is the check that cannot run as root. The runner, escape and one-li
 ### The review's probes, re-run
 
 - `probes/cache.py` (umask 077): the planted `.cwasm` is not used: "not using the module cache at …/cache: it is at, inside or above a folder this process granted writable to a guest", and `loaded` stays 0 (`{'compiled': 1, 'loaded': 0, 'written': 1}` → `{'compiled': 2, 'loaded': 0, 'written': 1}`).
-- `probes/fds2.py` under `ulimit -n 1024`: the three concurrent calls return `Completed(exit_code=0, stdout=b'B\n')`, where the review saw `WasmtimeError` raised; the host's own open works. The guest of the first call still held 1,013 descriptors: this set's `perl.wasm` has no descriptor-table cap (that is specs 009 and 010's), so the 256 a call is counted at is the runner's budget, not yet a limit on the guest. The README says so.
+- `probes/fds2.py` under `ulimit -n 1024`: the three concurrent calls no longer raise. They return, as `exit_code=0` or as the trap "failed to add preopen dir", depending on timing: in my run all three returned `exit_code=0`, in the review's run they returned the trap. (The first version of this note said only the former, which the review could not reproduce; this is the corrected claim.) Either way one guest can still starve the others: this set's `perl.wasm` held 1,013 descriptors, since the real per-call cap of 256 is the guest's own descriptor table from spec 011's build. M3 is closed only once 011 lands, a release gate.
 - `probes/hardlink.py` was not re-run (it builds a scratch venv); its route is the hard-link check above, with the venv's real `_libwasmtime.so`.
+
+### Revised against the review
+
+The review (`../reviews/012-the-runners-release-hardening-pr-2026-11-24.md`, "Does not land": H1, M1 and five Lows) is answered in one commit. Each new check was seen failing first (`build/logs/012-r1-seen-failing.txt`: 6 failed).
+
+- **H1, the budget refused every call under a soft limit of 256: fixed**, in three parts. A call with no other call of the process running is never refused. Once per process, before the budget is first read, the soft `RLIMIT_NOFILE` is raised toward the hard limit, to at most `OPEN_MAX` (10,240) where the hard limit is unlimited and always on macOS. A refusal leaves it as it was. And each call is counted at 256, the cap of the guest's own descriptor table in spec 011's build (`GUEST_DESCRIPTORS`, which says so). Checks: `test_one_call_always_runs_under_a_low_limit` (a child at soft and hard 256: one call runs; two beside a running one are refused) and `test_the_soft_limit_is_raised_toward_the_hard_limit` (a child at soft 256 under a higher hard limit: two calls beside a running one run). EXECUTED by hand as well:
+  - Soft limit lowered with `setrlimit`, so it can be raised: 256 and 1,024 were each raised to 20,000 (the hard limit here), and three concurrent calls gave `[0, 0, 0]` at both.
+  - A shell's `ulimit -n`, which lowers the hard limit too, so nothing can be raised: alone, one call runs. Three concurrent calls gave `['TooManyCalls', 'TooManyCalls', 0]` at 256 and `['TooManyCalls', 0, 0]` at 1,024. That is the budget (half the limit, 256 a call) doing its job under a hard limit the embedder chose.
+  - The library now changes its process's soft limit, where wasi-python leaves that to its command. That is the review's fix; the README says so.
+- **M1, the landing note: corrected** above.
+- **L1, an unbounded registry: bounded.** Each entry keeps its folder's path. Past `EVER_WRITABLE_MAX` (10,000 entries, about 12 MB), entries whose path no longer has that identity are dropped: a folder that is gone holds no `.cwasm`. If that is not enough, the disk cache is turned off for the process's life and the set freed, which is safe (`test_the_writable_registry_is_bounded`).
+- **L2, a leaked reservation: fixed.** The call makes its slot before its `try`. The reservation and the grant registration are each one dictionary store keyed by that slot, and the `finally` releases by the slot, so no signal can fall between taking either and being able to release it (`test_a_reservation_is_released_on_every_path`, a Ctrl-C the instant the reservation is made).
+- **L3, the walk: fixed.** An entry the walk cannot list refuses the grant ("the runner cannot search …"; `test_a_folder_the_walk_cannot_list_is_refused`). The walk never enters a link, a junction (`os.path.isjunction`) or any reparse point. The junction rule is INFERRED for Windows: there is no Windows host here.
+- **L4, private wasmtime-py API: one module.** `_wasmtime_ffi.py` holds the stdin bytes, the error and the epoch callback. `_engines.wasmtime()` refuses 52 and later as well as below 51, matching the `>=51,<52` pin (`test_wasmtime_52_is_refused`).
+- **L5: the README** says a guest `sleep` can outlast the deadline until spec 011's build is released.
+
+```
+$ WASI_PERL_ORACLE=…/002-xs/build/native-install/bin/perl WASI_PERL_ARTIFACTS=…/002-xs/build/artifacts \
+  uv run pytest -q -rx
+XFAIL tests/escapes/test_escapes.py::test_a_fifo_in_a_grant_is_refused - …
+636 passed, 1 skipped, 1 xfailed, 4 warnings
+$ uv run ruff check && uv run ruff format --check
+All checks passed!
+34 files left unchanged
+```
+
 
 ### Left over
 

@@ -13,7 +13,6 @@ has the ones `defaults()` returns."""
 
 from __future__ import annotations
 
-import ctypes
 import os
 import sys
 import threading
@@ -23,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import wasi_perl
-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop
+from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop, _wasmtime_ffi
 from wasi_perl._artifacts import Artifacts
 from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
 from wasi_perl._limits import UNSET
@@ -146,12 +145,7 @@ def _set_stdin(wt: Any, wasi: Any, data: bytes) -> None:
     not wrap: no file holds it. The vector is handed over, and wasmtime frees it."""
     if not data:
         return  # wasmtime's default stdin is empty
-    from wasmtime import _ffi as ffi
-
-    vec = ffi.wasm_byte_vec_t()
-    buf = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
-    ffi.wasm_byte_vec_new(ctypes.byref(vec), len(data), buf)
-    ffi.wasi_config_set_stdin_bytes(wasi.ptr(), ctypes.byref(vec))
+    _wasmtime_ffi.set_stdin_bytes(wasi, data)
 
 
 def _first_line(text: str) -> str:
@@ -308,18 +302,19 @@ def run(
     guest_env = dict(inputs.env)
     if cwd_guest is not None:
         guest_env["PWD"] = cwd_guest
-    _limits.reserve_descriptors()  # TooManyCalls, before any work
+    slot = object()  # this call's reservation, released in the finally whatever interrupts
     try:
-        token = _grants.hold(placed)  # until the store, which holds the grants open, is closed
+        _limits.reserve_descriptors(slot)  # TooManyCalls, before any work
+        _grants.hold(placed, slot)  # until the store, which holds the grants open, is closed
         try:
             metered = limits.fuel is not None
             module = _engines.module(metered, found.perl, want, cache.folder)
             engine = _engines.engine(metered)
             return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
         finally:
-            _grants.let_go(token)
+            _grants.let_go(slot)
     finally:
-        _limits.release_descriptors()
+        _limits.release_descriptors(slot)
 
 
 def _set_up(

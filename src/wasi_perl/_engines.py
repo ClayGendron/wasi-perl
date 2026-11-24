@@ -38,9 +38,15 @@ def wasmtime() -> Any:
             major = 0
         if major < WASMTIME_FLOOR:
             raise ImportError(
-                f"wasi_perl.run needs wasmtime-py {WASMTIME_FLOOR} or later (wasmtime>=51,<52); "
-                f"found {found}, under which a drive-relative name on Windows reaches outside its "
+                f"wasi_perl.run needs wasmtime-py {WASMTIME_FLOOR} (wasmtime>=51,<52); found "
+                f"{found}, under which a drive-relative name on Windows reaches outside its "
                 "grant (GHSA-f2pq-268w-886c). Install wasmtime>=51,<52."
+            )
+        if major > WASMTIME_FLOOR:
+            raise ImportError(
+                f"wasi_perl.run is built and tested on wasmtime-py {WASMTIME_FLOOR} "
+                f"(wasmtime>=51,<52); found {found}, whose private C bindings, which the runner "
+                "calls, may differ. Install wasmtime>=51,<52."
             )
     try:
         import wasmtime as wt
