@@ -299,12 +299,10 @@ def test_reopen_standard_handle_matches_native(
         assert g.code == n.returncode
 
 
-def test_dup_of_a_handle_fails_clearly(guest, native, tmp_path: Path):
-    # Duplicating a descriptor needs dup(), which WASI preview1 does not have: the open fails
-    # and says so in $!, natively it succeeds.
+def test_dup_of_a_handle_works(guest, native):
+    # Duplicating a descriptor makes a second number for the same open file, as natively.
     code = 'open(STDERR, ">&", \\*STDOUT) or die "dup: $!\\n"; print STDERR "x\\n"'
     n = native("-e", code)
     assert (n.code, n.stdout, n.stderr) == (0, b"x\n", b"")
     g = guest("-e", code)
-    assert (g.stdout, g.stderr) == (b"", b"dup: Not supported\n")
-    assert g.code == 95  # ENOTSUP, in Linux's numbering
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)

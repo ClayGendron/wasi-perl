@@ -29,6 +29,6 @@ B, Compress::Raw::Bzip2, Compress::Raw::Zlib, Cwd, Data::Dumper, Devel::Peek, Di
 - **Time zones.** There are no zone tables: local time is UTC, and `POSIX::tzset` does nothing.
 - **Terminals and special files.** `POSIX::ttyname` returns undef; `POSIX::mkfifo` fails with "Function not implemented".
 - **Host name.** `Sys::Hostname::hostname` returns `(none)`.
-- **Copying a file handle.** WASI cannot duplicate a descriptor, so `open my $fh, ">&", STDOUT` fails with "Not supported". Test::More (through Test2), CPAN and Term::Table copy STDOUT when they load, so they do not load.
+- **CPAN and Math::Complex do not load.** Each stores into `%SIG` for a real signal when it loads (`$SIG{WINCH}`, `local $SIG{FPE}`), which the sandbox refuses. Math::Trig uses Math::Complex.
 - **`use diagnostics`** fails: it reads `perldiag.pod`, and the library ships no pod.
 - **`umask`** is not implemented; Archive::Tar warns about it when it loads, and works.

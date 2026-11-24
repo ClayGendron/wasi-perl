@@ -44,6 +44,7 @@ About `%SIG`:
 - `times`, `sleep`, and `select(undef, undef, undef, $seconds)`. They use WASI's clock.
 - `exit`, `END` blocks, `die` and `warn`.
 - Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
+- Copying a descriptor, as on POSIX: `open my $save, '>&', STDOUT`, `open STDERR, '>&STDOUT'`, the `&=` forms, `POSIX::dup`, `POSIX::dup2` and `fcntl(F_DUPFD)`. The copies share one open file and its offset; the file closes with the last of them. Test::More loads and works.
 
 ## Exit statuses
 
@@ -58,6 +59,6 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 
 ## Differences from native that remain
 
-- **No descriptor duplication.** WASI preview1 cannot copy a file descriptor. `open(STDERR, '>&', \*STDOUT)`, `open(my $save, '>&STDOUT')` and `>&=` fail, with `$!` "Not supported". Reopening a standard handle onto a file works: see above.
-- **The old descriptor of a `dup2` is gone.** wasi-perl's `dup2` moves the descriptor (WASI's `fd_renumber`). This is what Perl's own reopen of STDIN, STDOUT and STDERR needs. Code that calls `dup2` directly and keeps using the old descriptor gets EBADF.
+- **Descriptor numbers start higher.** Each granted folder holds a descriptor from 3 up, so the first file a program opens gets a number above them, not 3. New descriptors still take the lowest free number.
+- **At most 1,024 open descriptors.** Past that, `open`, `dup` and their kin fail with EMFILE ("No file descriptors available").
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.

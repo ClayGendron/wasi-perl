@@ -200,15 +200,11 @@ DISTRIBUTION_MODULE = {
 
 # Modules of the library that load natively and not in the sandbox, each with its reason.
 FAILS_IN_THE_SANDBOX = {
-    # Test2 copies STDOUT and STDERR with open(">&"), which needs dup(); WASI preview1
-    # has no call that duplicates a descriptor.
-    "Test/Simple": b"Can't dup",
     # CPAN sets $SIG{WINCH} in a BEGIN block, before it copies a descriptor, and the sandbox
     # refuses a store into %SIG for a real signal.
     "CPAN": b"signal handler for SIGWINCH is not available in the wasi-perl sandbox",
     # Math::Complex sets local $SIG{FPE} while it looks for infinity, at load time.
     "Math/Complex": b"signal handler for SIGFPE is not available in the wasi-perl sandbox",
-    "Term/Table": b"Could not clone STDOUT",
 }
 
 
