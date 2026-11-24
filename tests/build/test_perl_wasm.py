@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 from pathlib import Path
 
 import pytest
-from _build_helpers import DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
+from _build_helpers import BUILD, DEV, DEV_GUEST, LIBRARY, LIBRARY_GUEST, assert_exit_refused
 
 HELLO = 'print "hello, WebAssembly\\n"'
 DIE_IN_EVAL = 'eval { die "boom\\n" }; print "caught: $@"; print "after\\n"'
@@ -77,6 +78,16 @@ def test_die_uncaught(guest, native):
     g, n = guest("-e", status), native("-e", status)
     assert (g.code, g.stdout, g.stderr, g.status) == (0, b"status=255\n", b"bye\n", 0)
     assert (n.code, n.stdout, n.stderr) == (0, b"status=255\n", b"bye\n")
+
+
+def test_the_refused_exit_is_read_at_the_innermost_frame(guest):
+    r = guest("-e", "exit 200")
+    assert_exit_refused(r, 200)
+    # The same error, with its innermost frame one byte on, stands at no call of proc_exit.
+    at = next(ln for ln in r.error.splitlines() if ln.strip().startswith("0:")).split()[1]
+    moved = r.error.replace(at, hex(int(at, 16) + 1), 1)
+    with pytest.raises(AssertionError):
+        assert_exit_refused(dataclasses.replace(r, error=moved), 200)
 
 
 @pytest.mark.parametrize("status", [0, 1, 7, 125, 126, 200, 255])
@@ -184,8 +195,12 @@ def _imports(wasm: bytes) -> list[tuple[str, str]]:
 
 
 def test_no_wasm_opt(perl_wasm: Path):
-    # The module is what wasm-ld wrote: binaryen's wasm-opt never ran on it.
-    assert b"binaryen" not in perl_wasm.read_bytes()
+    # The linked module is what wasm-ld wrote: binaryen's wasm-opt never ran on it, so clang ran
+    # none of its own at the link. The shipped module is the build's own pass over this one.
+    linked = BUILD / "link" / "perl.wasm"
+    if not linked.exists():
+        pytest.skip("build/link/perl.wasm is missing; run scripts/build.sh")
+    assert b"binaryen" not in linked.read_bytes()
 
 
 def test_imports(perl_wasm: Path):

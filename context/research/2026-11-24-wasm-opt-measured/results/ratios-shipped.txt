@@ -1,0 +1,7 @@
+count matches in a whole file	563934376	63423010	8.892	9	-1.2%	(window 7.20..10.80)
+substitute in a whole file	714999267	96443381	7.414	7.5	-1.2%	(window 6.00..9.00)
+keyed sort	28707675549	5148216371	5.576	5	+11.5%	(window 4.00..6.00)
+JSON through JSON::MaybeXS	12957803692	496452254	26.101	29	-10.0%	(window 23.20..34.80)
+JSON through Cpanel::JSON::XS	12957803692	454615186	28.503	29	-1.7%	(window 23.20..34.80)
+CSV	15109699174	1138749067	13.269	13	+2.1%	(window 10.40..15.60)
+use POSIX import	70218284	54241678	16.0 M

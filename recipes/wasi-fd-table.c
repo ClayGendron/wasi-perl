@@ -260,9 +260,11 @@ PASS_FD(sock_shutdown, __WASI_ERRNO_NOTSOCK, (__wasi_fd_t fd, __wasi_sdflags_t h
  * a host may read otherwise than the index would: one with an empty or `..` component (`.`
  * components are dropped), a component longer than 255 bytes, which the host refuses; a byte that
  * is not ASCII, which wasmtime refuses when it is not UTF-8; and a component Windows rewrites
- * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`,
- * and one whose stem, the part before its first `.`, Windows takes for a device in any case: CON,
- * PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, CONIN$ and CONOUT$.
+ * before it looks it up, one ending in `.` or a blank or holding `~` (a short name), `\` or `:`;
+ * one holding a byte Windows cannot hold in a name, `*`, `?`, `<`, `>`, `|`, `"` or one below
+ * 0x20; and one whose stem, the part before its first `.` with the blanks at its end trimmed,
+ * Windows takes for a device in any case: CON, PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9,
+ * CONIN$ and CONOUT$.
  * An index of no names is no index: every lookup is the host's.
  *
  * The index is the library the module was built with. A set whose library differs is the
@@ -323,12 +325,15 @@ static int fold_is(const char *k, const char *word, size_t n)
     return 1;
 }
 
-/* Whether a component's stem, the part before its first `.`, is a Windows device name. Only a
- * stem of 3, 4, 6 or 7 bytes can be one, so most components cost a length. */
+/* Whether a component's stem, the part before its first `.`, is a Windows device name once the
+ * blanks at its end are trimmed, as Windows trims them: `CON .pm` is CON. Only a stem of 3, 4, 6
+ * or 7 bytes can be one, so most components cost a length. */
 static int is_device(const char *p, size_t n)
 {
     const char *dot = memchr(p, '.', n);
     size_t stem = dot != NULL ? (size_t)(dot - p) : n;
+    while (stem > 0 && p[stem - 1] == ' ')
+        stem--;
     switch (stem) {
     case 3:
         return fold_is(p, "con", 3) || fold_is(p, "prn", 3) || fold_is(p, "aux", 3) ||
@@ -351,7 +356,8 @@ static int index_plain(const char *p, size_t n)
         return 0;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)p[i];
-        if (c >= 0x80 || c == '~' || c == '\\' || c == ':')
+        if (c >= 0x80 || c < 0x20 || c == '~' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+            c == '<' || c == '>' || c == '|' || c == '"')
             return 0;
     }
     return 1;

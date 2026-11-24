@@ -6,3 +6,4 @@ daabf6ad0376ee4613e671c521f5d05650c42205e403cac077e79d8594da3ade  Cpanel-JSON-XS
 cd3937afa78831f80a2ad5abab6c51b9e82fca4c31e5856ea208d598db5dc867  JSON-MaybeXS-1.004008.tar.gz  https://www.cpan.org/authors/id/E/ET/ETHER/JSON-MaybeXS-1.004008.tar.gz
 dfcaec925a788b0ba41e51bc6d16e21b0e98b4c7af9b79395090add75f5e506f  Text-CSV-2.06.tar.gz  https://www.cpan.org/authors/id/I/IS/ISHIGAKI/Text-CSV-2.06.tar.gz
 0022da5982645d9ef0207f3eb9ef63e70e9713ed2340ed7b3850779b0d842a7d  Algorithm-Diff-1.201.tar.gz  https://www.cpan.org/authors/id/R/RJ/RJBS/Algorithm-Diff-1.201.tar.gz
+2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489  binaryen-version_133-x86_64-linux.tar.gz  https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz

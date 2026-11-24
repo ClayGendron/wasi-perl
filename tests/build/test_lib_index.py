@@ -192,9 +192,10 @@ def test_a_create_reaches_the_host(probes, probe_lib, wasmtime_cli):
 
 # Each a path the host may answer otherwise than the index would: a name in another case, which
 # a host whose names ignore case finds; a name Windows rewrites (a trailing "." or blank, a "~"
-# of a short name, a "\\" or a ":") or takes for a device (CON, NUL, COM1 and the rest); a
-# component longer than the host's 255 bytes; a byte that is not ASCII, which wasmtime refuses
-# when it is not UTF-8.
+# of a short name, a "\\" or a ":"), cannot hold (a "*", "?", "<", ">", "|" or '"', or a byte
+# below 0x20) or takes for a device (CON, NUL, COM1 and the rest, with or without blanks after
+# the stem); a component longer than the host's 255 bytes; a byte that is not ASCII, which
+# wasmtime refuses when it is not UTF-8.
 HOST_PATHS = [
     ("stat", "5.42/a.pmc"),
     ("stat", "5.42/A.PM"),
@@ -212,6 +213,23 @@ HOST_PATHS = [
     ("stat", "5.42/LPT1.x"),
     ("stat", "5.42/Nul.txt/x"),
     ("stat", "5.42/conout$"),
+    # A device name with blanks after its stem, which Windows trims.
+    ("stat", "5.42/CON .pm"),
+    ("stat", "5.42/nul  .txt"),
+    ("stat", "5.42/LPT9 .x/y"),
+    ("stat", "5.42/conin$ .pm"),
+    # A byte Windows cannot hold in a name.
+    ("stat", "5.42/A*.pm"),
+    ("stat", "5.42/A?.pm"),
+    ("stat", "5.42/A<B.pm"),
+    ("stat", "5.42/A>B.pm"),
+    ("stat", "5.42/A|B.pm"),
+    ("stat", '5.42/A"B.pm'),
+    ("read", "5.42/x*/A.pm"),
+    # A control byte, which the probe reads from "%01" and the rest.
+    ("stat", "5.42/A%01.pm"),
+    ("stat", "5.42/%09.pm"),
+    ("stat", "5.42/A%1f/x"),
     ("stat", "5.42/" + "a" * 256),
     ("stat", "a" * 300 + "/x"),
     # The byte 0xe9 alone, which the probe reads from "%e9".
@@ -234,6 +252,12 @@ def test_a_name_in_no_case_is_answered_without_the_host(probes, probe_lib, wasmt
     # In no case does the library hold these, so every host answers ENOENT or ENOTDIR.
     for op, path, want in (
         ("stat", "5.42/b.PMC", "ENOENT"),
+        # Not a device: the stem is longer, or a blank stands inside it, not after it.
+        ("stat", "5.42/CONX.pm", "ENOENT"),
+        ("stat", "5.42/CO N.pm", "ENOENT"),
+        ("stat", "5.42/COM0 .pm", "ENOENT"),
+        # A byte at or above 0x20 that Windows takes: a blank inside, "-", "=", "%" and DEL.
+        ("stat", "5.42/A B-C=D%25%7f.pm", "ENOENT"),
         ("stat", "NOPE/x", "ENOENT"),
         ("read", "5.42/A.pm/X", "ENOTDIR"),
         ("stat", "5.42/A.pm/x/y", "ENOTDIR"),
@@ -323,22 +347,36 @@ def test_the_relink_runs_only_the_link(perl_wasm):
     assert str(BUILD / "index" / "lib-index.o") in words, commands[0]
 
 
-def _stamp_of(*paths: Path) -> str:
-    return hashlib.sha256(b"".join(p.read_bytes() for p in paths)).hexdigest()
+def _link_stamp_of(root: Path) -> str:
+    """The link step's stamp in the checkout at root: its own inputs and the library's stamp,
+    then each line that names the pass's tool and flags: the tool's folder and tarball, the
+    tarball's pinned SHA-256, the pass, and the features it names."""
+    scripts = root / "scripts"
+    files = (scripts / "40_link.sh", scripts / "lib_index.sh", scripts / "lib.sh")
+    lib = (scripts / "lib.sh").read_text()
+    name = re.search(r"^BINARYEN_NAME=(\S+)$", lib, re.M).group(1)
+    tarball = re.search(r"^BINARYEN_TARBALL=(\S+)$", lib, re.M).group(1)
+    pins = [
+        ln.split()[0]
+        for ln in (root / "downloads" / "SHA256SUMS").read_text().splitlines()
+        if ln.split()[1:2] == [tarball]
+    ]
+    assert len(pins) == 1, pins
+    link = (scripts / "40_link.sh").read_text()
+    flags = [
+        re.search(rf"^{v}='([^']*)'$", link, re.M).group(1).split() for v in ("PASS", "FEATURES")
+    ]
+    lines = [name, tarball, pins[0], *flags[0], *flags[1]]
+    data = b"".join(p.read_bytes() for p in (*files, root / "build" / ".library.stamp"))
+    return hashlib.sha256(data + "".join(f"{ln}\n" for ln in lines).encode()).hexdigest()
 
 
-def test_the_link_step_is_stamped_by_its_own_inputs_and_the_library(perl_wasm):
+def test_the_link_step_is_stamped_by_its_own_inputs_the_library_and_the_pass(perl_wasm):
     stamp = BUILD / ".link.stamp"
     if not stamp.exists():
         pytest.skip("build/.link.stamp is missing; run scripts/build.sh")
     scripts = ROOT / "scripts"
-    want = _stamp_of(
-        scripts / "40_link.sh",
-        scripts / "lib_index.sh",
-        scripts / "lib.sh",
-        BUILD / ".library.stamp",
-    )
-    assert stamp.read_text().strip() == want
+    assert stamp.read_text().strip() == _link_stamp_of(ROOT)
     # So a change to the library's step relinks, and a change to the index's generator reaches
     # no step before the link: neither earlier step reads it.
     for earlier in ("20_target.sh", "30_library.sh"):
@@ -353,6 +391,8 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
     root = tmp_path / "checkout"
     shutil.copytree(ROOT / "scripts", root / "scripts")
     shutil.copytree(ROOT / "recipes", root / "recipes")
+    (root / "downloads").mkdir()
+    shutil.copy(ROOT / "downloads" / "SHA256SUMS", root / "downloads" / "SHA256SUMS")
     build = root / "build"
     art = build / "artifacts"
     (art / "lib" / "perl5" / "5.42").mkdir(parents=True)
@@ -364,10 +404,7 @@ def test_the_link_step_is_not_up_to_date_without_perl_wasm(tmp_path):
     (build / "target" / "config.sh").write_text("libs='-lm'\n")
     (build / ".library.stamp").write_text("stand-in\n")
     scripts = root / "scripts"
-    stamp = _stamp_of(
-        scripts / "40_link.sh", scripts / "lib_index.sh", scripts / "lib.sh", build / ".library.stamp"
-    )
-    (build / ".link.stamp").write_text(stamp + "\n")
+    (build / ".link.stamp").write_text(_link_stamp_of(root) + "\n")
 
     def step() -> subprocess.CompletedProcess:
         return subprocess.run(

@@ -43,4 +43,13 @@ for t in "$WASI_SDK_NAME:tar.gz" "$WASMTIME_NAME:tar.xz"; do
         touch "$BUILD/tools/$name/.unpacked"
     fi
 done
+# binaryen's tarball is named apart from its folder, so it is unpacked on its own. It runs only
+# as a build tool: 40_link.sh's wasm-opt.
+if [ ! -f "$BUILD/tools/$BINARYEN_NAME/.unpacked" ]; then
+    rm -rf "$BUILD/tools/$BINARYEN_NAME"
+    run "$LOG" tar -C "$BUILD/tools" -xf "$DOWNLOADS/$BINARYEN_TARBALL"
+    [ -f "$BUILD/tools/$BINARYEN_NAME/bin/wasm-opt" ] \
+        || fail "$BINARYEN_TARBALL did not unpack to $BINARYEN_NAME/bin/wasm-opt"
+    touch "$BUILD/tools/$BINARYEN_NAME/.unpacked"
+fi
 echo "00_download: ok"

@@ -1,0 +1,24 @@
+fuel	before	-e 1	1600492
+fuel	before	-MPOSIX -e 1	72001857
+fuel	before	five modules	123212541
+fuel	after	-e 1	1557752
+fuel	after	-MPOSIX -e 1	70195305
+fuel	after	five modules	120184111
+time	round 1	before	-e 1	1.02 ms
+time	round 1	before	-MPOSIX -e 1	16.87 ms
+time	round 1	before	five modules	21.94 ms
+time	round 1	after	-e 1	1.00 ms
+time	round 1	after	-MPOSIX -e 1	12.71 ms
+time	round 1	after	five modules	21.05 ms
+time	round 2	before	-e 1	0.98 ms
+time	round 2	before	-MPOSIX -e 1	12.73 ms
+time	round 2	before	five modules	21.53 ms
+time	round 2	after	-e 1	0.94 ms
+time	round 2	after	-MPOSIX -e 1	12.44 ms
+time	round 2	after	five modules	21.74 ms
+time	round 3	before	-e 1	1.14 ms
+time	round 3	before	-MPOSIX -e 1	13.19 ms
+time	round 3	before	five modules	21.65 ms
+time	round 3	after	-e 1	1.31 ms
+time	round 3	after	-MPOSIX -e 1	13.36 ms
+time	round 3	after	five modules	22.62 ms

@@ -1,0 +1,42 @@
+build/link/perl.wasm: 9443860 bytes
+  type	747
+  import	1293
+  function	4080	4078 entries
+  table	7
+  memory	4
+  tag	3
+  global	14
+  export	44
+  elem	3454
+  code	3178203	4078 entries
+  data	5533386	2 entries
+  .debug_loc	114422
+  .debug_abbrev	64668
+  .debug_info	187689
+  .debug_str	41080
+  .debug_line	215785
+  .debug_ranges	10518
+  name	88055
+  producers	142
+  target_features	193
+build/artifacts/perl.wasm: 8675094 bytes
+  type	619
+  import	1293
+  function	3171	3169 entries
+  table	7
+  memory	4
+  tag	3
+  global	9
+  export	44
+  elem	3448
+  datacount	2
+  code	2812992	3169 entries
+  data	5318597	11958 entries
+  .debug_loc	114422
+  .debug_abbrev	64668
+  .debug_info	187689
+  .debug_str	41080
+  .debug_line	116122
+  .debug_ranges	10518
+  producers	142
+  target_features	193

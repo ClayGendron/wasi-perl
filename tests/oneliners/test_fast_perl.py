@@ -48,6 +48,14 @@ RATIOS = {
 }
 MARGIN = 0.20
 
+# The ratios that share a section, each with the word that names its form. Each figure must
+# follow its own word, nearer than the other's, in the sentence or list item that quotes it, so
+# the page cannot swap two figures of one section.
+FORMS = {
+    "count matches in a whole file": "count",
+    "substitute in a whole file": "substitut",
+}
+
 # What the page says of `use POSIX`: how many names it imports, and what they cost, in
 # millions of instructions, against `use POSIX ()`.
 POSIX_NAMES = 587
@@ -123,6 +131,27 @@ def test_the_page_quotes_each_checked_figure():
     assert quotes(imports, str(POSIX_NAMES), " names"), POSIX_NAMES
     assert quotes(imports, str(POSIX_IMPORT_M), " M instructions"), POSIX_IMPORT_M
     assert "Can't cd to /" in section(text, "`File::Find`")
+
+
+def form_of(body: str, figure: str, words: list[str]) -> str | None:
+    """Which of `words` stands last before `figure`× in the sentence or list item that quotes
+    it, or None when none does."""
+    for part in re.split(r"(?<=[.!?])\s+|\n\s*[-*] |\n\n", body):
+        m = re.search(rf"(?<![\d.]){re.escape(figure)}×", part)
+        if m:
+            before = part[: m.start()].lower()
+            found = [(before.rfind(w), w) for w in words if w in before]
+            return max(found)[1] if found else None
+    return None
+
+
+def test_each_figure_of_a_section_names_its_own_form():
+    text = PAGE.read_text(encoding="utf-8")
+    words = list(FORMS.values())
+    for name, word in FORMS.items():
+        _, _, figure, start = RATIOS[name]
+        got = form_of(section(text, start), figure, words)
+        assert got == word, f"{figure}× ({name}) follows {got!r}, not {word!r}"
 
 
 def test_every_ratio_on_the_page_is_a_checked_one():

@@ -36,18 +36,61 @@ class Result:
     stderr: bytes
     error: str = ""
     status: int | None = None
+    module: Path | None = None  # the module that ran, when a Guest ran it
+
+
+def _leb(b: bytes, i: int) -> tuple[int, int]:
+    n = shift = 0
+    while True:
+        byte = b[i]
+        i += 1
+        n |= (byte & 0x7F) << shift
+        shift += 7
+        if byte < 0x80:
+            return n, i
+
+
+def function_import(wasm: bytes, module: str, name: str) -> int:
+    """The function index of the import module.name: its place among the function imports."""
+    i, index = 8, 0
+    while i < len(wasm):
+        section, i = wasm[i], i + 1
+        size, i = _leb(wasm, i)
+        if section == 2:
+            j = i
+            count, j = _leb(wasm, j)
+            for _ in range(count):
+                found = []
+                for _ in range(2):
+                    n, j = _leb(wasm, j)
+                    found.append(wasm[j : j + n].decode())
+                    j += n
+                kind, j = wasm[j], j + 1
+                assert kind == 0, f"{found}: only function imports are read here"
+                _, j = _leb(wasm, j)
+                if found == [module, name]:
+                    return index
+                index += 1
+        i += size
+    raise AssertionError(f"no import {module}.{name}")
 
 
 def assert_exit_refused(r: Result, status: int) -> None:
     """The program exited with a status of 126 or more, which wasmtime refuses to pass on.
 
-    The error must be that refusal and nothing else: the innermost frame is the WASI exit call
-    itself, so no trap happened on the way, and the export kept the status.
+    The error must be that refusal and nothing else: the innermost frame stands at a call of the
+    WASI exit import, so no trap happened on the way, and the export kept the status. The frame
+    is read by its offset in the module, whose byte there must be a call of proc_exit's function
+    index, not by its name: the shipped module has no name section.
     """
     assert r.code is None, r
     assert r.status == status, r
     frames = [ln.split() for ln in r.error.splitlines() if ln.strip()[:1].isdigit()]
-    assert frames and frames[0][-1] == "perl!__wasi_proc_exit", r.error
+    assert frames and frames[0][1].startswith("0x"), r.error
+    wasm = (r.module or PERL_WASM).read_bytes()
+    at = int(frames[0][1], 16)
+    exit_call = function_import(wasm, "wasi_snapshot_preview1", "proc_exit")
+    assert wasm[at] == 0x10 and _leb(wasm, at + 1)[0] == exit_call, r.error  # 0x10 is call
     cause = r.error.rsplit("Caused by:", 1)[-1].strip()
     assert cause == "exit with invalid exit status outside of [0..126)", r.error
 
@@ -63,6 +106,7 @@ class Guest:
         import wasmtime
 
         self.wasmtime = wasmtime
+        self.path = module_path
         config = wasmtime.Config()
         config.wasm_exceptions = True
         self.engine = wasmtime.Engine(config)
@@ -104,4 +148,4 @@ class Guest:
             exports.get("wasi_perl_exit_status") if hasattr(exports, "get") else None
         )
         status = status_fn(store) if status_fn is not None else None
-        return Result(code, out.read_bytes(), err.read_bytes(), error, status)
+        return Result(code, out.read_bytes(), err.read_bytes(), error, status, self.path)
