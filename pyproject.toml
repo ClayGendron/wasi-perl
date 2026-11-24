@@ -1,0 +1,67 @@
+[project]
+name = "wasi-perl"
+dynamic = ["version"]
+description = "A secure Perl 5 sandbox for agent-generated code, compiled to WebAssembly as one static binary."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Clay Gendron" }]
+keywords = ["wasm", "wasi", "perl", "sandbox", "wasmtime"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Perl",
+    "Topic :: Software Development :: Interpreters",
+]
+# wasmtime-py runs the guest: `run()` and the `wasi-perl` command cannot work without it.
+dependencies = ["wasmtime>=51,<52"]
+
+[project.scripts]
+# Run one program and print its result as one JSON line.
+wasi-perl = "wasi_perl.cli:main"
+
+[project.urls]
+Repository = "https://github.com/ClayGendron/wasi-perl"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.12",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+# The one place the version is written.
+path = "src/wasi_perl/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wasi_perl"]
+# The artifact set is copied into src/wasi_perl/artifacts/ before `uv build`. It is git-ignored,
+# which hatchling honours unless the path is named here.
+artifacts = ["src/wasi_perl/artifacts"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["build", "downloads", "context/prior_art"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["build", "downloads", "context"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "TID252"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = [
+    "slow: a guest run of the real perl.wasm; skipped by -m 'not slow'",
+]

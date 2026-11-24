@@ -52,6 +52,13 @@ sed -e "s|@ROOT@|$ROOT|g" -e "s|@BUILD@|$BUILD|g" -e "s|@SDK@|$SDK|g" -e "s|@SYS
     -e "s|@NATIVE@|$NATIVE|g" -e "s|@NATIVEPERL@|$BUILD/native-install/bin/perl|g" \
     "$ROOT/recipes/config.sh" >config.sh
 run "$LOG" sh ./Configure -S
+# The sandbox's refusals stand in for Perl functions, so they are compiled against the configured
+# tree with the command Perl's own objects get (Perl's headers trip -Wc++-keyword, so that one
+# warning is not an error). wasi-cc links the archive and wraps the symbols.
+# shellcheck disable=SC2046
+run "$LOG" $(sh cflags "optimize='-O2'" sandbox_refusals.o) -Werror -Wno-c++-keyword -I"$SRC" \
+    "$ROOT/recipes/sandbox-refusals.c" -o "$STUBS/sandbox-refusals.o"
+run "$LOG" "$SDK/bin/llvm-ar" rcs "$STUBS/libwasi-perl-refusals.a" "$STUBS/sandbox-refusals.o"
 # make links generate_uudmap to the host's copy and rebuilds the link whenever the copy is
 # older than generate_uudmap.o; under -j two makes then race to recreate it. A fresh copy,
 # made after that object, keeps the link up to date.
