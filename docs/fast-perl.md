@@ -84,7 +84,7 @@ perl -MPOSIX -le 'print POSIX::floor(-2.5)'
 
 ## `File::Find`, and anything that calls `chdir`: give `run()` a `cwd`
 
-Without a `cwd`, the guest starts at `/`, which no grant serves. `find` over an absolute folder then dies at its end with "Can't cd to /: No such file or directory", exit 2. Over `.` it finds nothing. Name a folder inside a grant:
+Without a `cwd`, the guest starts at `/`, which no grant serves; only a mount at `/` serves it ([mounts.md](mounts.md)). With nothing at `/`, `find` over an absolute folder dies at its end with "Can't cd to /: No such file or directory", exit 2, and over `.` it finds nothing. Name a folder inside a grant or a mount:
 
 ```python
 from wasi_perl import Grant, run

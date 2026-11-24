@@ -490,6 +490,12 @@ On windows-2025 (CI run 45462992471, job 138692425791, EXECUTED there) four chec
 - **L4.** `test_a_shadow_serves_only_its_own_calls_store` calls a shadow from a second store while a call is on the stack. It answers `EBADF` and asks neither provider. It catches the `shared-context` mutant (EXECUTED).
 - **L5.** `forget()` also clears the mount linkers and the trampolines, checked by `test_forget_drops_every_linker_and_trampoline`.
 
+### Merged with dev at `50e0298` (specs 018, 019, 020)
+
+- Conflicts in `CHANGELOG.md` and the wheel job's no-skip gate in `ci.yml`. Both sides are kept: the gate counts the module cases, `test_fast_perl.py`'s `test_guest_*`, `test_library_case.py`, the kept-scan checks, both escape files and every check of `tests/mounts`. The build job's gate for the CPAN modules and the library index is dev's, unchanged.
+- `docs/fast-perl.md`'s `File::Find` section now says "a folder inside a grant or a mount", and that only a mount at `/` serves a call with no `cwd`, as spec 020's memo (§5) asks of whichever of 017 and 020 lands second. Checked by running both: `find` over `.` with `cwd` in a mount, and with a mount at `/` (EXECUTED).
+- Rebuilt under the lock with 019's order (steps 20, 30, 40): `perl.wasm` SHA-256 `824d06c1…94258c0`. No mount check meets the library index. The index answers on the library's own preopen, and every path into the library spelled through a mount is still `EPERM` from the table (D6 and E5 pass, EXECUTED).
+
 ### Counts that differ from the specification's table
 
 Each is a correction of an inference or of a prototype's count, with the guest's own calls as the reason; the review should see them (EXECUTED: `uv run pytest -m slow tests/mounts/test_mount_perl.py`).
