@@ -110,3 +110,35 @@ Does not land. The harness is sound: its parser, its limits, its isolation and i
 ### Verdict, round 2
 
 Lands. The scoreboard reproduces, `times` is fixed at its root and checked, and the four mislabelled entries are re-filed. The new guards catch a file that falls short of its ok count, and one that stops showing its refusal. Each finding from round 1 is fixed or answered in writing. What remains is Low.
+
+## Round 3
+
+- **Branch:** `spec/007-perl-t` at `a19d06b`. Since my round-2 sign-off (`f60e318`) it has: a merge of dev at `71fe6c3` (009, the descriptor table); `f22836a`, the round-2 Lows plus a `select` translation; `c639e9d`, the exclusions after 009; `44ebef7`, which withdraws the `select` translation; and `a19d06b`, which re-excludes the two `select` files as `bug`.
+- **Read:** `git diff f60e318..a19d06b -- tests/ context/specifications/007* recipes/`, and the branch's own commits on top of the merge (`670f3a3..a19d06b`).
+- **Build:** the author's `build/artifacts` and `build/target`, copied. Their worktree is clean at `a19d06b`. Its recipes were last written at 05:22:49, after the withdrawal, and `perl.wasm` was linked at 05:23:58. The built `config.sh` has `ldflags='-Wl,--wrap=__wasi_proc_exit -Wl,--wrap=times'`, with no `--wrap=select`, so the build matches the committed recipes.
+
+### What was run (EXECUTED)
+
+| Command | Result |
+|---|---|
+| `git diff --stat origin/dev...HEAD -- recipes/` | only `recipes/config.sh` (+`--wrap=times`) and `recipes/wasi-stubs.c` (+`__wrap_times`). The net recipes change against dev is the `times` fix alone. |
+| `uv run python tests/perl_t/run_suite.py --jobs 3 --quiet --list-failures` | `616 run, 438 passed, 178 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 5, not-this-platform 6, bug 5), 0 failed, 0 stale exclusions, 0 regressed (18915 guarded oks)`, 87 s. This matches the landing notes. |
+| `pytest -q -m "not slow" tests/perl_t`; `ruff check`; `ruff format --check` | 39 passed; clean; clean |
+
+### The changes
+
+- **R2-1, fixed.** `shows` is now allowed on any reason. Every entry that is not a refusal reason carries one: a message, a failed test or a plan line from its own output. A trap is matched as `trapped: <why>`. So every one of the 178 excluded files now has a failure signature. The 52 refusal entries with `ok_at_least = 0` still rely on the refusal message, which is enough.
+- **R2-2, fixed.** `tree_digest` hashes every path, file and link target in the unpacked tree, and the stamp holds that digest beside the tarball hash. An edited tree is now unpacked again. A fast test covers it.
+- **R2-3, fixed.** The `regressed` messages now read properly.
+- **After 009.** op/fh.t, op/hash-clear-placeholders.t, op/hash-rt85026.t, op/numify_chkflags.t, op/require_37033.t and test_pl/can_isa_ok.t now pass and have left the list, each in the exclusions commit. io/perlio.t (44 tests) and op/write.t (477 of 636) now get further, stop at a refused child, and are re-filed as `subprocess` with raised floors. io/dup.t is `subprocess` with a `shows` for its plan-only stdout. These are honest re-filings, not weakenings: each floor went up or stayed level.
+- **`select`.** The translation was added and then withdrawn, and the recipes show it is gone. op/tie_fetch_count.t and op/sselect.t are `bug` entries, and their notes give the cause and the fix owner (the descriptor table's `select`, 010). The landing notes list five `bug` entries, so Acceptance 2 holds.
+
+### New
+
+| # | Rank | Where | Finding | Suggested fix |
+|---|---|---|---|---|
+| R3-1 | Low | `tests/perl_t/exclusions.toml`, the op/sselect.t entry | The note says the file's result depends on "what memory follows the mask" and that it "may also pass". A run where it passes reports a stale exclusion and goes red, so this entry can make CI flaky until 010 lands. It cannot hide a failure. | Accept it until 010, or have 010 land first. If CI flakes on it, record that in 010 rather than loosening the guard. |
+
+### Verdict, round 3
+
+Lands. The scoreboard reproduces at 616 run, 438 passed, 0 failed, 0 stale, 0 regressed. The net recipes change against dev is only the `times` fix. Every round-2 Low is fixed, every exclusion now carries a failure signature, and the entries 009 made pass were removed rather than kept. The one new finding, a possibly flaky op/sselect.t until 010, is Low.
