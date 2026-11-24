@@ -1,0 +1,21 @@
+# Untrusted downloads (toolchains, source tarballs) and build trees. Only the hash list is tracked.
+downloads/*
+!downloads/SHA256SUMS
+build/
+.venv/
+__pycache__/
+*.pyc
+
+# Artifacts never live in git: they are release assets, and the wheel picks them up at build time.
+*.wasm
+*.cwasm
+*.zip
+*.tar.xz
+*.tar.gz
+src/wasi_perl/artifacts/
+dist/
+
+# Prior art is studied in place and never committed; only its index is tracked.
+context/prior_art/*
+!context/prior_art/README.md
+.DS_Store
