@@ -35,7 +35,7 @@ About `%SIG`:
 - `local $SIG{ALRM}` dies where it is written. When its scope ends, the old value is put back quietly.
 - Reading `%SIG` works, and so do names that are not signals (Perl warns about those, as natively).
 - `delete $SIG{INT}` works: it puts back the default, which installs nothing.
-- The runtime's own library may store a handler. Core modules such as Math::Complex and Math::Trig do so while they load (`local $SIG{FPE}`), and they work. The handler is kept and never runs: the sandbox delivers no signals. What counts is where the statement is: a file under `/usr/local/lib/perl5/5.42/` (not `site_perl`), named with no `.` or `..` step. A module anywhere else, granted or not, is the program's own code, and its store is refused.
+- A file of the runtime's own library may store a handler while it is being loaded. Core modules such as Math::Complex and Math::Trig do so (`local $SIG{FPE}`), and they work. The handler is kept and never runs: the sandbox delivers no signals. The store must be made by that file's own code, while `require` or `use` has that file open from `/usr/local/lib/perl5/5.42/` (not `site_perl`). Everything else is the program's own code and is refused: any other module, granted or not; a store after the load, such as `use sigtrap`'s handlers; and code that names a library file in `#line`, in `%INC`, or through an `@INC` hook.
 - `$SIG{__WARN__}` and `$SIG{__DIE__}` are hooks, not signals. They work exactly as natively.
 
 `system("true") == 0 or die` dies with the `system` refusal: `system` never returns a status to compare.

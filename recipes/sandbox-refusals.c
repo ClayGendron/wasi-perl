@@ -156,16 +156,110 @@ static bool path_is_under(const char *path, const char *dir)
     }
 }
 
-/* Whether the statement being run is in the runtime's own library: a file under privlib or
- * archlib, which the embedder grants read-only, so no program can put a file there. site_perl,
- * which lies inside privlib, is where an embedder's own modules would go; it counts as the
- * program's code. */
-static bool in_runtime_library(pTHX)
+/* Whether path is a file of the runtime's own library: under privlib or archlib, which the
+ * embedder grants read-only, so no program can put a file there. site_perl and its arch
+ * folder, inside privlib, are where an embedder's own modules would go; they do not count. */
+static bool path_in_runtime_library(const char *path)
+{
+    if (path_is_under(path, SITELIB_EXP) || path_is_under(path, SITEARCH_EXP))
+        return FALSE;
+    return path_is_under(path, PRIVLIB_EXP) || path_is_under(path, ARCHLIB_EXP);
+}
+
+/* The requires of library files now running. A require opens its file (PerlIO_openn, from
+ * pp_ctl.c) and hands it to lex_start just before it pushes its eval frame, at the next context
+ * index of the same stack. When the file opened under OP_REQUIRE is a library file, lex_start's
+ * wrapper records that frame and the path, and puts a destructor on the save stack inside the
+ * frame's range, so the record goes when the frame goes, by return or by die. Neither %INC nor
+ * #line, nor a string eval, a do FILE or an @INC hook (whose files require does not open
+ * itself) can make such a record. */
+#define LIBRARY_REQUIRES_MAX 64
+static struct {
+    const PERL_SI *si;
+    I32 cxix;
+    char *path;
+} library_requires[LIBRARY_REQUIRES_MAX];
+static int library_requires_n;
+static PerlIO *pending_fp;
+static char *pending_path;
+
+static void drop_pending(void)
+{
+    Safefree(pending_path);
+    pending_path = NULL;
+    pending_fp = NULL;
+}
+
+static void drop_library_require(pTHX_ void *unused)
+{
+    PERL_UNUSED_ARG(unused);
+    if (library_requires_n > 0) {
+        library_requires_n--;
+        Safefree(library_requires[library_requires_n].path);
+        library_requires[library_requires_n].path = NULL;
+    }
+}
+
+__typeof__(PerlIO_openn) __real_PerlIO_openn;
+__typeof__(PerlIO_openn) __wrap_PerlIO_openn;
+PerlIO *__wrap_PerlIO_openn(pTHX_ const char *layers, const char *mode, int fd, int imode,
+                            int perm, PerlIO *old, int narg, SV **args)
+{
+    PerlIO *f = __real_PerlIO_openn(aTHX_ layers, mode, fd, imode, perm, old, narg, args);
+    if (f && PL_op && PL_op->op_type == OP_REQUIRE && narg == 1 && args && args[0]) {
+        const char *path = SvPV_nolen(args[0]);
+        drop_pending();
+        if (path_in_runtime_library(path)) {
+            pending_fp = f;
+            pending_path = savepv(path);
+        }
+    }
+    return f;
+}
+
+__typeof__(Perl_lex_start) __real_Perl_lex_start;
+__typeof__(Perl_lex_start) __wrap_Perl_lex_start;
+void __wrap_Perl_lex_start(pTHX_ SV *line, PerlIO *rsfp, U32 flags)
+{
+    __real_Perl_lex_start(aTHX_ line, rsfp, flags);
+    if (rsfp && rsfp == pending_fp && PL_op && PL_op->op_type == OP_REQUIRE
+        && library_requires_n < LIBRARY_REQUIRES_MAX) {
+        library_requires[library_requires_n].si = PL_curstackinfo;
+        library_requires[library_requires_n].cxix = cxstack_ix + 1;
+        library_requires[library_requires_n].path = pending_path;
+        library_requires_n++;
+        pending_path = NULL;
+        SAVEDESTRUCTOR_X(drop_library_require, NULL);
+    }
+    drop_pending();
+}
+
+/* Whether the store is made while a library file's require is running, by that file's own
+ * code: the innermost eval frame that is not an eval block is a recorded library require, and
+ * the statement is in the file that require opened. A store made after the require has ended
+ * (sigtrap's import, a library sub called later) is the program's. */
+static bool in_library_require(pTHX)
 {
     const char *file = PL_curcop ? CopFILE(PL_curcop) : NULL;
-    if (!file || path_is_under(file, SITELIB_EXP) || path_is_under(file, SITEARCH_EXP))
+    const PERL_SI *si;
+    if (!file)
         return FALSE;
-    return path_is_under(file, PRIVLIB_EXP) || path_is_under(file, ARCHLIB_EXP);
+    for (si = PL_curstackinfo; si; si = si->si_prev) {
+        I32 i;
+        for (i = si->si_cxix; i >= 0; i--) {
+            const PERL_CONTEXT *cx = &si->si_cxstack[i];
+            int r;
+            if (CxTYPE(cx) != CXt_EVAL || CxTRYBLOCK(cx))
+                continue;
+            if (CxOLD_OP_TYPE(cx) != OP_REQUIRE)
+                return FALSE;
+            for (r = library_requires_n - 1; r >= 0; r--)
+                if (library_requires[r].si == si && library_requires[r].cxix == i)
+                    return strEQ(file, library_requires[r].path);
+            return FALSE;
+        }
+    }
+    return FALSE;
 }
 
 /* A store into %SIG. The __WARN__ and __DIE__ hooks are not signals and pass through, as do
@@ -175,7 +269,7 @@ static bool in_runtime_library(pTHX)
  * - a delete (magic_clearsig calls this with no value): it only puts back the default;
  * - the restore at the end of a local's scope (PL_localizing is 2): it puts back the value
  *   that was there before the refused store;
- * - a store made by a statement in the runtime's own library. Core modules such as
+ * - a store made by a library file's own code while its require runs. Core modules such as
  *   Math::Complex (local $SIG{FPE}) store a handler while they load; the handler is kept and
  *   never runs, since the sandbox delivers no signals. */
 __typeof__(Perl_magic_setsig) __real_Perl_magic_setsig;
@@ -185,7 +279,7 @@ int __wrap_Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
     STRLEN len;
     const char *s = MgPV_const(mg, len);
     if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0
-        && !in_runtime_library(aTHX)) {
+        && !in_library_require(aTHX)) {
         SV *msg = newSVpvf("signal handler for SIG%" UTF8f, UTF8fARG(0, len, s));
         sv_2mortal(msg);
         PL_localizing = 0;

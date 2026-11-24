@@ -416,3 +416,68 @@ def test_a_climb_out_of_the_library_reaches_nothing(guest, tmp_path: Path, inc):
     r = guest(f"-I{inc}", "-MEvil", "-e", 'print "not reached\\n"', grants=grants)
     assert (r.code, r.stdout) == (2, b"")
     assert r.stderr.startswith(b"Can't locate Evil.pm in @INC")
+
+
+SPOOF_LINE = '#line 1 "/usr/local/lib/perl5/5.42/Evil.pm"\n'
+SIGINT_REFUSED = b"signal handler for SIGINT is not available in the wasi-perl sandbox at "
+HOOK = (
+    "unshift @INC, sub { return unless $_[1] eq $want;"
+    ' my $src = $body; open my $fh, "<", \\$src or die; return $fh };'
+)
+
+# Each tries to pass the program's own store off as the library's. Only a store made by a
+# library file's own code, while require has that file open, is accepted.
+BYPASSES = {
+    "line-in-e": SPOOF_LINE + '$SIG{INT} = sub {}; print "not reached\\n"',
+    "line-in-eval": (
+        'eval qq{#line 1 "/usr/local/lib/perl5/5.42/Evil.pm"\\n\\$SIG{INT} = sub {}; 1} '
+        'or die $@; print "not reached\\n"'
+    ),
+    "line-in-do-file": 'do "/work/evil.pl"; die $@ if $@; print "not reached\\n"',
+    "inc-hook": (
+        'my $want = "Evil.pm"; my $body = qq{#line 1 "/usr/local/lib/perl5/5.42/Evil.pm"\\n'
+        '\\$SIG{INT} = sub {};\\n1;\\n};' + HOOK + 'require Evil; print "not reached\\n"'
+    ),
+    "inc-hook-named-as-library": (
+        'my $want = "Math/Complex.pm"; my $body = qq{#line 1 "/usr/local/lib/perl5/5.42/Math/'
+        'Complex.pm"\\n\\$SIG{INT} = sub {};\\n1;\\n};' + HOOK + 'require Math::Complex;'
+        'print "not reached\\n"'
+    ),
+    "inc-hook-spoofs-inc": (
+        'my $want = "Evil.pm"; my $body = qq{BEGIN { \\$INC{"Evil.pm"} = '
+        '"/usr/local/lib/perl5/5.42/Evil.pm" }\\n\\$SIG{INT} = sub {};\\n1;\\n};'
+        + HOOK
+        + 'require Evil; print "not reached\\n"'
+    ),
+    "spoofed-inc": (
+        'BEGIN { $INC{"main.pm"} = $INC{"Evil.pm"} = "/usr/local/lib/perl5/5.42/Evil.pm" }'
+        '$SIG{INT} = sub {}; print "not reached\\n"'
+    ),
+    "sigtrap-handler": 'use sigtrap qw(handler h INT); sub h {} print "not reached\\n"',
+    "sigtrap-die": 'use sigtrap qw(die INT); print "not reached\\n"',
+    # A library sub that stores a handler, called at run time, outside any require.
+    "library-sub-at-run-time": (
+        'require sigtrap; sigtrap->import(qw(handler main::h INT)); sub h {} print "not reached\\n"'
+    ),
+    "library-loaded-then-store": 'use Math::Complex; $SIG{INT} = "IGNORE"; print "not reached\\n"',
+}
+
+
+@pytest.mark.parametrize("code", BYPASSES.values(), ids=BYPASSES.keys())
+def test_program_stores_cannot_pass_as_the_library(guest, tmp_path: Path, code):
+    folder = tmp_path / "work"
+    folder.mkdir()
+    (folder / "evil.pl").write_bytes(SPOOF_LINE.encode() + b"$SIG{INT} = sub {};\n1;\n")
+    grants = [*default_grants(), (folder, "/work", False)]
+    r = guest("-e", code, grants=grants)
+    assert r.stdout == b""
+    assert r.stderr.startswith(SIGINT_REFUSED), r.stderr
+    assert_exit_refused(r, 255)
+
+
+@pytest.mark.parametrize("module", ["DB", "Math::Trig"])
+def test_library_modules_storing_handlers_at_load(guest, native, module):
+    code = f'require {module}; print "ok\\n"'
+    g, n = guest("-e", code), native("-e", code)
+    assert (n.code, n.stdout) == (0, b"ok\n")
+    assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
