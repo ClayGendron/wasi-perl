@@ -73,7 +73,7 @@ def test_the_oracle_perl_alone_has_none_of_them(native):
 # means equal versions as well as equal behaviour.
 PROGRAMS = {
     "cpanel-round-trip": (
-        "use Cpanel::JSON::XS; my $j = Cpanel::JSON::XS->new->canonical;"
+        'use Cpanel::JSON::XS; binmode STDOUT, ":utf8"; my $j = Cpanel::JSON::XS->new->canonical;'
         'my $d = $j->decode(q({"b":[1,2.5,"x",null,true,false],"a":{"c d":"\\u00e9\\u263a"},"n":-0.125e3}));'
         'print $j->encode($d), "\\n"; print ref $d->{b}[4], " ", $d->{b}[4] ? 1 : 0, " ", ord $d->{a}{"c d"}, "\\n";'
         'my $u = Cpanel::JSON::XS->new->utf8->canonical; my $t = $u->encode({k => "\\x{263a}", l => [1 .. 3]});'
@@ -118,7 +118,7 @@ def test_the_selectors_pick_the_linked_parsers(guest):
     prog = (
         "use JSON::MaybeXS (); use Text::CSV ();"
         'print JSON::MaybeXS::JSON(), " ", Text::CSV->backend, "\\n";'
-        'print join(" ", map { "$_=" . $_->VERSION } @ARGV), "\\n";'
+        'print join(" ", map { eval "require $_; 1" or die $@; "$_=" . $_->VERSION } @ARGV), "\\n";'
     )
     r = guest("-e", prog, *VERSIONS)
     assert (r.code, r.stderr) == (0, b""), r
