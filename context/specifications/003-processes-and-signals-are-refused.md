@@ -102,5 +102,6 @@ None. `recipes/patches/perl-5.42.3/` does not exist. EXECUTED (`ls`).
 ### For the next specifications
 
 - **002:** File::Glob makes `glob` work; POSIX brings `POSIX::_exit`, `POSIX::dup2` (a move here, decision 8) and `POSIX::sigaction`, which reaches `sigaction` directly and is not refused by these wrappers (INFERRED; neither read nor run). Refuse it in 002 or here in a follow-up.
+- **009 (descriptor aliases):** `dup` and `dup2` belong to 009, which replaces decision 8 with a real copy. What 009 inherits: `__wrap_dup2` (in `recipes/sandbox-refusals.c`) returns `newfd` for `dup2(fd, fd)` when `fcntl(fd, F_GETFD)` succeeds; otherwise it calls `__wasilibc_fd_renumber(old, new)`, which closes `old`, and remembers `old` in one slot, `moved_fd`. `__wrap_close` calls the real `close`. If the fd is `moved_fd`, it clears the slot, and when the real close failed with `EBADF` it puts back the `errno` from before the call and returns 0. `dup` is untouched (wasi-libc's, `ENOTSUP`). Both wraps are in `wasi-cc`'s list, and the checks are `test_reopen_standard_handle_matches_native` (6) and `test_dup_of_a_handle_fails_clearly`. The latter expects the failure and is to be inverted by 009.
 - **004:** the runner reads `wasi_perl_exit_status`, now always 0 to 255 or -1.
 - **005/006:** exit statuses from `$!` now match the oracle; `$!` as a number does not.
