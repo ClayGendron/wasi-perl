@@ -1,0 +1,12 @@
+{
+ "perl": {
+  "no grant": 3.42,
+  "read-only grant": 3.54,
+  "read-only + writable grant": 31.39
+ },
+ "python/snapshot": {
+  "no grant": 17.66,
+  "read-only grant": 18.12,
+  "read-only + writable grant": 19.1
+ }
+}

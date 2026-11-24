@@ -1,0 +1,18 @@
+{
+ "native perl": {
+  "hello": 1.77,
+  "sum_csv": 57.62,
+  "grep_log": 26.29,
+  "inplace": 41.04,
+  "json": 546.26,
+  "loop": 24.37
+ },
+ "native python": {
+  "hello": 7.54,
+  "sum_csv": 45.53,
+  "grep_log": 40.99,
+  "inplace": 51.84,
+  "json": 35.69,
+  "loop": 71.24
+ }
+}

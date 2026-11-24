@@ -1,0 +1,179 @@
+{
+ "perl/none": {
+  "hello": {
+   "n": 30,
+   "median_ms": 32.05,
+   "min_ms": 30.32,
+   "p90_ms": 42.0,
+   "stdout": "hello"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 181.41,
+   "min_ms": 176.79,
+   "p90_ms": 203.47,
+   "stdout": "1000605790"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 156.74,
+   "min_ms": 151.96,
+   "p90_ms": 176.15,
+   "stdout": "28572"
+  },
+  "inplace": {
+   "n": 10,
+   "median_ms": 239.85,
+   "min_ms": 230.91,
+   "p90_ms": 259.62,
+   "stdout": "28572"
+  },
+  "json": {
+   "n": 5,
+   "median_ms": 1370.39,
+   "min_ms": 1357.95,
+   "p90_ms": 1409.19,
+   "stdout": "20000"
+  },
+  "loop": {
+   "n": 5,
+   "median_ms": 106.61,
+   "min_ms": 104.14,
+   "p90_ms": 115.21,
+   "stdout": "333333833333500000"
+  }
+ },
+ "python/plain": {
+  "hello": {
+   "n": 30,
+   "median_ms": 34.08,
+   "min_ms": 28.17,
+   "p90_ms": 41.51,
+   "stdout": "hello"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 229.94,
+   "min_ms": 219.44,
+   "p90_ms": 273.93,
+   "stdout": "1000605790"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 209.17,
+   "min_ms": 191.12,
+   "p90_ms": 231.88,
+   "stdout": "28572"
+  },
+  "inplace": {
+   "n": 10,
+   "median_ms": 125.86,
+   "min_ms": 115.45,
+   "p90_ms": 151.1,
+   "stdout": "28572"
+  },
+  "json": {
+   "n": 5,
+   "median_ms": 122.99,
+   "min_ms": 121.1,
+   "p90_ms": 150.74,
+   "stdout": "20000"
+  },
+  "loop": {
+   "n": 5,
+   "median_ms": 334.05,
+   "min_ms": 330.3,
+   "p90_ms": 351.4,
+   "stdout": "333333833333500000"
+  }
+ },
+ "python/snapshot": {
+  "hello": {
+   "n": 30,
+   "median_ms": 15.12,
+   "min_ms": 13.78,
+   "p90_ms": 19.32,
+   "stdout": "hello"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 202.0,
+   "min_ms": 194.57,
+   "p90_ms": 231.02,
+   "stdout": "1000605790"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 138.55,
+   "min_ms": 134.61,
+   "p90_ms": 187.12,
+   "stdout": "28572"
+  },
+  "inplace": {
+   "n": 10,
+   "median_ms": 57.99,
+   "min_ms": 55.11,
+   "p90_ms": 72.28,
+   "stdout": "28572"
+  },
+  "json": {
+   "n": 5,
+   "median_ms": 64.78,
+   "min_ms": 56.9,
+   "p90_ms": 67.13,
+   "stdout": "20000"
+  },
+  "loop": {
+   "n": 5,
+   "median_ms": 293.87,
+   "min_ms": 287.83,
+   "p90_ms": 310.25,
+   "stdout": "333333833333500000"
+  }
+ },
+ "python/image": {
+  "image_make_s": 0.052109408999967854,
+  "hello": {
+   "n": 30,
+   "median_ms": 25.37,
+   "min_ms": 23.07,
+   "p90_ms": 30.18,
+   "stdout": "hello"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 203.23,
+   "min_ms": 201.01,
+   "p90_ms": 274.49,
+   "stdout": "1000605790"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 152.66,
+   "min_ms": 145.62,
+   "p90_ms": 176.46,
+   "stdout": "28572"
+  },
+  "inplace": {
+   "n": 10,
+   "median_ms": 63.98,
+   "min_ms": 61.02,
+   "p90_ms": 77.03,
+   "stdout": "28572"
+  },
+  "json": {
+   "n": 5,
+   "median_ms": 74.3,
+   "min_ms": 66.57,
+   "p90_ms": 82.73,
+   "stdout": "20000"
+  },
+  "loop": {
+   "n": 5,
+   "median_ms": 330.07,
+   "min_ms": 323.79,
+   "p90_ms": 358.68,
+   "stdout": "333333833333500000"
+  }
+ }
+}

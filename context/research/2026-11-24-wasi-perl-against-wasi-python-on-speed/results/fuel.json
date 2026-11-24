@@ -1,0 +1,34 @@
+{
+ "perl/none": {
+  "hello": 1606976,
+  "sum_csv": 1269371936,
+  "grep_log": 643861947,
+  "inplace": 842435417,
+  "json": 11134997061,
+  "loop": 603672105
+ },
+ "python/plain": {
+  "hello": 138191875,
+  "sum_csv": 2096588085,
+  "grep_log": 1287024246,
+  "inplace": 611114684,
+  "json": 684227423,
+  "loop": 4003526531
+ },
+ "python/snapshot": {
+  "hello": 37217688,
+  "sum_csv": 1947810951,
+  "grep_log": 1088571432,
+  "inplace": 413026393,
+  "json": 463426117,
+  "loop": 3821025661
+ },
+ "python/image": {
+  "hello": 769687,
+  "sum_csv": 1904610597,
+  "grep_log": 1054913095,
+  "inplace": 376553824,
+  "json": 427037878,
+  "loop": 4423582694
+ }
+}
