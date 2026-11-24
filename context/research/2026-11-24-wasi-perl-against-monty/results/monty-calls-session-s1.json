@@ -1,0 +1,92 @@
+{
+ "hello": {
+  "n": 100,
+  "median_ms": 0.083,
+  "min_ms": 0.079,
+  "max_ms": 0.133
+ },
+ "fib25": {
+  "n": 10,
+  "median_ms": 19.036,
+  "min_ms": 18.918,
+  "max_ms": 19.483
+ },
+ "loop": {
+  "n": 10,
+  "median_ms": 41.215,
+  "min_ms": 40.794,
+  "max_ms": 41.514
+ },
+ "strcat": {
+  "n": 3,
+  "median_ms": 6197.831,
+  "min_ms": 5511.852,
+  "max_ms": 6326.933
+ },
+ "strjoin": {
+  "n": 10,
+  "median_ms": 21.78,
+  "min_ms": 21.649,
+  "max_ms": 22.247
+ },
+ "sum_csv": {
+  "n": 10,
+  "median_ms": 99.762,
+  "min_ms": 97.49,
+  "max_ms": 129.59
+ },
+ "grep_log": {
+  "n": 10,
+  "median_ms": 80.931,
+  "min_ms": 73.981,
+  "max_ms": 86.96
+ },
+ "sub_log": {
+  "n": 3,
+  "median_ms": 9403.798,
+  "min_ms": 7101.611,
+  "max_ms": 9405.953
+ },
+ "split_join": {
+  "n": 10,
+  "median_ms": 108.271,
+  "min_ms": 103.704,
+  "max_ms": 112.649
+ },
+ "wordfreq": {
+  "n": 10,
+  "median_ms": 559.128,
+  "min_ms": 536.792,
+  "max_ms": 589.453
+ },
+ "sort_ints": {
+  "n": 10,
+  "median_ms": 27.428,
+  "min_ms": 26.931,
+  "max_ms": 27.832
+ },
+ "json_decode": {
+  "n": 10,
+  "median_ms": 18.684,
+  "min_ms": 17.75,
+  "max_ms": 20.752
+ },
+ "json_encode": {
+  "n": 10,
+  "median_ms": 17.993,
+  "min_ms": 17.592,
+  "max_ms": 21.61
+ },
+ "read_big": {
+  "n": 10,
+  "median_ms": 22.576,
+  "min_ms": 21.982,
+  "max_ms": 24.038
+ },
+ "read_small": {
+  "n": 10,
+  "median_ms": 28.398,
+  "min_ms": 25.633,
+  "max_ms": 38.667
+ }
+}

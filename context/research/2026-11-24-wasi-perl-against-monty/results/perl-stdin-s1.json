@@ -1,0 +1,9 @@
+{
+ "read_big_stdin": {
+  "n": 10,
+  "median_ms": 21.619,
+  "min_ms": 19.046,
+  "max_ms": 30.273
+ },
+ "stdout": "10214747\n"
+}

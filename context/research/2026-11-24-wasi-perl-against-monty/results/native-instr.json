@@ -1,0 +1,36 @@
+{
+ "perl": {
+  "hello": 1288108,
+  "fib25": 350024888,
+  "loop": 335334460,
+  "strcat": 117589281,
+  "strjoin": 263537371,
+  "sum_csv": 770320885,
+  "grep_log": 353100492,
+  "sub_log": 78105447,
+  "split_join": 1285958761,
+  "wordfreq": 4870166862,
+  "sort_ints": 489114386,
+  "json_decode": 6865195262,
+  "json_encode": 1927525670,
+  "read_big": 3095280,
+  "read_small": 2663461
+ },
+ "monty_cli": {
+  "hello": 1172311,
+  "fib25": 258810867,
+  "loop": 583329857,
+  "strcat": "skipped: 6-24 s natively, hours under valgrind",
+  "strjoin": 220714891,
+  "sum_csv": 1016204208,
+  "grep_log": 679239351,
+  "sub_log": "skipped: 6-24 s natively, hours under valgrind",
+  "split_join": 863594817,
+  "wordfreq": 5606317543,
+  "sort_ints": 390054888,
+  "json_decode": 181149168,
+  "json_encode": 184369318,
+  "read_big": 36032590,
+  "read_small": 4259456
+ }
+}

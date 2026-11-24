@@ -1,0 +1,7 @@
+{"import_ms": 31.45, "pool_ms": 1.36, "first_call_ms": 2.48, "second_call_ms": 0.52, "max_rss_mib": 28.4, "worker_hwm_mib": 11.3}
+{"import_ms": 41.48, "pool_ms": 1.8, "first_call_ms": 2.41, "second_call_ms": 0.27, "max_rss_mib": 28.5, "worker_hwm_mib": 12.2}
+{"import_ms": 40.05, "pool_ms": 1.66, "first_call_ms": 2.26, "second_call_ms": 0.25, "max_rss_mib": 28.4, "worker_hwm_mib": 11.9}
+{"import_ms": 38.44, "pool_ms": 1.64, "first_call_ms": 2.21, "second_call_ms": 0.21, "max_rss_mib": 28.5, "worker_hwm_mib": 11.8}
+{"import_ms": 38.53, "pool_ms": 1.75, "first_call_ms": 2.32, "second_call_ms": 0.21, "max_rss_mib": 28.5, "worker_hwm_mib": 11.8}
+{"import_ms": 46.68, "pool_ms": 1.78, "first_call_ms": 2.52, "second_call_ms": 0.23, "max_rss_mib": 28.5, "worker_hwm_mib": 11.9}
+{"import_ms": 44.35, "pool_ms": 1.98, "first_call_ms": 2.55, "second_call_ms": 0.32, "max_rss_mib": 28.5, "worker_hwm_mib": 12.1}

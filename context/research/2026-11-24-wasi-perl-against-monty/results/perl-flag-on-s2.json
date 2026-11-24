@@ -1,0 +1,51 @@
+{
+ "hello": {
+  "n": 100,
+  "median_ms": 1.721,
+  "min_ms": 1.611,
+  "max_ms": 6.673,
+  "stdout": "hello\n"
+ },
+ "sum_csv": {
+  "n": 10,
+  "median_ms": 113.887,
+  "min_ms": 112.685,
+  "max_ms": 114.917,
+  "stdout": "1000605790\n"
+ },
+ "grep_log": {
+  "n": 10,
+  "median_ms": 64.078,
+  "min_ms": 62.745,
+  "max_ms": 64.65,
+  "stdout": "28572\n"
+ },
+ "split_join": {
+  "n": 10,
+  "median_ms": 189.488,
+  "min_ms": 181.242,
+  "max_ms": 238.847,
+  "stdout": "10214746\n"
+ },
+ "wordfreq": {
+  "n": 10,
+  "median_ms": 1003.011,
+  "min_ms": 938.951,
+  "max_ms": 1203.16,
+  "stdout": "203560 request 200000\n"
+ },
+ "read_big": {
+  "n": 10,
+  "median_ms": 7.561,
+  "min_ms": 7.344,
+  "max_ms": 7.795,
+  "stdout": "10214747\n"
+ },
+ "read_small": {
+  "n": 10,
+  "median_ms": 3.027,
+  "min_ms": 2.926,
+  "max_ms": 3.326,
+  "stdout": "102400\n"
+ }
+}

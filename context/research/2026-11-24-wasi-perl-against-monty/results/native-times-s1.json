@@ -1,0 +1,216 @@
+{
+ "perl": {
+  "hello": {
+   "n": 10,
+   "median_ms": 1.705,
+   "min_ms": 1.542,
+   "max_ms": 1.905,
+   "stdout": "hello\n"
+  },
+  "fib25": {
+   "n": 10,
+   "median_ms": 22.787,
+   "min_ms": 21.587,
+   "max_ms": 38.384,
+   "stdout": "75025\n"
+  },
+  "loop": {
+   "n": 10,
+   "median_ms": 24.208,
+   "min_ms": 23.794,
+   "max_ms": 24.57,
+   "stdout": "333333833333500000\n"
+  },
+  "strcat": {
+   "n": 10,
+   "median_ms": 7.998,
+   "min_ms": 7.711,
+   "max_ms": 8.177,
+   "stdout": "1288895\n"
+  },
+  "strjoin": {
+   "n": 10,
+   "median_ms": 31.927,
+   "min_ms": 30.462,
+   "max_ms": 35.437,
+   "stdout": "1288894\n"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 57.569,
+   "min_ms": 55.917,
+   "max_ms": 73.151,
+   "stdout": "1000605790\n"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 25.836,
+   "min_ms": 25.46,
+   "max_ms": 26.748,
+   "stdout": "28572\n"
+  },
+  "sub_log": {
+   "n": 10,
+   "median_ms": 17.934,
+   "min_ms": 16.347,
+   "max_ms": 20.951,
+   "stdout": "28572\n"
+  },
+  "split_join": {
+   "n": 10,
+   "median_ms": 150.549,
+   "min_ms": 132.147,
+   "max_ms": 155.973,
+   "stdout": "10214746\n"
+  },
+  "wordfreq": {
+   "n": 10,
+   "median_ms": 766.586,
+   "min_ms": 538.295,
+   "max_ms": 819.244,
+   "stdout": "203560 request 200000\n"
+  },
+  "sort_ints": {
+   "n": 10,
+   "median_ms": 42.607,
+   "min_ms": 40.832,
+   "max_ms": 44.046,
+   "stdout": "0 10006 5003\n"
+  },
+  "json_decode": {
+   "n": 10,
+   "median_ms": 540.911,
+   "min_ms": 521.307,
+   "max_ms": 578.601,
+   "stdout": "20000\n"
+  },
+  "json_encode": {
+   "n": 10,
+   "median_ms": 163.327,
+   "min_ms": 157.256,
+   "max_ms": 198.552,
+   "stdout": "937781\n"
+  },
+  "read_big": {
+   "n": 10,
+   "median_ms": 6.396,
+   "min_ms": 5.49,
+   "max_ms": 6.933,
+   "stdout": "10214747\n"
+  },
+  "read_small": {
+   "n": 10,
+   "median_ms": 1.828,
+   "min_ms": 1.75,
+   "max_ms": 2.351,
+   "stdout": "102400\n"
+  }
+ },
+ "monty_cli": {
+  "hello": {
+   "n": 10,
+   "median_ms": 2.073,
+   "min_ms": 1.866,
+   "max_ms": 2.486,
+   "stdout": "hello\n"
+  },
+  "fib25": {
+   "n": 10,
+   "median_ms": 21.203,
+   "min_ms": 20.915,
+   "max_ms": 21.591,
+   "stdout": "75025\n"
+  },
+  "loop": {
+   "n": 10,
+   "median_ms": 40.867,
+   "min_ms": 40.6,
+   "max_ms": 41.448,
+   "stdout": "333333833333500000\n"
+  },
+  "strcat": {
+   "n": 3,
+   "median_ms": 24573.204,
+   "min_ms": 24446.189,
+   "max_ms": 24600.615,
+   "stdout": "1288895\n"
+  },
+  "strjoin": {
+   "n": 10,
+   "median_ms": 26.557,
+   "min_ms": 25.825,
+   "max_ms": 40.025,
+   "stdout": "1288894\n"
+  },
+  "sum_csv": {
+   "n": 10,
+   "median_ms": 90.04,
+   "min_ms": 88.314,
+   "max_ms": 93.98,
+   "stdout": "1000605790\n"
+  },
+  "grep_log": {
+   "n": 10,
+   "median_ms": 59.832,
+   "min_ms": 59.071,
+   "max_ms": 86.101,
+   "stdout": "28572\n"
+  },
+  "sub_log": {
+   "n": 3,
+   "median_ms": 9246.456,
+   "min_ms": 6648.293,
+   "max_ms": 9544.089,
+   "stdout": "28572\n"
+  },
+  "split_join": {
+   "n": 10,
+   "median_ms": 120.913,
+   "min_ms": 103.222,
+   "max_ms": 134.166,
+   "stdout": "10214746\n"
+  },
+  "wordfreq": {
+   "n": 10,
+   "median_ms": 536.624,
+   "min_ms": 492.53,
+   "max_ms": 602.368,
+   "stdout": "203560 request 200000\n"
+  },
+  "sort_ints": {
+   "n": 10,
+   "median_ms": 32.307,
+   "min_ms": 29.991,
+   "max_ms": 51.081,
+   "stdout": "0 10006 5003\n"
+  },
+  "json_decode": {
+   "n": 10,
+   "median_ms": 21.318,
+   "min_ms": 20.712,
+   "max_ms": 33.94,
+   "stdout": "20000\n"
+  },
+  "json_encode": {
+   "n": 10,
+   "median_ms": 21.95,
+   "min_ms": 21.714,
+   "max_ms": 22.65,
+   "stdout": "937781\n"
+  },
+  "read_big": {
+   "n": 10,
+   "median_ms": 11.144,
+   "min_ms": 10.677,
+   "max_ms": 17.334,
+   "stdout": "10214747\n"
+  },
+  "read_small": {
+   "n": 10,
+   "median_ms": 3.228,
+   "min_ms": 3.016,
+   "max_ms": 4.68,
+   "stdout": "102400\n"
+  }
+ }
+}
