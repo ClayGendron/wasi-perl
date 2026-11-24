@@ -11,6 +11,7 @@ A read-only provider has three methods. This one serves files from a dict:
 ```python
 from wasi_perl import Errno, Mount, Stat, run
 
+
 class Files:  # paths are absolute within the mount: "/" is the mount itself
     def __init__(self, tree):  # {"/a.log": b"...", "/d": None (a folder)}
         self.tree = tree
@@ -22,18 +23,23 @@ class Files:  # paths are absolute within the mount: "/" is the mount itself
 
     def list(self, path):
         prefix = path.rstrip("/") + "/"
-        return [(p[len(prefix):], "dir" if v is None else "file")
-                for p, v in self.tree.items()
-                if p.startswith(prefix) and "/" not in p[len(prefix):]]
+        return [
+            (p[len(prefix) :], "dir" if v is None else "file")
+            for p, v in self.tree.items()
+            if p.startswith(prefix) and "/" not in p[len(prefix) :]
+        ]
 
     def read(self, path):  # the whole file
         if path == "/" or self.tree.get(path, b"") is None:
             return Errno.EISDIR
         return self.tree.get(path, Errno.ENOENT)
 
-done = run(["-ne", "print if /ERROR/", "/work/a.log"],
-           mounts=[Mount(Files({"/a.log": b"ok\nERROR one\n"}), "/work")])
-done.stdout       # b'ERROR one\n'
+
+done = run(
+    ["-ne", "print if /ERROR/", "/work/a.log"],
+    mounts=[Mount(Files({"/a.log": b"ok\nERROR one\n"}), "/work")],
+)
+done.stdout  # b'ERROR one\n'
 done.files.calls  # {'stat': 1, 'list': 0, 'read': 1, 'write': 0, 'mkdir': 0, ...}
 ```
 
