@@ -21,6 +21,8 @@ _lock = threading.Lock()  # engines, modules, counts, the ticker's engine list
 _engines: dict[bool, Any] = {}
 _modules: dict[tuple[bool, str], Any] = {}
 _compiling: dict[tuple[bool, str], threading.Lock] = {}
+# id(module): the module, held so that its id names no other, and its InstancePre
+_linked: dict[int, tuple[Any, Any]] = {}
 _counts = {"compiled": 0, "loaded": 0, "written": 0}
 
 
@@ -141,6 +143,25 @@ def forget() -> None:
     """Drop this process's compiled modules, so the next call goes to the disk cache."""
     with _lock:
         _modules.clear()
+        _linked.clear()
+
+
+def linked(metered: bool, mod: Any) -> Any:
+    """`mod` linked once against WASI preview1, as an `InstancePre` every call instantiates from.
+    The WASI functions a linker defines read the WASI context of the store they are called in, so
+    one linking serves every store of the engine, each with its own grants, arguments and
+    environment; and no import is resolved again per call."""
+    wt = wasmtime()
+    with _lock:
+        found = _linked.get(id(mod))
+    if found is not None and found[0] is mod:
+        return found[1]
+    linker = wt.Linker(engine(metered))
+    linker.define_wasi()
+    pre = linker.instantiate_pre(mod)
+    with _lock:
+        found = _linked.setdefault(id(mod), (mod, pre))  # a thread that linked first wins
+    return found[1]
 
 
 def engine(metered: bool) -> Any:
@@ -228,6 +249,7 @@ def _release_at_exit() -> None:
     interpreter's own teardown, their finalizers run after the bindings are gone and print an
     ignored TypeError."""
     with _lock:
+        _linked.clear()
         _modules.clear()
         _engines.clear()
 

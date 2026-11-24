@@ -312,7 +312,8 @@ def run(
             metered = limits.fuel is not None
             module = _engines.module(metered, found.perl, want, cache.folder)
             engine = _engines.engine(metered)
-            return _call(wt, engine, module, found, placed, inputs, guest_env, limits)
+            pre = _engines.linked(metered, module)
+            return _call(wt, engine, pre, found, placed, inputs, guest_env, limits)
         finally:
             _grants.let_go(slot)
     finally:
@@ -322,16 +323,16 @@ def run(
 def _set_up(
     wt: Any,
     store: Any,
-    engine: Any,
     found: Artifacts,
     placed: tuple[_grants.Placed, ...],
     inputs: _limits.Inputs,
     guest_env: dict[str, str],
     out: _Stream,
     err: _Stream,
-) -> Any:
-    """The store's WASI context and the linker. wasmtime opens each grant here, and raises
-    WasmtimeError for a folder it cannot open; the caller reports that as the call's trap."""
+) -> None:
+    """The store's WASI context, which the module's one linking reads for this store alone.
+    wasmtime opens each grant here, and raises WasmtimeError for a folder it cannot open; the
+    caller reports that as the call's trap."""
     wasi = wt.WasiConfig()
     wasi.argv = [ARGV0, *inputs.argv]
     wasi.env = sorted(guest_env.items())
@@ -343,15 +344,12 @@ def _set_up(
     for p in placed:
         wasi.preopen_dir(str(p.host), p.guest, p.writable)
     store.set_wasi(wasi)
-    linker = wt.Linker(engine)
-    linker.define_wasi()
-    return linker
 
 
 def _call(
     wt: Any,
     engine: Any,
-    module: Any,
+    pre: Any,
     found: Artifacts,
     placed: tuple[_grants.Placed, ...],
     inputs: _limits.Inputs,
@@ -369,7 +367,7 @@ def _call(
         if limits.memory_bytes is not None:
             store.set_limits(memory_size=limits.memory_bytes)
         try:
-            linker = _set_up(wt, store, engine, found, placed, inputs, guest_env, out, err)
+            _set_up(wt, store, found, placed, inputs, guest_env, out, err)
         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
             return Completed(None, b"", b"", _error_words(str(e)), None, ())
         _stop.arm(store, stop)
@@ -377,7 +375,7 @@ def _call(
         _engines.TICKER.enter()
         try:
             with _stop.watching_ctrl_c(stop):
-                exit_code, trapped, fuel_used = _drive(wt, store, linker, module, limits)
+                exit_code, trapped, fuel_used = _drive(wt, store, pre, limits)
         finally:
             _engines.TICKER.leave()
     finally:
@@ -389,7 +387,7 @@ def _call(
 
 
 def _drive(
-    wt: Any, store: Any, linker: Any, module: Any, limits: _limits.Limits
+    wt: Any, store: Any, pre: Any, limits: _limits.Limits
 ) -> tuple[int | None, str | None, int | None]:
     """Instantiate and run the guest; how it ended: (exit code, trap, fuel used)."""
     metered = limits.fuel is not None
@@ -400,7 +398,7 @@ def _drive(
     instance = None
     read_status = False  # whether the guest's own record of its exit status is asked for
     try:
-        instance = linker.instantiate(store, module)
+        instance = pre.instantiate(store)
         if metered:
             store.set_fuel(limits.fuel)
             is_metered = True
