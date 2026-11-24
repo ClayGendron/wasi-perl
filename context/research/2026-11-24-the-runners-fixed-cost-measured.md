@@ -8,6 +8,13 @@ Labels: EXECUTED means run and seen. READ means read from a file. INFERRED means
 
 ## 1. The answer
 
+**The code as it lands is section 7's**, where L7 maps a sealed copy in memory instead of the cache's file, after the review's round 2. Its session s3 gives:
+- a bare call of 1.22 ms against 3.69 ms;
+- a first call of 113.9 ms against 134.6 ms;
+- a peak of 38.7 MiB against 75.0 MiB.
+
+The table below is sessions s1 and s2, with L7 mapping the cache's own file.
+
 With levers L1, L2, L3, L4, L7 and L8 built, on this machine, in two sessions:
 
 | | before | after | change |
@@ -126,5 +133,40 @@ The 31 MiB is the `.cwasm` read into `bytes` and the copy wasmtime-py makes of i
 ## 6. Limits
 
 - One machine, two sessions, shared. Every comparison is within one session.
-- macOS's `/dev/fd/N` path was not run here; its check, `test_on_macos_a_cwasm_is_mapped_by_its_dev_fd_name`, runs in CI's macOS wheel job. Windows reads the bytes through the descriptor, as before, and was not timed.
+- macOS and Windows read the bytes through the descriptor, as before (section 7), and were not timed. CI's macOS wheel job runs `test_on_macos_a_cwasm_is_read_into_memory`.
 - Wall time is here only. The tests count operations, as `AGENTS.md` requires.
+
+## 7. After the review: a sealed copy in memory (session s3)
+
+The review's rounds 1 and 2 (`../reviews/014-the-runners-fixed-cost-pr-2026-11-24.md`) showed why mapping the cache's own file is unsafe. wasmtime reads a mapped file for the module's whole life. Anything that later truncates or rewrites that inode stops or changes the host's code:
+- a later grant;
+- a host rename;
+- a hard link;
+- two calls started at once.
+
+So on Linux the runner now copies the checked bytes, through the checked descriptor, into a `memfd`. It seals the copy against writes, shrinking, growing and new seals, and gives wasmtime that copy's `/proc/self/fd/N` name. No folder names the copy, and the seals hold against any descriptor (READ: `memfd_create(2)`, `fcntl(2)` on file seals). macOS has no `memfd`, so there, as on Windows, the bytes are read into memory.
+
+**A prototype first** (EXECUTED: `memfd_proto.py <bytes|map|memfd-sf> <cwasm>` from the evidence folder, three runs each, under the lock, on the 14.9 MB plain `.cwasm`). It timed the load of a module, and the process's peak RSS after one call:
+
+| way | load | peak RSS |
+|---|---|---|
+| read into `bytes`, `deserialize` | 22.8–24.9 ms | 70 MiB |
+| map the cache's file | 0.5 ms | 41 MiB |
+| copy into a sealed `memfd` by `sendfile`, map that | **5.4–7.0 ms** | **35 MiB** |
+
+`copy_file_range` refuses a copy from a disk file to a `memfd` with `EXDEV`, so `sendfile` is used (EXECUTED).
+
+**Session s3** ran `measure.sh $S/base/src s3`, as sections 2–5, against the same base `1c062ea` (EXECUTED; the raw lines carry the label `s3`). Medians:
+
+| | before, s3 | after, s3 |
+|---|---|---|
+| a bare warm call | 3.69 ms | **1.22 ms** |
+| a call with a read-only grant | 3.66 ms | **1.44 ms** |
+| a call with a writable grant | 21.2 ms | 20.2 ms |
+| a fresh process's first call (median of five) | 134.6 ms | **113.9 ms** |
+| of it, the module load | 22.6 ms | **7.2 ms** |
+| of it, the artifact check | 81.0 ms | 83.9 ms |
+| peak RSS after two calls (median of three) | 75.0 MiB | **38.7 MiB** |
+
+- The sealed copy costs about 6 ms of a first call against mapping the file (7.2 against 1.0–1.2 ms). It keeps about three quarters of L7's saving.
+- Peak RSS is lower than with the mapped file. `ru_maxrss` counts the copy's pages only as they are touched through the mapping, as it does for a mapped file (INFERRED). The copy's 14.9 MB lives in the kernel's shared memory for the module's life either way.

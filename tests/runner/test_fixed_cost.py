@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures
 import importlib.metadata
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -19,7 +20,7 @@ from wasi_perl import ArtifactsMissing, Grant, _artifacts, _cache, _engines, run
 wasmtime = pytest.importorskip("wasmtime")
 
 POSIX = pytest.mark.skipif(os.name == "nt", reason="the POSIX checks of the module cache")
-FD_PREFIX = {"linux": "/proc/self/fd/", "darwin": "/dev/fd/"}.get(sys.platform)
+FD_PREFIX = "/proc/self/fd/" if sys.platform == "linux" else None
 
 
 def _counted(monkeypatch: pytest.MonkeyPatch, owner: object, name: str, calls: list) -> None:
@@ -355,18 +356,43 @@ def _count_loads(monkeypatch: pytest.MonkeyPatch) -> tuple[list, list]:
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux's /proc/self/fd")
-def test_on_linux_a_cwasm_is_mapped_by_its_proc_self_fd_name(standin, cache, monkeypatch):
+def test_on_linux_a_cwasm_is_mapped_from_a_sealed_copy(standin, cache, monkeypatch):
     assert _fresh_call(standin, cache)["written"] == 1
+    seen = _note_what_is_mapped(monkeypatch)
     by_name, by_bytes = _count_loads(monkeypatch)
     assert _fresh_call(standin, cache) == {"compiled": 0, "loaded": 1, "written": 0}
     assert by_bytes == []
     ((_, (_, name)),) = by_name
     assert name.startswith("/proc/self/fd/")
+    assert seen == [(0, _SEALS)]  # no folder names it, and nothing may write, shrink or grow it
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS's /dev/fd, run in CI")
-def test_on_macos_a_cwasm_is_mapped_by_its_dev_fd_name(perl, cache, monkeypatch):
+_SEALS = 0x1 | 0x2 | 0x4 | 0x8  # F_SEAL_SEAL, F_SEAL_SHRINK, F_SEAL_GROW, F_SEAL_WRITE
+
+
+def _note_what_is_mapped(monkeypatch: pytest.MonkeyPatch) -> list:
+    """For each name wasmtime is given, the file's link count and seals, read as it maps it."""
+    import fcntl
+
+    seen: list = []
+    real = wasmtime.Module.deserialize_file
+
+    def noted(engine, name):
+        fd = os.open(name, os.O_RDONLY)
+        try:
+            seen.append((os.fstat(fd).st_nlink, fcntl.fcntl(fd, 1034) & _SEALS))
+        finally:
+            os.close(fd)
+        return real(engine, name)
+
+    monkeypatch.setattr(wasmtime.Module, "deserialize_file", staticmethod(noted))
+    return seen
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS, run in CI")
+def test_on_macos_a_cwasm_is_read_into_memory(perl, cache, monkeypatch):
     # The real set, which CI's macOS job has inside the installed wheel; it builds no stand-in.
+    # macOS has no sealed memory file, and a mapped cache file could change under the module.
     def call() -> dict[str, int]:
         _engines.forget()
         before = dict(_engines.counts())
@@ -377,9 +403,8 @@ def test_on_macos_a_cwasm_is_mapped_by_its_dev_fd_name(perl, cache, monkeypatch)
     assert call()["written"] == 1
     by_name, by_bytes = _count_loads(monkeypatch)
     assert call() == {"compiled": 0, "loaded": 1, "written": 0}
-    assert by_bytes == []
-    ((_, (_, name)),) = by_name
-    assert name.startswith("/dev/fd/")
+    assert by_name == []
+    assert len(by_bytes) == 1
 
 
 @POSIX
@@ -446,46 +471,46 @@ def test_a_cwasm_swapped_after_its_check_still_loads_the_checked_file(
     assert len(by_name if way == "mapped" else by_bytes) == 1
 
 
-@POSIX
-@pytest.mark.parametrize("named", ["cache_dir", "variable"])
-def test_no_later_grant_reaches_a_folder_a_module_was_mapped_from(
-    standin, cache, monkeypatch, tmp_path, named
+_AFTER_THE_LOAD = """
+import os, sys
+from pathlib import Path
+from wasi_perl import Artifacts, Grant, _engines, run
+standin, cache, how = Artifacts.at(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+assert run(["hello"], cache_dir=cache, artifacts=standin).stdout == b"hello\\n"
+_engines.forget()
+assert run(["hello"], cache_dir=cache, artifacts=standin).stdout == b"hello\\n"
+assert _engines.counts()["loaded"] == 1
+(cwasm,) = [p for p in cache.iterdir() if p.suffix == ".cwasm"]
+if how == "truncate":
+    os.truncate(cwasm, 0)
+elif how == "rewrite":
+    with open(cwasm, "r+b") as f:
+        f.write(b"\\xcc" * cwasm.stat().st_size)
+else:  # a later call grants the folder, and its guest replaces the file's bytes in place
+    done = run(["write", "/c/" + cwasm.name], grants=[Grant(cache, "/c", writable=True)],
+               cache_dir=False, artifacts=standin)
+    assert done.stdout == b"ok\\n", done
+done = run(["hello"], cache_dir=False, artifacts=standin)
+print(done.exit_code, done.stdout)
+"""
+
+
+@pytest.mark.skipif(FD_PREFIX is None, reason="a system that maps no module")
+@pytest.mark.parametrize("how", ["truncate", "rewrite", "guest"])
+def test_a_cache_file_changed_after_the_load_does_not_reach_the_running_module(
+    standin, standin_dir, cache, tmp_path, how
 ):
-    # A mapped .cwasm is read for the module's whole life, and every later call runs that module
-    # whatever cache it names: a guest that wrote or truncated the file would change or stop the
-    # host. So the folder stays out of every grant's reach, whatever later calls name.
-    if FD_PREFIX is None:
-        pytest.skip("a system with no name for a descriptor")
-    if named == "variable":
-        monkeypatch.setenv("WASI_PERL_CACHE", str(cache))
-        assert _fresh_call(standin, None)["written"] == 1
-        by_name, _ = _count_loads(monkeypatch)
-        assert _fresh_call(standin, None)["loaded"] == 1
-        monkeypatch.setenv("WASI_PERL_CACHE", str(tmp_path / "elsewhere"))
-    else:
-        assert _fresh_call(standin, cache)["written"] == 1
-        by_name, _ = _count_loads(monkeypatch)
-        assert _fresh_call(standin, cache)["loaded"] == 1
-    assert len(by_name) == 1  # mapped
-    refused = (Grant(cache, "/c", writable=True), Grant(cache, "/c"), Grant(tmp_path, "/t", True))
-    for grant in refused:
-        with pytest.raises(ValueError, match="reaches the module cache"):
-            run(["hello"], grants=[grant], cache_dir=False, artifacts=standin)
-    beside = tmp_path / "beside"
-    beside.mkdir()
-    done = run(["hello"], grants=[Grant(beside, "/b", writable=True)], artifacts=standin)
-    assert done.stdout == b"hello\n"  # a folder beside it is granted as before
-
-
-def test_past_its_bound_a_module_is_read_not_mapped(standin, cache, monkeypatch):
-    # Past the bound on folders kept, a module is copied into memory, which ties it to no file.
-    assert _fresh_call(standin, cache)["written"] == 1
-    monkeypatch.setattr(_cache, "_mapped_from", {Path(f"/kept/{n}"): None for n in range(5)})
-    monkeypatch.setattr(_cache, "MAPPED_FROM_MAX", 5)
-    by_name, by_bytes = _count_loads(monkeypatch)
-    assert _fresh_call(standin, cache)["loaded"] == 1
-    assert (len(by_name), len(by_bytes)) == (0, 1)
-    assert cache not in _cache.mapped_from()
+    # The module stays in the process for its whole life. Whatever is done to the cache's file
+    # afterwards, by the user or by a guest a later call grants the folder to, the next call
+    # runs the module that was checked; a mapped file that changed would stop or change it.
+    script = tmp_path / "after_the_load.py"
+    script.write_text(_AFTER_THE_LOAD)
+    done = subprocess.run(
+        [sys.executable, str(script), str(standin_dir), str(cache), how],
+        capture_output=True,
+        timeout=120,
+    )
+    assert (done.returncode, done.stdout) == (0, b"0 b'hello\\n'\n"), done.stderr[-2000:]
 
 
 # The engine.

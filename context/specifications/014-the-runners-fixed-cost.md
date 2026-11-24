@@ -139,3 +139,39 @@ The fix, with its checks seen failing first (EXECUTED, `uv run pytest tests/runn
 - **L3** was there before this change. The tree check is now recorded under the stamp the list was read under, and not recorded when the list changed while it was read. Check: `test_a_tree_checked_against_one_list_is_not_recorded_for_its_successor`. Without the fix it failed with "DID NOT RAISE".
 - **L1.** The README says that a loaded module stays mapped from its file while the process runs.
 - **The note.** The memo's warm-up runs are now under the lock too. No number depended on them.
+
+### After the review (round 2)
+
+Round 2 found the round-1 fix incomplete. The registry kept the *path* a module was mapped from, not the mapped file. Three ways still reached the file, and each killed the host with `SIGBUS` (EXECUTED by the reviewer):
+- a host rename of the folder;
+- a hard link to the file;
+- two calls started at once, since recording the folder and holding the grant were separate steps.
+
+Patching each way was not done: the class of fault is "the running code lives in a file something else can change". So decision 5 is narrowed to what removes the class:
+- **On Linux,** the checked bytes are copied, through the checked descriptor, into a `memfd`. The copy is sealed against writes, shrinking, growing and new seals, and wasmtime maps it by its `/proc/self/fd/N` name.
+  - No folder names the copy, so no grant, rename or link reaches it.
+  - The seals refuse a write through any descriptor, whoever holds it.
+  - The swap guarantee is unchanged: the copy is made from the descriptor that was checked.
+- **If any step fails** (no `memfd`, a short copy, seals refused, or wasmtime refusing the copy), the bytes are read through the descriptor, as on every other system.
+- **On macOS** there is no `memfd`, so the bytes are read into memory, as on Windows. The `/dev/fd/N` mapping is dropped.
+- **The round-1 registry is removed.** It is not needed: a later grant of an earlier cache folder can no longer reach the running module. It is treated as in 0.1.0, where `_cache.folder` refuses a cache this process granted writable.
+
+The cost is in `../research/2026-11-24-the-runners-fixed-cost-measured.md` §7 (EXECUTED, session s3):
+- the module load is 7.2 ms, against 22.6 ms before and 1.0–1.2 ms with the mapped file;
+- a first call is 113.9 ms against 134.6 ms;
+- peak RSS is 38.7 MiB against 75.0 MiB.
+
+The intent's "about 100 ms" first call becomes about 114 ms.
+
+The checks, seen failing against the mapped file (EXECUTED: `uv run pytest tests/runner/test_fixed_cost.py`, with `_cache.py` of `83db344` in place):
+- **`test_on_linux_a_cwasm_is_mapped_from_a_sealed_copy`.** The name wasmtime maps opens a file with no link and all four seals.
+- **`test_a_cache_file_changed_after_the_load_does_not_reach_the_running_module`,** for three cases, each in a child process:
+  - the host truncates the cache file after the load;
+  - the host rewrites it with `0xCC`;
+  - a later call grants the folder writable and its guest rewrites the file.
+
+  In each, the next call still prints `hello`. Against the mapped file, the child died with signal 7 (`SIGBUS`), 5 (`SIGTRAP`) and 7.
+- **`test_on_macos_a_cwasm_is_read_into_memory`,** run in CI's macOS job, replaces the `/dev/fd` check.
+- **Removed:** the round-1 checks of the registry and its bound. They tested a mechanism that is gone; the guarantee they stood for is now checked directly by the cases above.
+
+The round-2 findings R2-M1, R2-M2 and R2-L1 are answered by this change, not by a registry.

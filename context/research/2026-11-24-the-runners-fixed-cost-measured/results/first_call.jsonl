@@ -18,3 +18,13 @@
 {"label": "after-s2", "import_ms": 26.2, "first_call_ms": 105.0, "artifact_check_ms": 83.4, "module_ms": 1.1, "second_call_ms": 1.5, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
 {"label": "after-s2", "import_ms": 26.8, "first_call_ms": 108.2, "artifact_check_ms": 84.1, "module_ms": 1.2, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
 {"label": "after-s2", "import_ms": 26.3, "first_call_ms": 109.0, "artifact_check_ms": 85.4, "module_ms": 1.1, "second_call_ms": 1.4, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s3", "import_ms": 29.8, "first_call_ms": 155.6, "artifact_check_ms": 89.4, "module_ms": 26.8, "second_call_ms": 5.4, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s3", "import_ms": 21.6, "first_call_ms": 134.8, "artifact_check_ms": 81.0, "module_ms": 22.6, "second_call_ms": 4.0, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s3", "import_ms": 21.4, "first_call_ms": 132.1, "artifact_check_ms": 80.6, "module_ms": 21.4, "second_call_ms": 3.9, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s3", "import_ms": 22.6, "first_call_ms": 134.1, "artifact_check_ms": 80.0, "module_ms": 22.7, "second_call_ms": 4.3, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s3", "import_ms": 22.9, "first_call_ms": 134.6, "artifact_check_ms": 82.3, "module_ms": 21.2, "second_call_ms": 4.0, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s3", "import_ms": 25.8, "first_call_ms": 113.9, "artifact_check_ms": 83.9, "module_ms": 7.2, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s3", "import_ms": 26.6, "first_call_ms": 114.7, "artifact_check_ms": 83.8, "module_ms": 7.5, "second_call_ms": 1.7, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s3", "import_ms": 25.6, "first_call_ms": 114.7, "artifact_check_ms": 84.0, "module_ms": 7.4, "second_call_ms": 1.9, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s3", "import_ms": 26.6, "first_call_ms": 113.2, "artifact_check_ms": 83.3, "module_ms": 6.7, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s3", "import_ms": 25.7, "first_call_ms": 113.6, "artifact_check_ms": 84.1, "module_ms": 6.8, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}

@@ -10,3 +10,9 @@
 {"label": "after-s2", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 43.9}
 {"label": "after-s2", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 44.0}
 {"label": "after-s2", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 44.0}
+{"label": "base-s3", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/m014/base/src/wasi_perl/__init__.py", "peak_rss_mib": 74.9}
+{"label": "base-s3", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/m014/base/src/wasi_perl/__init__.py", "peak_rss_mib": 75.0}
+{"label": "base-s3", "module": "/tmp/claude-0/-home-user-wasi-perl/ecbe2564-8e44-50cd-9bc9-1c1b283f37e5/scratchpad/m014/base/src/wasi_perl/__init__.py", "peak_rss_mib": 75.0}
+{"label": "after-s3", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 38.7}
+{"label": "after-s3", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 38.7}
+{"label": "after-s3", "module": "/home/user/wasi-perl-wt/014-the-runners-fixed-cost/src/wasi_perl/__init__.py", "peak_rss_mib": 38.7}
