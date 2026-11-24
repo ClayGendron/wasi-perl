@@ -174,7 +174,7 @@ So on Linux the runner now copies the checked bytes, through the checked descrip
 ## 8. Specification 015: the scan kept across calls (session s4)
 
 - **Researcher:** the implementer of 015 (Claude Opus 5.5), on `spec/015-the-runners-checks-kept-across-calls`.
-- **What was measured.** Decision 1 (L5: the runtime scan kept while its folder stamps hold) and decision 6 (string paths in the tree walk) are built. Decision 3 (L6: the record of hashed files in the module cache) is **not** built: section 8.4 and the specification's landing notes say why. So the first call keeps hashing every library file.
+- **What was measured.** Decision 1 (L5: the runtime scan kept while its folder stamps hold) and decision 6 (string paths in the tree walk) are built. Decision 3 (L6: the record of hashed files in the module cache) is **not** built: section 8.4 and the specification's landing notes say why, and the owner dropped it on 2026-11-24. So the first call keeps hashing every library file.
 - **Before** is `dev` at `8b81f84`, which holds 014 as merged: `git archive 8b81f84 src`, with the same set copied into it, first on `PYTHONPATH`. **After** is the worktree's `src/` at the head of the implementation, through its `.venv`. Same machine, same set, same lock as sections 2–7.
 
 The commands, from the worktree (EXECUTED):

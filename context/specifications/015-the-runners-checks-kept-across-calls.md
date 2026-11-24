@@ -1,6 +1,6 @@
 # 015 — The runner's checks, kept across calls
 
-- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H2, M3, M4, L10).
+- **Status:** agreed by the owner 2026-11-24 ("Agree all four (Recommended)"). Written by the orchestrator; amended the same day for the review `../reviews/perf-research-and-specs-013-016-pr-2026-11-24.md` (H2, M3, M4, L10). Decision 3 was dropped while it was built, and the owner agreed on 2026-11-24 ("Drop decision 3 (Recommended)": every new process hashes the library, as today; a first call is about 73 ms).
 - **Owner:** Clay Gendron
 - **Kind:** `src/wasi_perl/` (`_grants.py`, `_artifacts.py`, `_cache.py`, `runner.py`), checks in `tests/runner/` and `tests/escapes/`.
 - **Depends on:** 014.
@@ -15,7 +15,7 @@ Two checks of specification 012 redo the same work on every call. Each was right
 
 After this specification, both keep exactly the guarantee they give today:
 - a writable call costs about 3 ms (EXECUTED in study A: 2.8–3.3 ms with L1–L8);
-- a fresh process's first call costs about 34 ms with a cache, and as today without one (EXECUTED in study A: L1–L8, five processes).
+- a fresh process's first call costs about 73 ms, against about 104 ms (EXECUTED: `../research/2026-11-24-the-runners-fixed-cost-measured.md` §8.2, session s4). Every library file is still hashed in every new process; only the walk is cheaper (decision 6). Study A's 34 ms needed a record of what was hashed; decision 3 says why it was dropped.
 
 These levers keep a rule by a new argument. That is why they are a specification of their own, with checks for each way the argument could fail.
 
@@ -36,20 +36,10 @@ These levers keep a rule by a new argument. That is why they are a specification
      - on an unreadable folder;
      - past `MAX_WALK`.
    - A file that a grant's file matched is read afresh too.
-3. **A first call trusts a record of what it hashed, kept in the module cache (L6).**
-   - **Writing the record.** After a full check passes, the runner writes `tree-<SHA-256 of SHA256SUMS>-<st_dev>-<st_ino of the artifact root>.json` into the module cache folder, with `_cache.write`'s rules: 0600, renamed into place. It lists each file's `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` under which its hash matched, `perl.wasm` and `MANIFEST` included.
-   - **Using it.** A later process walks the tree with every rule as today: no link, no file the list omits, no listed file missing, and `dev/` exactly one empty `null`. It hashes only the files whose stamp differs from the record, and writes a new record if any were hashed.
-   - **Reading it.** The record is read through `_cache.read`, so it is trusted exactly as a `.cwasm` beside it is. Whoever could forge it could already write a `.cwasm`, which is native code.
-   - **Without it.** With `cache_dir=False`, or a cache folder that is refused, there is no record and every file is hashed, as today.
-   - **Why stamps are enough, and where.** On Linux and macOS a user can set a file's mtime but not its ctime: only the clock can, and changing the clock takes root.
-   - **Not on Windows.** There `st_ctime` is the creation time, which the file's owner can set with `SetFileTime`. So on Windows no record is written or read, and every file is hashed in every new process, as today.
-   - **The record's name.** It is keyed by the artifact root's identity `(st_dev, st_ino)` as well as by the SHA-256 of `SHA256SUMS`, so two installs of the same set do not keep replacing each other's record.
-4. **Coarse file times are allowed for**, as git does for its index:
-   - A file is recorded only if its stat before the hash and its stat after the hash agree.
-   - A stamp whose mtime or ctime lies within 2 s of the start of the scan or check that read it is not trusted. The folder is scanned again on the next call, or the file is hashed again in the next process.
-   - This holds for decision 1's folder stamps and for decision 3's file stamps.
-5. **Decision 1's reuse of a scan is also Linux and macOS only.** On Windows every writable call scans, as today, for the reason decision 3 gives.
-6. **Plain string paths in the tree walk.** This takes a full check from 86 ms to 64 ms with no change of rule (study A §4.2). It comes with decision 3.
+3. **Dropped: a record of what a first call hashed (L6).** Study A kept, in the module cache, each library file's stamp `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` under which its hash matched, so a later process would hash only the files whose stamp moved. Its argument was that a write moves a file's mtime and ctime, and no user can set a ctime. A write through a shared, writable mapping does not always move them: Linux stamps a mapped file when a write faults a clean page, and later writes to that page, while it stays dirty, stamp nothing. The probe `../research/2026-11-24-the-runners-fixed-cost-measured/mmap_stamp.py` changed a file's bytes after its stamp had settled, and the stamp did not move after the write, the unmap or a sync, in three runs (EXECUTED, memo §8.4). So whoever can write a library file could change it after a record was made, and every later process would run it unhashed, where today every new process refuses it. The owner dropped the record on 2026-11-24 ("Drop decision 3 (Recommended)"). Every new process hashes every library file, as today.
+4. **Coarse file times are allowed for in folder stamps**, as git does for its index: a folder stamp whose mtime or ctime lies within 2 s of the start of the scan that read it is not trusted, and the folder is scanned again on the next call.
+5. **Decision 1's reuse of a scan is also Linux and macOS only.** On Windows every writable call scans, as today. There `st_ctime` is the creation time, which the file's owner can set with `SetFileTime`, so a folder's stamp does not show every change of its entries.
+6. **Plain string paths in the tree walk.** This takes a full check from 86 ms to 64 ms with no change of rule (study A §4.2). It stands on its own.
 
 ## Checks (written first, seen failing; they count operations, never time)
 
@@ -59,24 +49,17 @@ These levers keep a rule by a new argument. That is why they are a specification
    - (b) The same with a link to a library `.pm` file.
    - (c) A runtime file replaced by rename, then linked into a grant, is refused.
    - (d) A grant past `MAX_WALK` is refused exactly when a runtime file has a second name, as today.
-3. **Records.**
-   - (a) A second process with a warm cache hashes zero library files: counted.
-   - (b) A library file changed in place, with its mtime then restored by `os.utime`, is hashed, because its ctime moved, and is refused for a wrong digest.
-   - (c) A record edited by hand (mode 0644, or a stamp changed) is not used, and every file is hashed.
-   - (d) With `cache_dir=False`, every file is hashed.
-   - (e) A record from another `SHA256SUMS` is never read.
+3. **Dropped: records.** The checks of decision 3's record (a warm second process hashing nothing; a file changed in place with its mtime restored; a record edited by hand; `cache_dir=False`; a record of another `SHA256SUMS`) go with it, for the reason decision 3 gives.
 4. **The shortcut in a copy-mode install.** The check 2(a) is run again in a layout where no runtime file has a second name when the scan is made, such as an install with `UV_LINK_MODE=copy`. The link made later is still refused.
-5. **Coarse times.**
-   - A file rewritten within the same second as its stamp, keeping its size, is hashed again in the next process.
-   - A folder changed within 2 s of its stamp is scanned again.
-6. **Windows.** On Windows no record is read or written, and every writable call scans. Patched platform checks verify both on any system, and CI runs them on Windows.
+5. **Coarse times.** A folder changed within 2 s of its stamp is scanned again. (The check of a file rewritten within the second of its recorded stamp went with decision 3.)
+6. **Windows.** On Windows every writable call scans. A patched platform check verifies it on any system, and CI runs it on Windows.
 7. Every check of spec 012 and every escape test passes unchanged.
 
 ## Acceptance
 
 1. The checks pass, and every existing suite stays green (EXECUTED).
 2. The memo of spec 014 is extended with the writable-call and first-call timings.
-3. `docs/sandbox.md` says that the artifact check trusts a record in the module cache on Linux and macOS, and when it does not.
+3. `docs/sandbox.md` says that every new process hashes the library, as today, and why a kept record of hashed files was refused.
 4. `CHANGELOG.md` under "Unreleased".
 5. A fresh agent's review, which checks the arguments of decisions 1 and 3 against the code, lands.
 
@@ -84,7 +67,7 @@ These levers keep a rule by a new argument. That is why they are a specification
 
 Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/015-the-runners-checks-kept-across-calls`, from `dev` at `8b81f84`. Linux x86-64, ext4, Linux 6.18, CPython 3.13.18, wasmtime-py 51.0.0, as root, with perf-base's set (`/home/user/wasi-perl-wt/perf-base/build/artifacts`, perl 5.42.3). **Not yet reviewed.** Each claim carries its label.
 
-### Decision 3 is unsound as argued, so it was not built
+### Decision 3 is unsound as argued, so it was not built (the owner dropped it)
 
 **What breaks.** Decision 3 trusts a library file whose stamp matches the one recorded when it was last hashed. Its argument is that a write moves a file's mtime and ctime, and no user can set a ctime. But a write through a shared, writable mapping does not always move them.
 - Linux stamps a mapped file when a write faults a clean page. Further writes to that page, while it stays dirty, do not fault, so they stamp nothing (INFERRED, and consistent with the probe below).
@@ -97,14 +80,16 @@ Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/015-the-runners-c
 - The writer needs no access to the record, so "whoever could forge it could already write a `.cwasm`" does not cover this case.
 - `inotify` would tell the writer when a check has read the file (INFERRED; not probed).
 
-So the record does not keep "exactly the guarantee they give today", as the intent requires. As instructed, I stopped on decision 3 and did not design a replacement. Decision 4's file stamps, checks 3 and 5(a), and the record half of check 6 go with it. `docs/sandbox.md` is unchanged: the record it would describe does not exist.
+So the record does not keep "exactly the guarantee they give today", as the intent requires. As instructed, I stopped on decision 3 and did not design a replacement. Decision 4's file stamps, checks 3 and 5(a), and the record half of check 6 go with it.
 
 **The context.**
 - Within one process the tree is checked once, so a library writer can already change a file unseen after a process's first call (READ: `_artifacts.checked`). The record would carry that to every later process, with no race to win (INFERRED).
-- The same weakness, within one process, is in 0.1.0's per-stamp `digest()` of `perl.wasm` and `MANIFEST` and in 014's per-stamp parse of `SHA256SUMS` (READ). It is not this change's.
+- **A follow-up for the owner, not fixed here.** The same weakness exists within one process. 0.1.0's per-stamp `digest()` of `perl.wasm` and `MANIFEST`, and 014's per-stamp parse of `SHA256SUMS`, are used again while the file's stamp is unchanged (READ: `_artifacts.digest`, `_read_sums`). So a write through a shared mapping, made after a process's first check, would not be seen by that process's later calls (INFERRED from the probe). It predates this change. Within a process the library tree is checked only once anyway (READ: `checked`).
 
-**Options for the owner**, my recommendation first:
-1. **Drop decision 3.** Keep decisions 1, 2, 5 and 6 as built. A first call is about 73 ms here, against 104 ms before (EXECUTED, memo §8.2), not the intent's 34 ms. This is the only option I found that keeps today's guarantee exactly.
+**The owner's answer.** On 2026-11-24 the owner chose option 1 below ("Drop decision 3 (Recommended)"), as relayed by the orchestrator. The Status, Intent, decision 3, checks 3, 5 and 6 and acceptance 3 above are amended in place to say so, and `docs/sandbox.md` says that every new process hashes the library.
+
+**Options put to the owner**, my recommendation first:
+1. **Drop decision 3.** Keep decisions 1, 2, 5 and 6 as built. A first call is about 73 ms here, against 104 ms before (EXECUTED, memo §8.2), not the original intent's 34 ms. This is the only option I found that keeps today's guarantee exactly.
 2. **Trust a record entry only for a file that no one but this user and root can write.** The test would be: owned by this user or root, with no group or other write bit. Then whoever can use the mapping could also write a `.cwasm`, which is the specification's own trust argument.
    - Linux: the mode's group bits are the ACL mask, so no ACL grants a write past them (INFERRED).
    - macOS: an ACL can grant a write beyond the mode bits, so this test is not enough there (INFERRED).
@@ -155,7 +140,7 @@ So the record does not keep "exactly the guarantee they give today", as the inte
 | 5, coarse folder times | `test_a_folder_changed_within_two_seconds_of_its_stamp_is_scanned_again` | yes |
 | 6, Windows scans | `test_scans_are_kept_on_linux_and_macos_only`; `test_on_windows_every_writable_call_scans` (patched both ways) | yes; the Windows case only on the count unit, as above |
 | the scan's coverage | `test_the_scan_holds_every_file_of_the_three_trees_and_the_set` | yes |
-| 3(a)–(e), 5(a), 6 records | not built | — |
+| 3(a)–(e), 5(a), 6 records | dropped with decision 3 | — |
 | 7 | every check of 012 and every escape test, unchanged | — |
 
 On a system that does not keep scans, the kept-scan checks skip, and the patched checks run. CI's Windows wheel job runs `tests/runner`, so it runs them there. I did not see that run.
@@ -182,12 +167,12 @@ The before figures are `dev` at `8b81f84`; see memo §8, session s4.
 | a writable call 21–24 ms before | 22.30 ms | EXECUTED, `calls.py` in `measure.sh … s4` |
 | a writable call about 3 ms after (study A 2.8–3.3) | **2.67 ms**; `run()` 22,155 → 2,857 µs in `phases.py rw 100` | EXECUTED |
 | the scan, 19 ms of a writable call | `_runtime_files` 14,257 → 386 µs and `judge` 5,003 → 524 µs | EXECUTED, `phases.py rw 100` |
-| a first call about 34 ms with a cache | **not met: 73.2 ms** (median of five), against 104.0 ms | EXECUTED, `first_call.py`; the 34 ms needs decision 3 |
+| a first call about 73 ms (amended; study A's 34 ms needed decision 3) | **73.2 ms** (median of five), against 104.0 ms | EXECUTED, `first_call.py` |
 | string paths: a full check 86 → 64 ms | 78.8 → 45.8 ms (medians) | EXECUTED, `first_call.py` |
 | a first call as today without a cache | unchanged: every file is hashed in every process | READ: the code; the record is not built |
 
 ### Left open
 
-- Decision 3, for the owner (above).
+- Decision 3 is dropped by the owner (above). The in-process per-stamp reuse is a follow-up for the owner.
 - The P1 of 014's review (`_cache.folder` and `_grants.hold` as separate steps) bears only on the record, which would be read through `_cache.folder`'s check. With no record, this change does not touch it. Had the record been built, P1 would leave it no weaker than a `.cwasm` (INFERRED): a concurrent guest could rewrite either in place, and a record without a tampered library gains nothing.
 - The 2 s window assumes the file system's clock is this machine's. A network file system whose server's clock lags by more than 2 s, with coarse times, could show a change made within one tick of a stamp as settled (INFERRED). That holds for decision 1's folder stamps. There, forging a folder's stamp needs write access to the runtime's own folders, so it grants no new reach.

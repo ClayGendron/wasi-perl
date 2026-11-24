@@ -71,3 +71,9 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 - **Special files are refused at open.** Opening a FIFO, a device or a socket file in a granted folder fails with ENXIO ("No such device or address"), or ENOTDIR for `opendir`, before the host is asked: a host's open of a FIFO would wait for the other end, past every limit. So does a link to one. `utime` on a FIFO sets its times, as natively, but through a link to one it fails with ENXIO. A name that does not exist is created as usual. `-e` sees a FIFO, but `-p` is false: WASI has no file type for a FIFO.
 - **After a rename over an open file on Windows, the old handle reads the new file.** Natively it goes on reading the old one. For `-i` the handle is already at its end, so nothing changes. Linux and macOS hosts allow the rename, and the handle reads the old file as natively.
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
+
+## The artifact set is checked in every new process
+
+Before a process's first call, the runner hashes every file of the artifact set: `perl.wasm`, `MANIFEST` and each file of the library. Each must match `SHA256SUMS`, and no file may be missing or added. This happens in every new process, on every system.
+
+The runner keeps no record of what it hashed across processes. Such a record would trust a file whose size and times had not moved. A write through a shared memory mapping can change a file's bytes without moving its times, so a changed library would be trusted.
