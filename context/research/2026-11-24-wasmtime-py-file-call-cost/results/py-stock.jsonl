@@ -1,0 +1,7 @@
+{"kind": "read", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 26.72, "us_per_call_min": 25.33, "us_per_call_max": 30.504}
+{"kind": "eof", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 26.732, "us_per_call_min": 25.662, "us_per_call_max": 30.276}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 50.823, "us_per_call_min": 20.945, "us_per_call_max": 55.426}
+{"kind": "fdstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 54.649, "us_per_call_min": 51.042, "us_per_call_max": 57.858}
+{"kind": "pstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 57.039, "us_per_call_min": 53.663, "us_per_call_max": 66.923}
+{"kind": "open", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 34.063, "us_per_call_min": 31.765, "us_per_call_max": 35.57}
+{"kind": "clock", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 0.108, "us_per_call_min": 0.105, "us_per_call_max": 0.127}

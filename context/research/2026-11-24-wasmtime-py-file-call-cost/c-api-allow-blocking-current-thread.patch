@@ -1,0 +1,41 @@
+diff --git a/crates/c-api/include/wasi.h b/crates/c-api/include/wasi.h
+index e770d38..08243d1 100644
+--- a/crates/c-api/include/wasi.h
++++ b/crates/c-api/include/wasi.h
+@@ -216,6 +216,17 @@ WASI_API_EXTERN void wasi_config_set_stderr_custom(
+  */
+ typedef size_t wasi_file_perms;
+ 
++/**
++ * \brief Allows blocking file-system operations to run on the calling thread.
++ *
++ * By default each blocking WASI file-system operation is handed to a
++ * background thread and waited for. With `enable` true it runs on the thread
++ * that called into WebAssembly, which avoids two thread wake-ups per call.
++ * See `WasiCtxBuilder::allow_blocking_current_thread` in the Rust API.
++ */
++WASI_API_EXTERN void
++wasi_config_allow_blocking_current_thread(wasi_config_t *config, bool enable);
++
+ /**
+  * \brief Configures a "preopened directory" to be available to WASI APIs.
+  *
+diff --git a/crates/c-api/src/wasi.rs b/crates/c-api/src/wasi.rs
+index 731c8e6..d59e678 100644
+--- a/crates/c-api/src/wasi.rs
++++ b/crates/c-api/src/wasi.rs
+@@ -315,6 +315,14 @@ pub extern "C" fn wasi_config_set_stderr_custom(
+     ));
+ }
+ 
++#[unsafe(no_mangle)]
++pub extern "C" fn wasi_config_allow_blocking_current_thread(
++    config: &mut wasi_config_t,
++    enable: bool,
++) {
++    config.builder.allow_blocking_current_thread(enable);
++}
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn wasi_config_preopen_dir(
+     config: &mut wasi_config_t,

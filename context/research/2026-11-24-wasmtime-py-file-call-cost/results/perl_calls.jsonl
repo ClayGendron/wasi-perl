@@ -1,0 +1,36 @@
+{"case": "bare -e 1", "arm": "stock", "calls": 15, "ms_median": 3.53, "ms_min": 3.36, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "stock", "calls": 15, "ms_median": 9.69, "ms_min": 9.2, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "stock", "calls": 15, "ms_median": 42.45, "ms_min": 41.63, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "stock", "calls": 15, "ms_median": 56.62, "ms_min": 54.09, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "stock", "calls": 15, "ms_median": 112.86, "ms_min": 107.74, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "stock", "s": 0.51, "trapped": "deadline", "exit_code": null, "stdout": ""}
+{"case": "bare -e 1", "arm": "patched", "calls": 15, "ms_median": 3.44, "ms_min": 3.29, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "patched", "calls": 15, "ms_median": 9.2, "ms_min": 8.99, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "patched", "calls": 15, "ms_median": 43.7, "ms_min": 42.06, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "patched", "calls": 15, "ms_median": 60.88, "ms_min": 57.48, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "patched", "calls": 15, "ms_median": 121.03, "ms_min": 112.56, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "patched", "s": 0.52, "trapped": "deadline", "exit_code": null, "stdout": ""}
+{"case": "bare -e 1", "arm": "patched+blocking", "calls": 15, "ms_median": 3.42, "ms_min": 3.21, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "patched+blocking", "calls": 15, "ms_median": 6.67, "ms_min": 6.5, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "patched+blocking", "calls": 15, "ms_median": 38.66, "ms_min": 37.42, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "patched+blocking", "calls": 15, "ms_median": 6.69, "ms_min": 6.63, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "patched+blocking", "calls": 15, "ms_median": 7.91, "ms_min": 7.45, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "patched+blocking", "s": 0.51, "trapped": "deadline", "exit_code": null, "stdout": ""}
+{"case": "bare -e 1", "arm": "stock", "calls": 15, "ms_median": 3.39, "ms_min": 3.25, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "stock", "calls": 15, "ms_median": 9.49, "ms_min": 8.56, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "stock", "calls": 15, "ms_median": 41.69, "ms_min": 41.06, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "stock", "calls": 15, "ms_median": 61.13, "ms_min": 54.87, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "stock", "calls": 15, "ms_median": 121.54, "ms_min": 110.46, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "stock", "s": 0.51, "trapped": "deadline", "exit_code": null, "stdout": ""}
+{"case": "bare -e 1", "arm": "patched", "calls": 15, "ms_median": 3.74, "ms_min": 3.32, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "patched", "calls": 15, "ms_median": 9.43, "ms_min": 9.3, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "patched", "calls": 15, "ms_median": 42.73, "ms_min": 41.88, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "patched", "calls": 15, "ms_median": 58.33, "ms_min": 56.12, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "patched", "calls": 15, "ms_median": 172.61, "ms_min": 136.74, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "patched", "s": 0.51, "trapped": "deadline", "exit_code": null, "stdout": ""}
+{"case": "bare -e 1", "arm": "patched+blocking", "calls": 15, "ms_median": 3.99, "ms_min": 3.88, "results": [[0, "e3b0c44298fc1c14", "e3b0c44298fc1c14"]], "stdout": ""}
+{"case": "use strict, warnings, List::Util", "arm": "patched+blocking", "calls": 15, "ms_median": 7.52, "ms_min": 7.3, "results": [[0, "02d20bbd7e394ad5", "e3b0c44298fc1c14"]], "stdout": "55"}
+{"case": "-ne over one 1 MB file", "arm": "patched+blocking", "calls": 15, "ms_median": 38.57, "ms_min": 38.11, "results": [[0, "ed26e4721bd36685", "e3b0c44298fc1c14"]], "stdout": "58146"}
+{"case": "-ne over 200 small files", "arm": "patched+blocking", "calls": 15, "ms_median": 7.59, "ms_min": 7.51, "results": [[0, "39e5b4830d4d9c14", "e3b0c44298fc1c14"]], "stdout": "10000"}
+{"case": "2,000 -e stats", "arm": "patched+blocking", "calls": 15, "ms_median": 8.35, "ms_min": 8.17, "results": [[0, "2689367b205c16ce", "e3b0c44298fc1c14"]], "stdout": "ok"}
+{"case": "sleep 2 under a 0.5 s deadline", "arm": "patched+blocking", "s": 0.51, "trapped": "deadline", "exit_code": null, "stdout": ""}

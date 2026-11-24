@@ -1,0 +1,55 @@
+# py stock
+{"kind": "read", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 26.72, "us_per_call_min": 25.33, "us_per_call_max": 30.504}
+{"kind": "eof", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 26.732, "us_per_call_min": 25.662, "us_per_call_max": 30.276}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 50.823, "us_per_call_min": 20.945, "us_per_call_max": 55.426}
+{"kind": "fdstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 54.649, "us_per_call_min": 51.042, "us_per_call_max": 57.858}
+{"kind": "pstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 57.039, "us_per_call_min": 53.663, "us_per_call_max": 66.923}
+{"kind": "open", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 34.063, "us_per_call_min": 31.765, "us_per_call_max": 35.57}
+{"kind": "clock", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 0.108, "us_per_call_min": 0.105, "us_per_call_max": 0.127}
+# py patched, flag off
+{"kind": "read", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 33.921, "us_per_call_min": 25.091, "us_per_call_max": 34.64}
+{"kind": "eof", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 27.625, "us_per_call_min": 25.712, "us_per_call_max": 31.404}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 52.809, "us_per_call_min": 48.997, "us_per_call_max": 54.35}
+{"kind": "fdstat", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 53.584, "us_per_call_min": 51.441, "us_per_call_max": 56.818}
+{"kind": "pstat", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 61.566, "us_per_call_min": 57.411, "us_per_call_max": 64.441}
+{"kind": "open", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 31.057, "us_per_call_min": 29.787, "us_per_call_max": 32.508}
+{"kind": "clock", "n": 20000, "runs": 7, "blocking": false, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.11, "us_per_call_min": 0.108, "us_per_call_max": 0.111}
+# py patched, flag on
+{"kind": "read", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.469, "us_per_call_min": 0.466, "us_per_call_max": 0.474}
+{"kind": "eof", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.415, "us_per_call_min": 0.413, "us_per_call_max": 0.421}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.717, "us_per_call_min": 0.713, "us_per_call_max": 0.72}
+{"kind": "fdstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.523, "us_per_call_min": 0.521, "us_per_call_max": 0.815}
+{"kind": "pstat", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 1.236, "us_per_call_min": 1.041, "us_per_call_max": 1.321}
+{"kind": "open", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 1.494, "us_per_call_min": 1.487, "us_per_call_max": 1.538}
+{"kind": "clock", "n": 20000, "runs": 7, "blocking": true, "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.109, "us_per_call_min": 0.108, "us_per_call_max": 0.114}
+# py patched, flag set after the preopen
+{"kind": "read", "n": 20000, "runs": 7, "blocking": "late", "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.47, "us_per_call_min": 0.467, "us_per_call_max": 0.477}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": "late", "lib": "/home/user/wasi-perl-downloads/pylib-patched", "us_per_call_median": 0.754, "us_per_call_min": 0.746, "us_per_call_max": 0.775}
+# py stock, pinned to one CPU
+{"kind": "read", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 4.055, "us_per_call_min": 3.927, "us_per_call_max": 4.354}
+{"kind": "fstat", "n": 20000, "runs": 7, "blocking": false, "lib": "stock", "us_per_call_median": 7.566, "us_per_call_min": 7.495, "us_per_call_max": 7.635}
+# cli
+{"kind": "read", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.326, "us_per_call_min": 0.323, "us_per_call_max": 0.336}
+{"kind": "eof", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.28, "us_per_call_min": 0.268, "us_per_call_max": 0.285}
+{"kind": "fstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.589, "us_per_call_min": 0.582, "us_per_call_max": 0.859}
+{"kind": "fdstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.424, "us_per_call_min": 0.405, "us_per_call_max": 0.537}
+{"kind": "pstat", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.94, "us_per_call_min": 0.915, "us_per_call_max": 1.643}
+{"kind": "open", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 1.225, "us_per_call_min": 1.221, "us_per_call_max": 1.31}
+{"kind": "clock", "n": 20000, "runs": 7, "arm": "cli", "us_per_call_median": 0.106, "us_per_call_min": 0.1, "us_per_call_max": 0.17}
+# cli with a timeout
+{"kind": "read", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 29.561, "us_per_call_min": 27.912, "us_per_call_max": 30.496}
+{"kind": "eof", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 29.73, "us_per_call_min": 28.059, "us_per_call_max": 36.133}
+{"kind": "fstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 63.197, "us_per_call_min": 57.74, "us_per_call_max": 74.06}
+{"kind": "fdstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 58.715, "us_per_call_min": 58.205, "us_per_call_max": 61.937}
+{"kind": "pstat", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 58.104, "us_per_call_min": 54.319, "us_per_call_max": 61.859}
+{"kind": "open", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 32.548, "us_per_call_min": 32.024, "us_per_call_max": 34.415}
+{"kind": "clock", "n": 20000, "runs": 7, "arm": "cli-timeout", "us_per_call_median": 0.167, "us_per_call_min": 0.109, "us_per_call_max": 0.172}
+# native hand-off, 4 CPUs then 1
+handoff n=20000 us_per_round_trip=25.97
+handoff n=20000 us_per_round_trip=25.86
+handoff n=20000 us_per_round_trip=26.38
+handoff n=20000 us_per_round_trip=2.57
+handoff n=20000 us_per_round_trip=2.53
+handoff n=20000 us_per_round_trip=2.56
+# fuel
+[{"kind": "read", "instructions_per_call": 146.055}, {"kind": "eof", "instructions_per_call": 146.2875}, {"kind": "fstat", "instructions_per_call": 200.0585}, {"kind": "fdstat", "instructions_per_call": 276.162}, {"kind": "pstat", "instructions_per_call": 365.0565}, {"kind": "open", "instructions_per_call": 385.022}, {"kind": "clock", "instructions_per_call": 296.1875}]
