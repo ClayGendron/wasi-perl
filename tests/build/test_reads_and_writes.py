@@ -33,6 +33,11 @@ from _build_helpers import (
 
 SDK_BIN = BUILD / "tools" / "wasi-sdk-34.0-x86_64-linux" / "bin"
 MEMCHR_TEST = BUILD / "tests" / "memchr-test.wasm"
+# wasm-ld's output, before the build's wasm-opt pass. Its functions keep their names, and each
+# is the one the compiler wrote: the pass inlines and drops the names.
+LINKED = BUILD / "link" / "perl.wasm"
+SIMD = r"\b(v128|i8x16|i16x8|i32x4|i64x2|f32x4|f64x2)\."
+SIMD_OP = r"\b(?:v128|i8x16|i16x8|i32x4|i64x2|f32x4|f64x2)\.[a-z0-9_]+"
 
 # One trace line: the function's name, then either its arguments or "result=...".
 TRACE = re.compile(r'function="([a-z_0-9]+)"\}: \S+: (.*)$')
@@ -194,30 +199,47 @@ def _disassembly(wasm: Path, symbol: str) -> str:
 
 @pytest.mark.parametrize("which", ["perl.wasm", "memchr-test.wasm"])
 def test_the_memchr_linked_compares_sixteen_bytes_a_step(perl_wasm, which):
-    # The recipe's memchr, not wasi-libc's word loop: it compares with SIMD128.
-    wasm = perl_wasm if which == "perl.wasm" else MEMCHR_TEST
-    assert wasm.exists(), f"{wasm} is missing: scripts/20_target.sh builds it"
+    # The recipe's memchr, not wasi-libc's word loop: it compares with SIMD128. perl.wasm's is
+    # read where wasm-ld linked it, by its name.
+    wasm = LINKED if which == "perl.wasm" else MEMCHR_TEST
+    assert wasm.exists(), f"{wasm} is missing: scripts/20_target.sh or 40_link.sh builds it"
     text = _disassembly(wasm, "memchr")
     assert "<memchr>:" in text, text[:400]
     assert "i8x16.eq" in text and "i8x16.bitmask" in text, text[:2000]
 
 
-def test_only_memchr_uses_simd(perl_wasm):
-    # Only the recipe's memchr is compiled for SIMD128: the rest of the module has no v128 code.
-    text = _disassembly(perl_wasm, "memchr")
-    assert "i8x16" in text
+def _whole_disassembly(wasm: Path) -> str:
+    _disassembly(wasm, "memchr")  # skips when llvm-objdump is missing
     objdump = SDK_BIN / "llvm-objdump"
-    whole = subprocess.run(
-        [str(objdump), "-d", str(perl_wasm)], capture_output=True, text=True, check=True
+    return subprocess.run(
+        [str(objdump), "-d", str(wasm)], capture_output=True, text=True, check=True
     ).stdout
+
+
+def test_only_memchr_uses_simd(perl_wasm):
+    # Only the recipe's memchr is compiled for SIMD128: the rest of the module wasm-ld linked
+    # has no v128 code.
+    assert LINKED.exists(), f"{LINKED} is missing: scripts/40_link.sh builds it"
+    assert "i8x16" in _disassembly(LINKED, "memchr")
     users, current = set(), None
-    for line in whole.splitlines():
+    for line in _whole_disassembly(LINKED).splitlines():
         m = re.match(r"^[0-9a-f]+ <(.+)>:$", line)
         if m:
             current = m.group(1)
-        elif current and re.search(r"\b(v128|i8x16|i16x8|i32x4|i64x2|f32x4|f64x2)\.", line):
+        elif current and re.search(SIMD, line):
             users.add(current)
     assert users == {"memchr"}, sorted(users)
+
+
+def test_the_shipped_module_keeps_memchr_s_sixteen_byte_compare(perl_wasm):
+    # The pass drops memchr's name, but keeps its SIMD128 compare: the shipped module still
+    # compares sixteen bytes a step. (It may add SIMD of its own: with SIMD128 enabled it writes
+    # a 16-byte store of a constant as one v128.store.)
+    def ops(wasm: Path) -> set[str]:
+        return set(re.findall(SIMD_OP, _whole_disassembly(wasm)))
+
+    assert {"i8x16.eq", "i8x16.bitmask"} <= ops(LINKED)
+    assert {"i8x16.eq", "i8x16.bitmask"} <= ops(perl_wasm)
 
 
 # The baseline's 10 MB log: 200,000 lines, every seventh an ERROR.
