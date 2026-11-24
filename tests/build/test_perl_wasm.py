@@ -295,3 +295,25 @@ PROGRAMS = [
 def test_matches_native(guest, native, prog):
     g, n = guest("-e", prog), native("-e", prog)
     assert (g.code, g.stdout, g.stderr) == (n.code, n.stdout, n.stderr)
+
+
+# CPU time seen two ways over one busy loop: through times, which Perl scales by the clock tick
+# sysconf reports, and through Time::HiRes::clock, which reads clock() in CLOCKS_PER_SEC. The
+# loop runs until clock() has advanced CPU_SECONDS; the check is their ratio, so it holds however
+# fast the host is. Ticks are 10 ms, so the ratio is within a few percent of 1.
+CPU_SECONDS = 0.3
+TIMES_AGREES = (
+    "use Time::HiRes ();"
+    "my ($u0, $s0) = times; my $c0 = Time::HiRes::clock();"
+    f"my $n = 0; $n++ while Time::HiRes::clock() - $c0 < {CPU_SECONDS};"
+    "my ($u1, $s1) = times; my $c1 = Time::HiRes::clock();"
+    'printf "%.6f %.6f\\n", ($u1 - $u0) + ($s1 - $s0), $c1 - $c0;'
+)
+
+
+def test_times_agrees_with_cpu_clock(guest):
+    r = guest("-e", TIMES_AGREES)
+    assert (r.code, r.stderr) == (0, b""), r
+    by_times, by_clock = (float(x) for x in r.stdout.split())
+    assert by_clock >= CPU_SECONDS
+    assert 0.8 <= by_times / by_clock <= 1.25, r.stdout
