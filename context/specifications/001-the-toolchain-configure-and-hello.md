@@ -1,6 +1,6 @@
 # 001 — The toolchain, Configure and miniperl, and hello under wasmtime
 
-- **Status:** proposed 2026-11-24, for the owner's agreement before it is built.
+- **Status:** agreed by the owner 2026-11-24; building.
 - **Owner:** Clay Gendron
 - **Kind:** the build recipe (new `downloads/SHA256SUMS`, `scripts/`, `recipes/config.sh`, `recipes/wasi-cc`), the first checks in `tests/`, the repository's working agreement (`AGENTS.md`, `context/constitution.md`, `context/roadmap.md`).
 - **Depends on:** nothing.

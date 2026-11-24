@@ -1,6 +1,6 @@
 # Constitution
 
-- **Status:** proposed 2026-11-24, for the owner's agreement with specification 001.
+- **Status:** agreed by the owner 2026-11-24, with specification 001. The owner pre-agreed the specifications of the roadmap (002 to 008) the same day, to be written and built without stopping for agreement.
 - **Owner:** Clay Gendron
 
 ## 1. Mission
