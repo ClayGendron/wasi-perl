@@ -56,6 +56,14 @@ OP *__wrap_Perl_pp_getppid(pTHX)
     return NORMAL;
 }
 
+/* dump: CORE::dump would abort the process to leave a core image (my_unexec raises SIGABRT at
+ * itself). There is no signal to raise and no core to leave. */
+__typeof__(Perl_my_unexec) __wrap_Perl_my_unexec;
+void __wrap_Perl_my_unexec(pTHX)
+{
+    refuse(aTHX_ "dump");
+}
+
 /* system: pp_system calls the platform's spawn functions when there is no fork. They are this
  * project's, so they are defined here rather than wrapped. */
 int do_aspawn(void *really, void **mark, void **sp)
@@ -129,16 +137,17 @@ SSize_t __wrap_Perl_apply(pTHX_ I32 type, SV **mark, SV **sp)
 
 /* A store into %SIG. The __WARN__ and __DIE__ hooks are not signals and pass through, as do
  * names that are not signals (Perl warns about those). A store for a real signal, of any
- * value, dies: a script that relies on a handler must not run on believing it has one. The one
- * store let through is the restore at the end of a local's scope (PL_localizing is 2): it
- * puts back the value that was there before the refused store. */
+ * value, dies: a script that relies on a handler must not run on believing it has one. Two
+ * calls are let through. A delete (magic_clearsig calls this with no value) only puts back the
+ * default, which installs nothing. The restore at the end of a local's scope (PL_localizing is
+ * 2) puts back the value that was there before the refused store. */
 __typeof__(Perl_magic_setsig) __real_Perl_magic_setsig;
 __typeof__(Perl_magic_setsig) __wrap_Perl_magic_setsig;
 int __wrap_Perl_magic_setsig(pTHX_ SV *sv, MAGIC *mg)
 {
     STRLEN len;
     const char *s = MgPV_const(mg, len);
-    if (*s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0) {
+    if (sv && *s != '_' && PL_localizing != 2 && whichsig_pvn(s, len) > 0) {
         SV *msg = newSVpvf("signal handler for SIG%" UTF8f, UTF8fARG(0, len, s));
         sv_2mortal(msg);
         PL_localizing = 0;
@@ -198,13 +207,19 @@ void __wrap_Perl_my_failure_exit(pTHX)
     my_exit(status);
 }
 
-/* dup2 as a move. WASI preview1 has no way to copy a file descriptor, so wasi-libc's dup2
- * refuses ("Not supported"), and with it every reopen of STDIN, STDOUT or STDERR onto a file:
- * Perl opens the file at a new descriptor, dup2s it onto 0, 1 or 2, and then closes the new
- * one (S_openn_cleanup in doio.c), with no descriptor opened in between. WASI's fd_renumber
- * moves a descriptor onto another, which reaches the same end state, except that the old
- * number is closed already. The other callers of dup2 in Perl are the child side of a fork,
- * which the sandbox refuses before it is reached. */
+/* dup2 as a move, for a descriptor that nothing else holds. WASI preview1 has no way to copy a
+ * file descriptor, so wasi-libc's dup2 refuses ("Not supported"), and with it every reopen of
+ * STDIN, STDOUT or STDERR onto a file: Perl opens the file at a new descriptor, dup2s it onto
+ * 0, 1 or 2, and then closes the new one (S_openn_cleanup in doio.c), with no descriptor
+ * opened in between. WASI's fd_renumber moves a descriptor onto another, which reaches the
+ * same end state, except that the old number is closed already.
+ *
+ * A move is right only when the old descriptor has that one owner. The fdopen forms of open
+ * (">&=", "<&=") reach the same dup2 with a descriptor another handle still uses; moving it
+ * would take it from that handle. So the move happens only when PerlIO counts exactly one
+ * handle on the old descriptor (the build has no threads, so the count needs no lock), and
+ * anything else fails with ENOTSUP, as wasi-libc's dup2 does. Perl's other dup2 callers are
+ * the child side of a fork, which the sandbox refuses before it is reached. */
 static int moved_fd = -1;
 
 int __real_dup2(int oldfd, int newfd);
@@ -213,6 +228,10 @@ int __wrap_dup2(int oldfd, int newfd)
 {
     if (oldfd == newfd)
         return fcntl(oldfd, F_GETFD) < 0 ? -1 : newfd;
+    if (oldfd < 0 || oldfd >= PL_perlio_fd_refcnt_size || PL_perlio_fd_refcnt[oldfd] != 1) {
+        errno = ENOTSUP;
+        return -1;
+    }
     if (__wasilibc_fd_renumber(oldfd, newfd) != 0)
         return -1;
     moved_fd = oldfd;

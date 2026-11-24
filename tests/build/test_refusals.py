@@ -55,6 +55,15 @@ REFUSED = [
     ("signal handler for SIGALRM", "local $SIG{ALRM} = sub { die }"),
     ("signal handler for SIGALRM", "local $SIG{ALRM}"),
     ("signal handler for SIGINT", "$SIG{INT} = undef"),
+    ("signal handler for SIGINT", '@SIG{"INT", "TERM"} = ("IGNORE") x 2'),
+    ("signal handler for SIGINT", '%SIG = (INT => "IGNORE")'),
+    ("signal handler for SIGINT", "local %SIG; $SIG{INT} = sub {}"),
+    (
+        "backticks",
+        "BEGIN { *CORE::GLOBAL::readpipe = sub { CORE::readpipe($_[0]) } } my $x = `true`",
+    ),
+    ("dump", "CORE::dump"),
+    ("dump", 'CORE::dump; print "not reached\\n"'),
 ]
 
 
@@ -117,6 +126,9 @@ HOOKS = [
     "eval { $SIG{__FOO__} = sub {} }; print $@",
     '$SIG{NOSUCH} = sub {}; print "ok\\n"',
     'use warnings; $SIG{NOSUCH} = sub {}; print "ok\\n"',
+    'delete $SIG{INT}; print "ok\\n"',
+    'delete @SIG{qw(INT TERM ALRM)}; print defined $SIG{INT} ? "def" : "undef", "\\n"',
+    'delete local $SIG{HUP}; print "ok\\n"',
 ]
 
 
@@ -297,6 +309,42 @@ def test_reopen_standard_handle_matches_native(
         assert_exit_refused(g, 255)
     else:
         assert g.code == n.returncode
+
+
+# The fdopen forms share a descriptor with another handle, so it cannot be moved: the open fails
+# with "Not supported" and both handles keep writing where they did. Natively each succeeds.
+FDOPEN = [
+    (
+        'open(STDERR, ">&=STDOUT") or print "fail: $!\\n"; print STDOUT "out\\n"; '
+        'print STDERR "err\\n"'
+    ),
+    (
+        'open(STDERR, ">&=", \\*STDOUT) or print "fail: $!\\n"; print STDOUT "out\\n"; '
+        'print STDERR "err\\n"'
+    ),
+    (
+        'open my $h, ">", "h" or die; open(STDOUT, ">&=", $h) or print STDERR "fail: $!\\n"; '
+        'print $h "via h\\n"; print "via stdout\\n"; close $h or die "close: $!\\n"'
+    ),
+    (
+        'open my $h, ">", "h" or die; open(STDOUT, ">&=" . fileno($h)) or print STDERR "fail: $!\\n"; '
+        'print $h "via h\\n"; print "via stdout\\n"; close $h or die "close: $!\\n"'
+    ),
+]
+
+
+@pytest.mark.parametrize("code", FDOPEN, ids=range(len(FDOPEN)))
+def test_fdopen_of_a_shared_descriptor_fails_cleanly(
+    guest, native_perl, tmp_path: Path, code
+):
+    g, n, gfiles, _ = _reopen(guest, code, tmp_path)
+    assert n.returncode == 0 and b"fail" not in n.stdout + n.stderr
+    assert g.code == 0
+    if "$h" in code:
+        assert gfiles == {"h": b"via h\n"}
+        assert (g.stdout, g.stderr) == (b"via stdout\n", b"fail: Not supported\n")
+    else:
+        assert (g.stdout, g.stderr) == (b"fail: Not supported\nout\n", b"err\n")
 
 
 def test_dup_of_a_handle_fails_clearly(guest, native, tmp_path: Path):
