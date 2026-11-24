@@ -90,3 +90,32 @@ Evidence:
 3. `docs/sandbox.md` says where the guest's randomness comes from, and lists the device's differences from native: the `/dev` listing, and `EINVAL` for the calls decision 2 names.
 4. `CHANGELOG.md` names the fix under "Unreleased" as a security fix.
 5. A fresh agent's review lands.
+
+## Landing notes
+
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/013-seeds-from-the-hosts-randomness`, from the amended specification (`dea44fa`, merged), Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root. **Blocked: decision 1 cannot be built as written.** Not reviewed.
+
+### The blocker
+
+Decision 1 says every caller of `Perl_seed` already tries `/dev/urandom` first, so all three get real randomness with no patch to Perl. In this guest they do not reach the device:
+
+- `Perl_seed` opens the device with flags `0`: `fd = PerlLIO_open_cloexec(PERL_RANDOM_DEVICE, 0);` (READ: `build/target/util.c` 4730; `Perl_PerlLIO_open_cloexec` passes `flag | O_CLOEXEC` to `open`, `doio.c` 277–288).
+- On Linux `0` is `O_RDONLY`. In wasi-libc it is no access mode: `O_RDONLY` is `0x04000000` (READ: the sysroot's `include/wasm32-wasip1/__header_fcntl.h` line 19), and `open` with no access mode fails with EINVAL before any WASI call.
+- EXECUTED, on the built guest: `sysopen(my $f, "/dev/urandom", 0)` and `sysopen(my $g, "/dev/null", 0)` both print "Invalid argument"; `printf "%x", O_RDONLY` prints `4000000`.
+- EXECUTED: under the probe linker of `tests/build/test_randomness.py`, a run of the seed line calls `random_get` 0 times and two runs with the same pattern print different seeds; a program that opens `/dev/urandom` with `open` and reads 8 bytes calls it once and prints `0102030405060708`.
+
+So the device works, and Perl's seeds still come from the clock. Two hypotheses were tested on the device side (an open with no rights read as a read, and the shadowed `random_get` itself); neither is the cause, since the open never reaches the table. The choice of fix is the owner's:
+
+1. **Wrap `open` (and `openat`) in the descriptor table, mapping an open with no access mode to `O_RDONLY`.** Recommended. A recipe, no patch to Perl. It also makes a Perl program's `sysopen(F, $path, 0)` open for reading as natively, where today it fails with EINVAL: a second visible change, toward native.
+2. **A patch to `util.c`** passing `O_RDONLY` in `Perl_seed`. One line, but a patch under `recipes/patches/`, which decision 1 meant to avoid.
+3. **Accept the clock seed** and keep only the device. Leaves the finding of `../research/2026-11-24-perf-startup.md` §6 open.
+
+### What was built
+
+`recipes/wasi-fd-table.c`, as decision 2 says (commit `54716b3`): the `VIRTUAL_RANDOM` sentinel, the exact virtual paths, the open's answers, reads from `random_get`, writes counted and dropped, seek and tell 0, the stat with `/dev`'s dev and times, waits answered in the guest, EINVAL for the listed calls, ENOTDIR for a path call through it, and the header comment corrected for the new `random_get` import. Two choices the specification left open, each Linux's answer: the socket calls on it answer ENOTSOCK, and the preopen calls EBADF (not a preopen). `fd_fdstat_get` reports `FD_READ` and `FD_WRITE` as the open asked, not both always, so `fcntl(F_GETFL)` reads back the open's mode; `FD_SEEK` and `FD_TELL` are always there, so `-t` is false. The two devices have different fixed inode numbers, far above a host's.
+
+### The checks
+
+`tests/build/test_randomness.py` and two checks in `tests/escapes/test_escapes.py`, seen failing on the earlier build (EXECUTED: `WASI_PERL_ARTIFACTS=../perf-base/build/artifacts uv run pytest tests/build/test_randomness.py tests/escapes/test_escapes.py -k "randomness or seeds or random_device"`: 6 failed, 6 passed). On this build (EXECUTED: `uv run pytest tests/build tests/escapes`): 439 passed, 1 failed, the failure being `test_the_seeds_come_from_random_get`, for the reason above. `uv run pytest -m "not slow"`: 444 passed, 2 skipped. The device's every line but its times and `/dev/random`'s readiness to write equals native perl's on Linux (EXECUTED: the `DEVICE` program under `build/native-install/bin/perl`). Check 2 (20 calls, 20 seeds) passed before the change too, since a clock seed moves every microsecond; it guards against a fixed seed.
+
+Not run yet: the one-liner oracle against the assembled wheel and Perl's whole `t/` suite. They wait for the fix above.
