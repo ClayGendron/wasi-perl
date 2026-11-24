@@ -21,12 +21,18 @@ import re
 import shutil
 import sys
 import tarfile
+import unicodedata
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
 SET_PARTS = ("perl.wasm", "lib", "dev", "MANIFEST", "SHA256SUMS")
 LICENCES = ("Artistic", "Copying")
 LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
+# Names Windows cannot hold, whatever follows a dot (`nul.pm` is `NUL`), and the characters it
+# forbids in a name. The wheel installs on Windows, and on macOS, whose default APFS volume is,
+# like NTFS, blind to case.
+RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(\..*)?$", re.IGNORECASE)
+FORBIDDEN = re.compile(r'[<>:"|?*\\\x00-\x1f]')
 
 
 class Refused(Exception):
@@ -69,6 +75,30 @@ def check(base: Path, sums: dict[str, str], listed_in: str) -> None:
             raise Refused(f"{name} does not match its SHA-256 in {listed_in}")
 
 
+def unportable(paths: list[str]) -> list[str]:
+    """Why each problem path cannot be installed everywhere: a name Windows cannot hold, or two
+    paths (files or folders) that differ only by case, which one folder on a case-blind volume
+    cannot hold apart."""
+    problems = []
+    seen: dict[str, str] = {}
+    for path in sorted(paths):
+        parts = path.split("/")
+        for name in parts:
+            if RESERVED.match(name):
+                problems.append(f"{path}: {name} is a name Windows reserves")
+            elif name.endswith((".", " ")):
+                problems.append(f"{path}: {name!r} ends in a dot or a space, which Windows drops")
+            elif FORBIDDEN.search(name):
+                problems.append(f"{path}: {name!r} holds a character Windows forbids")
+        for i in range(1, len(parts) + 1):
+            here = "/".join(parts[:i])
+            key = unicodedata.normalize("NFC", here).casefold()
+            other = seen.setdefault(key, here)
+            if other != here:
+                problems.append(f"{here} and {other} differ only by case")
+    return sorted(set(problems))
+
+
 def verify(base: Path) -> int:
     """Verify one artifact set in place and return its file count."""
     for part in SET_PARTS:
@@ -92,6 +122,9 @@ def verify(base: Path) -> int:
     unlisted = sorted(on_disk - sums.keys())
     if unlisted:
         raise Refused(f"{unlisted[0]} is in the set but not in SHA256SUMS ({len(unlisted)} such)")
+    problems = unportable(sorted(on_disk))
+    if problems:
+        raise Refused(f"{problems[0]} ({len(problems)} such): the wheel installs on every system")
     if {name for name in on_disk if name.startswith("dev/")} != {"dev/null"}:
         raise Refused("dev/ must hold exactly one file, null")
     if (base / "dev" / "null").stat().st_size != 0:

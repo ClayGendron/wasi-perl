@@ -84,23 +84,6 @@ jobs:
           key: downloads-${{ hashFiles('downloads/SHA256SUMS') }}
       - name: Build from the pins
         run: scripts/build.sh
-      # A build that does not seal its set yet gets the same seal here: MANIFEST as
-      # `<sha256>  <path>` for every file under lib/ and dev/, then SHA256SUMS over every file of
-      # the set by the tool the runner's checks are written against. A build that seals is left as
-      # it is.
-      - name: Seal the set
-        run: |
-          set -eu
-          cd build/artifacts
-          if [ ! -f SHA256SUMS ]; then
-            if [ ! -f MANIFEST ]; then
-              find lib dev -type f | LC_ALL=C sort | xargs sha256sum > ../MANIFEST.tmp
-              mv ../MANIFEST.tmp MANIFEST
-            fi
-            uv run --no-project python -I ../../scripts/write_sums.py .
-            echo "sealed here: the build wrote no SHA256SUMS"
-          fi
-          wc -l MANIFEST SHA256SUMS
       - name: The checks on the built perl.wasm
         run: uv run pytest tests/build -p no:cacheprovider -ra
       - name: Keep the verified downloads for the next run
@@ -269,6 +252,10 @@ jobs:
       - name: No guest check was skipped
         if: always()
         run: |
+          if [ -z "${WHEEL_PY:-}" ] || [ ! -f "$RUNNER_TEMP/junit.xml" ]; then
+            echo "the tests did not run, so there is nothing to check here"
+            exit 0
+          fi
           "$WHEEL_PY" -I - "$RUNNER_TEMP/junit.xml" <<'PY'
           import sys, xml.etree.ElementTree as ET
           ran = skipped = 0
