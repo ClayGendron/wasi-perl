@@ -347,7 +347,9 @@ class RuntimeFiles:
     def __init__(self, tops: Sequence[Path], singles: Sequence[Path]) -> None:
         self.tops, self.singles = tuple(tops), tuple(singles)
         start = _now_ns()
-        stamps: dict[tuple[str, bool], FolderStamp | None] = {}
+        # By path: a folder reached twice (the library inside this package, as the wheel lays it
+        # out) is stamped and listed once.
+        stamps: dict[str, tuple[bool, FolderStamp | None]] = {}
         files: dict[Identity, str] = {}
 
         def note(path: str) -> None:
@@ -361,9 +363,9 @@ class RuntimeFiles:
         pending = [(str(top), True) for top in self.tops]
         while pending:
             folder, follow = pending.pop()
-            if (folder, follow) in stamps:
+            if folder in stamps:
                 continue
-            stamps[(folder, follow)] = _folder_stamp(folder, follow)  # None: not there
+            stamps[folder] = (follow, _folder_stamp(folder, follow))  # None: not there
             try:
                 with os.scandir(folder) as entries:
                     found = list(entries)
@@ -375,22 +377,22 @@ class RuntimeFiles:
                 else:
                     note(entry.path)
         for single in self.singles:
-            parent = (str(single.parent), True)
+            parent = str(single.parent)
             if parent not in stamps:
-                stamps[parent] = _folder_stamp(*parent)
+                stamps[parent] = (True, _folder_stamp(parent, True))
             note(str(single))
         self.stamps = tuple(stamps.items())
         self.files = files
         self.settled = all(
             s is None or (s[2] < start - SETTLE_NS and s[3] < start - SETTLE_NS)
-            for s in stamps.values()
+            for _, s in stamps.values()
         )
 
     def fresh(self) -> bool:
         """Whether this scan may stand for a new one: every stamp settled when it was taken, and
         every folder still as the scan found it."""
         return self.settled and all(
-            _folder_stamp(path, follow) == st for (path, follow), st in self.stamps
+            _folder_stamp(path, follow) == st for path, (follow, st) in self.stamps
         )
 
     def linked_now(self) -> dict[Identity, str]:
