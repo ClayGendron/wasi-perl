@@ -4,7 +4,7 @@
   - "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes. We are going to eventually unify the shared components." That agrees to building the item, not this text.
   - "Install-time images only." The roadmap records what it means: the image may be built only as one the embedder makes itself, so that its fixed hash seed is never published. So wasi-perl ships no preloaded image.
 
-  These choices are new here and await the owner: choice (c), which no study prototyped; the second binary `perl-reactor.wasm`; the default package list held in the runner's code (Decision 5); and the cap on data segments. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, M1–M4, M6, L5–L8).
+  These choices are new here and await the owner: choice (c), which no study prototyped; the second binary `perl-reactor.wasm`; the default package list held in the runner's code (Decision 5); and the cap on data segments. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, M1–M4, M6, L5–L8; round 2: N1, N2).
 - **Owner:** Clay Gendron
 - **Kind:**
   - the build: a new `recipes/wasi-reactor.c`, its object compiled in `scripts/20_target.sh`, its link in step 4 of spec 019's `scripts/40_link.sh`, `scripts/assemble_artifacts.py`, and the `SHA256SUMS` that step 7 writes. `MANIFEST` is not changed;
@@ -12,7 +12,7 @@
   - checks in `tests/snapshot/`, `tests/build/` and `tests/mounts/test_mount_api.py`; `docs/snapshots.md` and `docs/sandbox.md`.
 - **Depends on:**
   - 013, because the image's hash seed must come from the host's randomness;
-  - 014, for the engine's `memory_init_cow = True` pin, one `InstancePre` per module and the mapped `.cwasm`;
+  - 014, for the engine's `memory_init_cow = True` pin, one `InstancePre` per module, and its Decision 5: on Linux the checked `.cwasm` runs from a sealed `memfd` copy that wasmtime maps; elsewhere its bytes are read;
   - 017, so that `make_snapshot` and `make_package_snapshot` take `mounts` and `max_file_calls` as wasi-python's do (Decision 5), and so that `Completed.files` already stands before `image_sha256`;
   - 019, the library index and the build order of its Decision 5, which the roadmap puts first. The reactor links the same index.
   - 021 (`wasm-opt -O3`) in either order. If 021 is built first, this adds the reactor to 021's step. If this is built first, 021's pass covers both binaries.
@@ -49,9 +49,9 @@ Study D measured or bounds three ways.
 
 | | (a) a wizer-made module | (b) a run-time memory image, copied per call | (c) the image written into a new module by the runner |
 |---|---|---|---|
-| restore per call | instantiation 0.044 ms; the 7.3 MB of data is mapped copy-on-write (D §4.1, EXECUTED) | about 2.7 ms to copy 15 MiB (INFERRED: D §4.1, the same image with copy-on-write off, 2.745 ms) | about 0.04 ms (INFERRED: the module has (a)'s shape, data segments over the image, so wasmtime maps it the same way) |
-| "five" per call | 4.32 ms (D §4.2, EXECUTED) | about 7.0 ms (INFERRED: 4.3 + 2.7) | about 4.3 ms (INFERRED, as above) |
-| memory per live call | the pages it writes, about 294 page faults on `-e 1` (D §4.2) | a private 15 MiB, since the copy writes every page | as (a) |
+| restore per call | instantiation 0.044 ms; the 7.3 MB of data is mapped copy-on-write (D §4.1, EXECUTED) | about 2.7 ms to copy 15 MiB (INFERRED: D §4.1, the same image with copy-on-write off, 2.745 ms) | on Linux, about 0.04 ms (INFERRED: the module has (a)'s shape, data segments over the image, so wasmtime maps it the same way). On macOS and Windows, about 2.7 ms, as (b) (INFERRED: below) |
+| "five" per call | 4.32 ms (D §4.2, EXECUTED) | about 7.0 ms (INFERRED: 4.3 + 2.7) | about 4.3 ms on Linux, about 7.0 ms on macOS and Windows (INFERRED, as above) |
+| memory per live call | the pages it writes, about 294 page faults on `-e 1` (D §4.2) | a private 15 MiB, since the copy writes every page | as (a) on Linux; as (b) on macOS and Windows |
 | install-time step | `wasmtime wizer`, which needs the wasmtime CLI. The wheel carries none, and it is not a Python dependency. Up to 21.5 s with the machine lock (D §4.3) | the prelude's run, then a capture | the prelude's run, a capture, writing the module, and one compile, cached as a `.cwasm` |
 | who runs the making | the wasmtime CLI, with its own WASI set-up: none of the runner's grant rules or limits apply | the runner, under `run`'s rules | the runner, under `run`'s rules |
 | new code to build | a wizer step for each embedder | the reactor and the runner's capture | the same as (b), plus the module writer, about 200 lines |
@@ -96,7 +96,23 @@ Study D measured or bounds three ways.
 - `Snapshot.load` compiles nothing, so it stays a read and a check.
 - A call in a cold cache compiles its flavour once.
 
-**If wasmtime declines copy-on-write** for an image past its dense-image limit (INFERRED: a larger prelude than the default), the call is still correct. It then pays an eager copy, as (b) would. The acceptance memo records which one the default image gets.
+**Copy-on-write is Linux's only.** wasmtime builds a copy-on-write memory image only from a source it can map (READ, in the v51.0.0 clone: `crates/wasmtime/src/runtime/vm/cow.rs:105-145`):
+- a module loaded from a mapped file (`MemoryImageSource::from_file`);
+- or, on Linux only, a `memfd` it fills itself from the module's data (`from_data`). Off Linux, `from_data` answers `None` (`sys/unix/vm.rs:120-123`). On Windows both answer `None` (`sys/windows/vm.rs:75-81`).
+
+Spec 014's Decision 5 gives wasmtime a mapped file only on Linux, its sealed `memfd` copy; elsewhere the `.cwasm`'s bytes are read. So:
+
+| platform | how a call from an image starts | per call |
+|---|---|---|
+| Linux | the image is mapped copy-on-write, from 014's sealed copy, or from wasmtime's own `memfd` when the module was compiled in the process | about 0.04 ms and about 294 page faults on `-e 1` (INFERRED from D §4.1–§4.2, which ran on Linux; the acceptance memo measures it) |
+| macOS | no image source: wasmtime writes the data segments into fresh memory at each instantiation | about 2.7 ms for the 15 MiB default image, and a private copy of its written pages (INFERRED: D §4.1's copy-on-write-off run, 2.745 ms; not measured on macOS) |
+| Windows | as macOS | as macOS (INFERRED, not measured) |
+
+- (c) stays the choice. Per call it is never slower than (b), and on Linux, where a vfs service runs, it is as cheap as (a). On macOS and Windows it costs what (b) costs, plus one compile per image, paid at the making and cached.
+- On those two, the image still pays where it saves more than the copy: "five" runs in about 7.0 ms against 25.2 ms (INFERRED, the table above). On a bare one-liner it costs about 2.7 ms more, so the rule of Decision 6, pass the image only to calls that load modules, matters more there.
+- `docs/snapshots.md` says this, platform by platform.
+
+**If wasmtime declines copy-on-write** on Linux for an image past its dense-image limit (INFERRED: a larger prelude than the default), the call is still correct. It then pays an eager copy, as (b) would. The acceptance memo records which one the default image gets.
 
 ### 2. A second binary, `perl-reactor.wasm`, and no wizer anywhere
 
@@ -104,7 +120,7 @@ Study D measured or bounds three ways.
 - A command cannot also serve the image. Each of its other exports would run the C constructors again (INFERRED: wasm-ld wraps a command's other exports with constructor calls; not tried here). The image needs an entry that runs once, returns with the interpreter alive, and is then entered again.
 - So the build links the same objects a second time, with Perl's `perlmain.o` replaced by `recipes/wasi-reactor.c`'s object. The result is `perl-reactor.wasm`, a WASI reactor: a module with no `_start` that the host enters through its exports.
 - **Where, in spec 019's build order (its Decision 5):**
-  - step 1, `20_target.sh`: the reactor's object is compiled after `Configure`, as `sandbox-refusals.o` is (Decision 3);
+  - step 1, `20_target.sh`: the reactor's object is compiled after the final `make` (today `20_target.sh:75`), with the command Perl's own objects get (Decision 3). It cannot come earlier: it includes Perl's generated `perlmain.c`, which only `make` writes, by the rule `perlmain.c: $(MINIPERL_EXE) ext/ExtUtils-Miniperl/pm_to_blib` (READ: the built tree's `Makefile:347`);
   - step 4, `40_link.sh`, after the index and before the relink of `perl.wasm`: `build/target/perl` is removed, and `make perl` runs with three variables set. `perlmain_objs` is the reactor's object, `libs` is the index object followed by the configured `libs`, and `CLDFLAGS` is the configured one plus `-mexec-model=reactor` and Decision 3's `--wrap` flags. The result is copied to `build/link/perl-reactor.wasm`. Step 5's relink then leaves the tree's `perl` the command;
   - step 6: 021's pass, once 021 is built, writes it to `build/artifacts/`. Until then, a copy;
   - step 7: `SHA256SUMS` pins it, with every other file of the set.
@@ -276,7 +292,7 @@ D also read one case without running it: JSON::PP fixes `PERL_JSON_PP_USE_B` at 
 | # | wasi-perl | why | how wasi-python could adopt it |
 |---|---|---|---|
 | 1 | `snapshot=True` means the set's default start, which is perl.wasm. `True` and `False` run the same binary | wasi-perl ships no snapshot binary (decision 6) | say "the set's default start" instead of naming `python-snapshot.wasm`; its behaviour is unchanged |
-| 2 | a call from a `Snapshot` instantiates a module the runner wrote, mapped copy-on-write; there is no per-call copy | about 2.7 ms and 15 MiB a call saved (decision 1) | adopt it inside the runner, with no change to the API or the file. It would pay one compile of its snapshot binary's code per image, cached. Its 203 MiB images exceed wasmtime's dense-image limit, so whether they still map is to be measured (INFERRED) |
+| 2 | a call from a `Snapshot` instantiates a module the runner wrote. On Linux it is mapped copy-on-write, and there is no per-call copy. On macOS and Windows, wasmtime has no source to map, so each call writes the image into fresh memory, as wasi-python's copy does (decision 1) | on Linux, about 2.7 ms and 15 MiB a call saved; elsewhere about the same cost as a copy (decision 1, INFERRED) | adopt it inside the runner, with no change to the API or the file. It would pay one compile of its snapshot binary's code per image, cached. Its 203 MiB images exceed wasmtime's dense-image limit, so whether they still map is to be measured (INFERRED) |
 | 3 | the making pins the clocks but not entropy | the hash seed is frozen in the image (decision 7) | draw real entropy in `prepare` as well. That would close its own pydantic note (READ: `docs/explanation/security-model.md`). It gives up identical images from identical code, which its docs do not promise for a prelude (INFERRED) |
 | 4 | `make_snapshot`'s `env` refuses three names, and a call whose env has them runs the plain binary | an image cannot honour them (decision 6) | the same rule with its own list: for example `PYTHONHASHSEED`, if it ever honours one in an image |
 | 5 | `make_package_snapshot` takes CPAN distribution names or `Module::Names`, loads with `require`, and has no `root` keyword. Its default list is `_snapshot_make.PACKAGES`, in the runner's code; wasi-python reads its set's `x-snapshot-package` lines in `MANIFEST` | Perl's names and loading; wasi-perl's `run` has no root. wasi-perl's `MANIFEST` holds only `<sha256>  <path>` lines, which its build check enforces, and its eight packages are core modules every set holds (Decision 5) | the shared component asks each runtime for its package list through one function: wasi-python's reads `MANIFEST`, wasi-perl's returns `PACKAGES`. The rule for `None` and for a name given is the same in both, and neither API changes |
@@ -380,6 +396,7 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
    - the making's time, the module writer's share of it, and the compile;
    - the image module's `.cwasm` size;
    - the wheel's growth from `perl-reactor.wasm`;
-   - whether wasmtime maps the default image copy-on-write (its page faults per instantiation).
+   - on Linux, whether wasmtime maps the default image copy-on-write: its page faults per instantiation, from 014's sealed copy and from an in-process compile;
+   - on macOS, the same counts from CI's macOS runner, if it can run the memo's driver; otherwise the macOS and Windows rows of Decision 1's table stay INFERRED, and the memo says so.
 5. `docs/snapshots.md` exists, and `docs/sandbox.md` has the seed's paragraph. `CHANGELOG.md` has its lines under "Unreleased", naming `perl-reactor.wasm` as a new artifact.
 6. A fresh agent's review lands.

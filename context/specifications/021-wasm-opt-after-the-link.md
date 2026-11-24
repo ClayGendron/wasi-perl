@@ -1,8 +1,8 @@
 # 021 — `wasm-opt -O3` after the link
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 9. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: binaryen `version_133` as a pinned build tool, the feature flags, and the check by a second run. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, H4, M6, L8, L9).
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 9. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: binaryen `version_133` as a pinned build tool, the feature flags, and the check by a second run. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H1, H2, H4, M6, L8, L9; round 2: N3, N5, N8).
 - **Owner:** Clay Gendron
-- **Kind:** `scripts/lib.sh`, `scripts/00_download.sh`, step 6 of spec 019's `scripts/40_link.sh`, `downloads/SHA256SUMS`, checks in `tests/build/`. `MANIFEST` is not changed.
+- **Kind:** `scripts/lib.sh`, `scripts/00_download.sh`, step 6 of spec 019's `scripts/40_link.sh`, `downloads/SHA256SUMS`, checks in `tests/build/`, and the move of `test_no_wasm_opt` in `tests/build/test_perl_wasm.py` (Decision 7). `MANIFEST` is not changed.
 - **Depends on:** 019, which makes the last link and the step this fills. Spec 016 comes before 019, so its SIMD `memchr` is linked.
   - If 022 is built first, this pass runs over `perl-reactor.wasm` too.
   - If this is built first, 022 adds the reactor to the same step.
@@ -25,13 +25,14 @@ binaryen's `wasm-opt -O3`, run once over the linked module, removes 2.0–3.4% o
   ```
 
   The hash matches the release's `.sha256` file (READ: B's `results/static.txt:78-79`). It is also the hash of the tarball study B fetched (EXECUTED: `sha256sum /home/user/wasi-perl-downloads/binaryen-dl/b.tgz`, 2026-11-24).
-- `lib.sh` names it once, as `BINARYEN_NAME=binaryen-version_133`. `00_download.sh` fetches and verifies it like every other input, and unpacks it under `build/tools/`, as it unpacks wasi-sdk and wasmtime. It runs only as a build tool.
+- `lib.sh` names it twice, since the tarball's name and its folder's differ: `BINARYEN_TARBALL=binaryen-version_133-x86_64-linux.tar.gz`, and `BINARYEN_NAME=binaryen-version_133`, the one top folder it unpacks to (EXECUTED: `tar -tzf`, 2026-11-24). `00_download.sh` fetches and verifies it like every other input.
+- **The unpack.** `00_download.sh`'s loop (`00_download.sh:37-44`, READ) unpacks `$name.$ext` and requires the folder `$name`, which fits wasi-sdk and wasmtime only. binaryen gets its own lines after the loop, written the same way: unless `build/tools/$BINARYEN_NAME/.unpacked` exists, remove that folder, untar `$DOWNLOADS/$BINARYEN_TARBALL` under `build/tools/`, require `build/tools/$BINARYEN_NAME/bin/wasm-opt`, and touch `.unpacked`. It runs only as a build tool.
 - **Why not `MANIFEST`:** `MANIFEST` is strictly `<sha256>  <path>`, one line for each file under `lib/` and `dev/` (`scripts/30_library.sh:62-69`; `tests/build/test_modules.py:529-550`, READ). A tool is an input, and every input is pinned in `downloads/SHA256SUMS` (constitution §4.2).
 
 ### 2. `-O3`, once, after the last link
 
 - **Where.** Step 6 of spec 019's build order, in `scripts/40_link.sh`. It reads `build/link/perl.wasm`, and `build/link/perl-reactor.wasm` once 022 is built. It writes each to `build/artifacts/` under the same name. Step 7, `SHA256SUMS`, follows it, so `SHA256SUMS` hashes the optimised bytes.
-- **The stamp.** `.link.stamp` also covers `BINARYEN_NAME`, the tarball's pinned SHA-256 and the flag list, so a change to any of them reruns the pass.
+- **The stamp.** `.link.stamp` also covers `BINARYEN_NAME`, `BINARYEN_TARBALL`, the tarball's pinned SHA-256 and the flag list, so a change to any of them reruns the pass.
 - **Not `-O4`:** it aborts, because its flatten pass does not take `try_table` (B §5).
 - **Not `--converge`:** it adds nothing (B §5).
 
@@ -71,10 +72,19 @@ These were seen by running the pinned `wasm-opt -O3` over the built set's `perl.
 - **The `producers` section is unchanged.** binaryen does not add itself to it. So the producers section cannot show that the pass ran (check 1).
 - **A data-count section appears, and the 2 data segments become 11,955.** binaryen packs memory around runs of zeros. The code holds no `memory.init` and no `data.drop` (EXECUTED: `wasm-dis`, then `grep -c`, 0 each). Spec 022's image module writer accepts such a reactor; its Decision 1 says how.
 - **The `target_features` section is kept**, with the same ten features.
+- **The DWARF sections survive.** The `.debug_*` sections stay, and binaryen rewrites `.debug_line` from 216,375 to 116,380 bytes (EXECUTED: the section listing before and after). Together they are 635,642 bytes before the pass and 535,647 after, about 6% of the optimised module's 8.5 MB (EXECUTED: the same listing), and nothing in the runner reads them. Stripping them is a separate choice, for every build at once, and is not made here.
 
 ### 6. The unoptimised modules are kept in `build/link/` for comparison only
 
 They are never shipped.
+
+### 7. The test that says wasm-opt never ran moves to the unoptimised module
+
+- `test_no_wasm_opt` (`tests/build/test_perl_wasm.py:186-188`, READ) says "The module is what wasm-ld wrote: binaryen's wasm-opt never ran on it", and asserts that `b"binaryen"` is not in the shipped `perl.wasm`.
+- After this specification its words are false for the shipped module, and its assertion would still pass, since `-O3`'s output holds no such string (Decision 5). A test that passes while its claim is false guards nothing.
+- So it moves to `build/link/perl.wasm`, wasm-ld's own output. There it still guards what it was for: that clang never runs a `wasm-opt` of its own at the link (`wasi-cc`'s `--no-wasm-opt`, `recipes/wasi-cc:64`). Its assertion is unchanged.
+- The shipped module is held instead by check 1, which proves it is exactly the pass's output.
+- The move is its own commit, with this reason in its message, so the review sees it. It is not a weakened check: its assertion and its claim are kept, on the file the claim is about.
 
 ## Checks (written first, seen failing)
 

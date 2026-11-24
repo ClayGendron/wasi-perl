@@ -1,6 +1,6 @@
 # 019 — The library index: module searches that ask the host only for files that exist
 
-- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 7, a leaner `@INC`. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: an index rather than a new layout, the build order of Decision 5 with its new `scripts/40_link.sh`, and the rule for a set passed with `artifacts=`. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H2, H3, M5, M6).
+- **Status:** proposed, not yet agreed by the owner. Written by the orchestrator, 2026-11-24, for synthesis item 7, a leaner `@INC`. The owner agreed to build the ten items that day: "You can do all 10 actually, but do not change the API around perl to be different than wasi python, unless wasi python could adopt the same changes." That agrees the item, not this text. These choices are new here and await the owner: an index rather than a new layout, the build order of Decision 5 with its new `scripts/40_link.sh`, and the rule for a set passed with `artifacts=`. They are to be asked with AskUserQuestion before the build starts. Amended the same day for the review `../reviews/specs-017-022-pr-2026-11-24.md` (H2, H3, M5, M6; round 2: N2, N4).
 - **Owner:** Clay Gendron
 - **Kind:**
   - the build recipe: `recipes/wasi-fd-table.c`, and a new `recipes/wasi-lib-index-empty.c`;
@@ -104,7 +104,7 @@ Grants, mounts and `/dev` are untouched. `/dev/urandom` is spec 013's.
 
 | step | script | stamp | what it does |
 |---|---|---|---|
-| 1 | `20_target.sh` | `.target.stamp` | compiles the stubs, the descriptor table and the empty index (Decision 2), and links `build/target/perl` with the empty index. It no longer copies `perl` into `build/artifacts/`, so only shipped bytes are ever there. Spec 022 compiles the reactor's object here |
+| 1 | `20_target.sh` | `.target.stamp` | compiles the stubs, the descriptor table and the empty index (Decision 2), and links `build/target/perl` with the empty index. It no longer copies `perl` into `build/artifacts/`, so only shipped bytes are ever there. Its up-to-date test (`20_target.sh:26`) looks for `build/target/perl` instead of `$ART/perl.wasm`. Spec 022 compiles the reactor's object here, after the final `make`, which writes the `perlmain.c` it includes |
 | 2 | `30_library.sh` | `.library.stamp` | runs `installperl`, which installs the tree's linked `perl` and so needs it; lays out `lib/` and `dev/`, with spec 018's pure-Perl copies; writes `MANIFEST` in its one format, `<sha256>  <path>` for every file under `lib/` and `dev/` (`scripts/30_library.sh:62-69`, READ). It no longer writes `SHA256SUMS` |
 | 3 | `40_link.sh` | `.link.stamp` | the index: `lib_index.sh build/artifacts/lib/perl5 build/index/lib-index.c`, compiled by `wasi-cc -O2 -c` to `build/index/lib-index.o` |
 | 4 | `40_link.sh` | `.link.stamp` | spec 022's reactor link, once 022 is built (its Decision 2) |
@@ -117,7 +117,7 @@ Grants, mounts and `/dev` are untouched. `/dev/urandom` is spec 013's.
   - `.link.stamp` is `stamp_of` over `40_link.sh`, `lib_index.sh`, `lib.sh` and `.library.stamp`, and over spec 021's binaryen pin once 021 is built.
   - `.library.stamp` already covers `.target.stamp` (`30_library.sh:24`, READ). So a change anywhere before step 3 relinks.
   - `40_link.sh` is up to date only when its stamp matches and `build/artifacts/SHA256SUMS` exists.
-  - `30_library.sh`'s own up-to-date test looks for `MANIFEST` instead of `SHA256SUMS`, which is no longer its output.
+  - `30_library.sh`'s own up-to-date test looks for `MANIFEST` instead of `SHA256SUMS`, which is no longer its output. Its precondition (`30_library.sh:23`) looks for `.target.stamp` and `build/target/perl` instead of `$ART/perl.wasm`, which step 1 no longer writes.
 - **The shared lister.** The `listed` function, which writes the sorted `<sha256>  <path>` lines, moves from `30_library.sh` to `lib.sh`. `30_library.sh` uses it for `MANIFEST` and `40_link.sh` for `SHA256SUMS`. Both keep today's bytes and order.
 - **`build.sh`** runs `40_link.sh` after `30_library.sh`.
 
