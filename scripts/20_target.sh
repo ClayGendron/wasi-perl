@@ -11,7 +11,6 @@ SDK="$BUILD/tools/$WASI_SDK_NAME"
 SYSROOT="$SDK/share/wasi-sysroot"
 STUBS="$BUILD/stubs"
 ART="$BUILD/artifacts"
-DESTDIR="$BUILD/target-install"
 STAMP="$BUILD/.target.stamp"
 PATCHES="$ROOT/recipes/patches/perl-$PERL_VERSION"
 
@@ -30,11 +29,12 @@ if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$stamp" ] && [ -f "$ART/perl.wasm" 
 fi
 
 : >"$LOG"
-rm -rf "$SRC" "$DESTDIR" "$ART" "$STUBS" "$BUILD/host-tools" "$STAMP"
+rm -rf "$SRC" "$ART" "$STUBS" "$BUILD/host-tools" "$STAMP"
 
 # The stand-ins for what wasi-libc lacks, linked into every perl link through $libs.
 mkdir -p "$STUBS"
 run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-stubs.c" -o "$STUBS/wasi-stubs.o"
+run "$LOG" "$ROOT/recipes/wasi-cc" -O2 -Wall -Wextra -Werror -c "$ROOT/recipes/wasi-posix-stubs.c" -o "$STUBS/wasi-posix-stubs.o"
 
 mkdir -p "$BUILD/unpack-target"
 run "$LOG" tar -C "$BUILD/unpack-target" -xf "$TARBALL"
@@ -67,18 +67,11 @@ mkdir -p "$BUILD/host-tools"
 cp "$NATIVE/generate_uudmap" "$BUILD/host-tools/generate_uudmap"
 # The utilities are extracted by running perl on their .PL files; the guest perl cannot run on
 # the build host, so the host miniperl extracts them first and make then finds them up to date.
-run "$LOG" make -j"$(nproc)" perl utils/Makefile
+run "$LOG" make -j"$JOBS" perl utils/Makefile
 run "$LOG" make -C utils PERL=../miniperl REALPERL=../miniperl
-run "$LOG" make -j"$(nproc)"
+run "$LOG" make -j"$JOBS"
 [ -f perl ] || fail "make did not produce perl (see $LOG)"
-# installperl runs on the host miniperl. It needs Cwd, an XS module this build does not compile
-# for the guest, so Cwd's pure-Perl fallback from the source tree is loaded before installperl
-# narrows @INC to lib/.
-run "$LOG" ./miniperl -Ilib -MCwd -MFile::Spec installperl --destdir="$DESTDIR"
-
-mkdir -p "$ART/lib/perl5" "$ART/dev"
+mkdir -p "$ART"
 cp perl "$ART/perl.wasm"
-cp -R "$DESTDIR/usr/local/lib/perl5/5.42" "$ART/lib/perl5/5.42"
-: >"$ART/dev/null"
 echo "$stamp" >"$STAMP"
 echo "20_target: ok ($ART/perl.wasm)"
