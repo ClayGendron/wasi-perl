@@ -23,11 +23,12 @@
  * descriptors as before. The module imports one WASI preview1 function a program without the
  * table would not: random_get, which the random device reads.
  *
- * Four more answers are the guest's own, each where the host's would differ from a POSIX
- * system's: an open of a special file is refused before the host could wait in it
+ * Five more answers are the guest's own, each where the host's or wasi-libc's would differ from
+ * a POSIX system's: an open of a special file is refused before the host could wait in it
  * (path_open), select reads Perl's bit vectors (select), a rename over a file the program
- * holds open succeeds where the host refuses it (path_rename), and /dev/urandom and
- * /dev/random are a device of the guest's own that reads random_get (the random device). */
+ * holds open succeeds where the host refuses it (path_rename), /dev/urandom and /dev/random
+ * are a device of the guest's own that reads random_get (the random device), and an open with
+ * no access mode reads, as on Linux (open, openat, wrapped as dup is). */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -1057,6 +1058,44 @@ int __wrap_fcntl(int fd, int cmd, ...)
     default:
         return __real_fcntl(fd, cmd);
     }
+}
+
+/* An open with no access mode reads, as on Linux, where O_RDONLY is 0. C written for Linux
+ * passes 0 for a read: Perl's own seed opens /dev/urandom so, and so does a program's
+ * sysopen(F, $path, 0). wasi-libc's O_RDONLY is a bit of its own, and it refuses an open without
+ * one with EINVAL before any call reaches the host. So when the access-mode bits are all clear,
+ * O_RDONLY is added; nothing else about the open changes. The mode is read only when the open
+ * may create the file, as POSIX says. */
+int __real_open(const char *path, int oflag, ...);
+int __wrap_open(const char *path, int oflag, ...);
+int __wrap_open(const char *path, int oflag, ...)
+{
+    mode_t mode = 0;
+    if (oflag & O_CREAT) {
+        va_list ap;
+        va_start(ap, oflag);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+    }
+    if ((oflag & O_ACCMODE) == 0)
+        oflag |= O_RDONLY;
+    return __real_open(path, oflag, mode);
+}
+
+int __real_openat(int fd, const char *path, int oflag, ...);
+int __wrap_openat(int fd, const char *path, int oflag, ...);
+int __wrap_openat(int fd, const char *path, int oflag, ...)
+{
+    mode_t mode = 0;
+    if (oflag & O_CREAT) {
+        va_list ap;
+        va_start(ap, oflag);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+    }
+    if ((oflag & O_ACCMODE) == 0)
+        oflag |= O_RDONLY;
+    return __real_openat(fd, path, oflag, mode);
 }
 
 /* Four-argument select. Perl hands select the strings vec() builds, one bit per descriptor, as
