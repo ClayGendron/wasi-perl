@@ -1,0 +1,1976 @@
+[
+ {
+  "case": "argv_0",
+  "argv": [
+   "-e",
+   "print \"@ARGV|$0|\", scalar(@ARGV), \"\\n\"",
+   "a",
+   "b c"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ],
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ],
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ],
+   [
+    0,
+    "a b c|-e|2\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "n_file",
+  "argv": [
+   "-ne",
+   "print if /b/",
+   "/data/f.txt"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "p_i",
+  "argv": [
+   "-pi",
+   "-e",
+   "s/a/A/",
+   "/data/g.txt"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ],
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ],
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ],
+   [
+    0,
+    "Abc\nAaa\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "lane",
+  "argv": [
+   "-lane",
+   "print $F[1]",
+   "/data/f.txt"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ],
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ],
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ],
+   [
+    0,
+    "b\nc\n\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "0777",
+  "argv": [
+   "-0777",
+   "-ne",
+   "print length, qq{\\n}",
+   "/data/f.txt"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "17\n",
+    ""
+   ],
+   [
+    0,
+    "17\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "17\n",
+    ""
+   ],
+   [
+    0,
+    "17\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "17\n",
+    ""
+   ],
+   [
+    0,
+    "17\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "l_0",
+  "argv": [
+   "-l",
+   "-0072",
+   "-ne",
+   "print",
+   "/data/f.txt"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\nb c d\n\nx\ny\n\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "M_import",
+  "argv": [
+   "-MPOSIX=floor",
+   "-e",
+   "print floor(2.5), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "use_posix",
+  "argv": [
+   "-e",
+   "use POSIX; print floor(2.5), \" \", INT_MAX, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ],
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ],
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ],
+   [
+    0,
+    "2 2147483647\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "no_use_posix",
+  "argv": [
+   "-e",
+   "print POSIX::floor(2.5), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    255,
+    "",
+    "Undefined subroutine &POSIX::floor called at -e line 1.\n"
+   ],
+   [
+    255,
+    "",
+    "Undefined subroutine &POSIX::floor called at -e line 1.\n"
+   ]
+  ],
+  "construct": [
+   [
+    255,
+    "",
+    "Undefined subroutine &POSIX::floor called at -e line 1.\n"
+   ],
+   [
+    255,
+    "",
+    "Undefined subroutine &POSIX::floor called at -e line 1.\n"
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": false
+ },
+ {
+  "case": "defined_sub",
+  "argv": [
+   "-e",
+   "print defined &POSIX::floor ? 1 : 0, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "0\n",
+    ""
+   ],
+   [
+    0,
+    "0\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "0\n",
+    ""
+   ],
+   [
+    0,
+    "0\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "1\n",
+    ""
+   ],
+   [
+    0,
+    "1\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": false
+ },
+ {
+  "case": "inc_keys",
+  "argv": [
+   "-e",
+   "print join(\",\", sort keys %INC), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "\n",
+    ""
+   ],
+   [
+    0,
+    "\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "\n",
+    ""
+   ],
+   [
+    0,
+    "\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "Carp.pm,Data/Dumper.pm,Encode.pm,Encode/Alias.pm,Encode/Config.pm,Encode/Encoding.pm,Encode/MIME/Name.pm,Exporter.pm,Fcntl.pm,JSON/PP.pm,JSON/PP/Boolean.pm,List/Util.pm,POSIX.pm,Scalar/Util.pm,Storable.pm,Tie/Hash.pm,XSLoader.pm,bytes.pm,constant.pm,overload.pm,overloading.pm,parent.pm,strict.pm,warnings.pm,warnings/register.pm\n",
+    ""
+   ],
+   [
+    0,
+    "Carp.pm,Data/Dumper.pm,Encode.pm,Encode/Alias.pm,Encode/Config.pm,Encode/Encoding.pm,Encode/MIME/Name.pm,Exporter.pm,Fcntl.pm,JSON/PP.pm,JSON/PP/Boolean.pm,List/Util.pm,POSIX.pm,Scalar/Util.pm,Storable.pm,Tie/Hash.pm,XSLoader.pm,bytes.pm,constant.pm,overload.pm,overloading.pm,parent.pm,strict.pm,warnings.pm,warnings/register.pm\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": false
+ },
+ {
+  "case": "inc_dirs",
+  "argv": [
+   "-e",
+   "print scalar(@INC), \" @INC\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ],
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ],
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ],
+   [
+    0,
+    "4 /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "env",
+  "argv": [
+   "-e",
+   "print join(\",\", map {\"$_=$ENV{$_}\"} sort keys %ENV), \"\\n\""
+  ],
+  "env": {
+   "FOO": "bar",
+   "LANG": "C"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ],
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ],
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ],
+   [
+    0,
+    "FOO=bar,LANG=C\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "pwd",
+  "argv": [
+   "-e",
+   "open my $f, \"<\", \"f.txt\" or die \"no: $!\"; print scalar <$f>"
+  ],
+  "env": {
+   "PWD": "/data"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a b c\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a b c\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a b c\n",
+    ""
+   ],
+   [
+    0,
+    "a b c\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "basetime",
+  "argv": [
+   "-e",
+   "print time - $^T < 5 && $^T > 1.7e9 ? qq{ok\\n} : qq{bad $^T\\n}"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "ok\n",
+    ""
+   ],
+   [
+    0,
+    "ok\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "ok\n",
+    ""
+   ],
+   [
+    0,
+    "ok\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "ok\n",
+    ""
+   ],
+   [
+    0,
+    "ok\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "phases",
+  "argv": [
+   "-e",
+   "BEGIN { print \"b\\n\" } INIT { print \"i\\n\" } print \"m\\n\"; END { print \"e\\n\" }"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ],
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ],
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ],
+   [
+    0,
+    "b\ni\nm\ne\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "strict_err",
+  "argv": [
+   "-e",
+   "use strict; $x = 1;"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ],
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ]
+  ],
+  "construct": [
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ],
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ]
+  ],
+  "preload": [
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ],
+   [
+    255,
+    "",
+    "Global symbol \"$x\" requires explicit package name (did you forget to declare \"my $x\"?) at -e line 1.\nExecution of -e aborted due to compilation errors.\n"
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "die",
+  "argv": [
+   "-e",
+   "die \"x\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    255,
+    "",
+    "x\n"
+   ],
+   [
+    255,
+    "",
+    "x\n"
+   ]
+  ],
+  "construct": [
+   [
+    255,
+    "",
+    "x\n"
+   ],
+   [
+    255,
+    "",
+    "x\n"
+   ]
+  ],
+  "preload": [
+   [
+    255,
+    "",
+    "x\n"
+   ],
+   [
+    255,
+    "",
+    "x\n"
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "exit3",
+  "argv": [
+   "-e",
+   "exit 3"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    3,
+    "",
+    ""
+   ],
+   [
+    3,
+    "",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    3,
+    "",
+    ""
+   ],
+   [
+    3,
+    "",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    3,
+    "",
+    ""
+   ],
+   [
+    3,
+    "",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "warn_w",
+  "argv": [
+   "-w",
+   "-e",
+   "my $x; print \"a\" . $x, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "use_warnings",
+  "argv": [
+   "-e",
+   "use warnings; my $x; print \"a\" . $x, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ],
+   [
+    0,
+    "a\n",
+    "Use of uninitialized value $x in concatenation (.) or string at -e line 1.\n"
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "file_line",
+  "argv": [
+   "-e",
+   "print __FILE__, \" \", __LINE__, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "-e 1\n",
+    ""
+   ],
+   [
+    0,
+    "-e 1\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "-e 1\n",
+    ""
+   ],
+   [
+    0,
+    "-e 1\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "-e 1\n",
+    ""
+   ],
+   [
+    0,
+    "-e 1\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "seps",
+  "argv": [
+   "-e",
+   "print $/ eq \"\\n\" ? 1 : 0, defined $\\ ? 1 : 0, defined $, ? 1 : 0, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "100\n",
+    ""
+   ],
+   [
+    0,
+    "100\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "100\n",
+    ""
+   ],
+   [
+    0,
+    "100\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "100\n",
+    ""
+   ],
+   [
+    0,
+    "100\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "json",
+  "argv": [
+   "-MJSON::PP",
+   "-e",
+   "print JSON::PP->new->canonical->encode({b=>1,a=>[1,2]}), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ],
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ],
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ],
+   [
+    0,
+    "{\"a\":[1,2],\"b\":1}\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "dumper",
+  "argv": [
+   "-MData::Dumper",
+   "-e",
+   "$Data::Dumper::Sortkeys=1; print Dumper({a=>1,b=>[2]})"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ],
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ],
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ],
+   [
+    0,
+    "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "list_util",
+  "argv": [
+   "-MList::Util=sum,max",
+   "-e",
+   "print sum(1..10), \" \", max(3,9,2), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "55 9\n",
+    ""
+   ],
+   [
+    0,
+    "55 9\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "55 9\n",
+    ""
+   ],
+   [
+    0,
+    "55 9\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "55 9\n",
+    ""
+   ],
+   [
+    0,
+    "55 9\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "encode",
+  "argv": [
+   "-MEncode",
+   "-e",
+   "print length(encode(\"UTF-8\", \"\\x{263a}\")), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "3\n",
+    ""
+   ],
+   [
+    0,
+    "3\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "3\n",
+    ""
+   ],
+   [
+    0,
+    "3\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "3\n",
+    ""
+   ],
+   [
+    0,
+    "3\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "storable",
+  "argv": [
+   "-MStorable=dclone",
+   "-e",
+   "print dclone([1,{a=>2}])->[1]{a}, \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2\n",
+    ""
+   ],
+   [
+    0,
+    "2\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "locale",
+  "argv": [
+   "-MPOSIX",
+   "-e",
+   "print setlocale(LC_ALL), \"\\n\""
+  ],
+  "env": {
+   "LC_ALL": "C.UTF-8"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ],
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ],
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ],
+   [
+    0,
+    "C.UTF-8;C;C;C;C;C\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "redefine_w",
+  "argv": [
+   "-w",
+   "-MPOSIX",
+   "-e",
+   "print 1"
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "1",
+    ""
+   ],
+   [
+    0,
+    "1",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "1",
+    ""
+   ],
+   [
+    0,
+    "1",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "1",
+    ""
+   ],
+   [
+    0,
+    "1",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "glob_main",
+  "argv": [
+   "-e",
+   "print scalar(grep { /^POSIX::$/ } keys %main::), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "1\n",
+    ""
+   ],
+   [
+    0,
+    "1\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "1\n",
+    ""
+   ],
+   [
+    0,
+    "1\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "1\n",
+    ""
+   ],
+   [
+    0,
+    "1\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "isa_cache",
+  "argv": [
+   "-MJSON::PP",
+   "-Mmro",
+   "-e",
+   "package My; our @ISA = (\"JSON::PP::Boolean\"); package main; print My->can(\"TO_JSON\") ? 1 : 0, \" \", scalar(@{mro::get_isarev(\"JSON::PP::Boolean\")}), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "0 1\n",
+    ""
+   ],
+   [
+    0,
+    "0 1\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "0 1\n",
+    ""
+   ],
+   [
+    0,
+    "0 1\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "0 1\n",
+    ""
+   ],
+   [
+    0,
+    "0 1\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "rand_seed_env",
+  "argv": [
+   "-e",
+   "print rand(), \"\\n\""
+  ],
+  "env": {
+   "PERL_RAND_SEED": "42"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ],
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ],
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ],
+   [
+    0,
+    "0.744525000061007\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "lang_utf8",
+  "argv": [
+   "-CS",
+   "-e",
+   "print lc(\"\\x{C9}\"), \"\\n\""
+  ],
+  "env": {
+   "LANG": "C.UTF-8"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ],
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ],
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ],
+   [
+    0,
+    "\u00c9\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "hash_order",
+  "argv": [
+   "-e",
+   "my %h = map { $_ => 1 } \"a\" .. \"p\"; print join(\"\", keys %h), \"\\n\";"
+  ],
+  "env": {},
+  "kind": "varies",
+  "plain": [
+   [
+    0,
+    "dmbgafpjnkheicol\n",
+    ""
+   ],
+   [
+    0,
+    "aihknjlgpfdoembc\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "gmhelindbopafjck\n",
+    ""
+   ],
+   [
+    0,
+    "aohigefcjdmnblpk\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "olphdjcbieafnmkg\n",
+    ""
+   ],
+   [
+    0,
+    "gkfnmcjbieahpdol\n",
+    ""
+   ]
+  ],
+  "plain_varies": true,
+  "construct_varies": true,
+  "preload_varies": true
+ },
+ {
+  "case": "rand",
+  "argv": [
+   "-e",
+   "print rand(), \"\\n\""
+  ],
+  "env": {},
+  "kind": "varies",
+  "plain": [
+   [
+    0,
+    "0.430662963613035\n",
+    ""
+   ],
+   [
+    0,
+    "0.733301960238354\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "0.517387476124899\n",
+    ""
+   ],
+   [
+    0,
+    "0.56740275405264\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "0.366691557298513\n",
+    ""
+   ],
+   [
+    0,
+    "0.332827898048894\n",
+    ""
+   ]
+  ],
+  "plain_varies": true,
+  "construct_varies": true,
+  "preload_varies": true
+ },
+ {
+  "case": "hash_seed",
+  "argv": [
+   "-MHash::Util=hash_seed",
+   "-e",
+   "print unpack(\"H*\", hash_seed()), \"\\n\""
+  ],
+  "env": {},
+  "kind": "varies",
+  "plain": [
+   [
+    0,
+    "ba5e4d40292e6a9ab8d2e32e8044557f11a5255ea88a4a2e934e6a7b9ad92879\n",
+    ""
+   ],
+   [
+    0,
+    "579302c467c1a770e3be073fa1383c9465896a68876038dce16ffe637f1c1aa5\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "783af19209e0644e16602ccb16fa0295e296df61f163c8d503144a892b6d0a76\n",
+    ""
+   ],
+   [
+    0,
+    "ad97ffc1bba6d3b4b82fd596221106bd92b454a553ab103bd6b10b8df09cb61d\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2c0ebc2ebd0f7b8d289621911ef1dd27d612103c1b85ce93dd04fccd8a024700\n",
+    ""
+   ],
+   [
+    0,
+    "2c0ebc2ebd0f7b8d289621911ef1dd27d612103c1b85ce93dd04fccd8a024700\n",
+    ""
+   ]
+  ],
+  "plain_varies": true,
+  "construct_varies": true,
+  "preload_varies": false
+ },
+ {
+  "case": "hash_seed_env",
+  "argv": [
+   "-MHash::Util=hash_seed",
+   "-e",
+   "print unpack(\"H*\", hash_seed()), \"\\n\""
+  ],
+  "env": {
+   "PERL_HASH_SEED": "0",
+   "PERL_PERTURB_KEYS": "0"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "0000000000000000000000000000000000000000000000000000000000000000\n",
+    ""
+   ],
+   [
+    0,
+    "0000000000000000000000000000000000000000000000000000000000000000\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "0000000000000000000000000000000000000000000000000000000000000000\n",
+    ""
+   ],
+   [
+    0,
+    "0000000000000000000000000000000000000000000000000000000000000000\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "2c0ebc2ebd0f7b8d289621911ef1dd27d612103c1b85ce93dd04fccd8a024700\n",
+    ""
+   ],
+   [
+    0,
+    "2c0ebc2ebd0f7b8d289621911ef1dd27d612103c1b85ce93dd04fccd8a024700\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": false
+ },
+ {
+  "case": "hash_order_env",
+  "argv": [
+   "-e",
+   "my %h = map { $_ => 1 } \"a\" .. \"p\"; print join(\"\", keys %h), \"\\n\";"
+  ],
+  "env": {
+   "PERL_HASH_SEED": "0",
+   "PERL_PERTURB_KEYS": "0"
+  },
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "keidbahlfcojngmp\n",
+    ""
+   ],
+   [
+    0,
+    "keidbahlfcojngmp\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "keidbahlfcojngmp\n",
+    ""
+   ],
+   [
+    0,
+    "keidbahlfcojngmp\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "nmfkgloieabjcdph\n",
+    ""
+   ],
+   [
+    0,
+    "nmfkgloieabjcdph\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": false
+ },
+ {
+  "case": "leak_set",
+  "argv": [
+   "-e",
+   "$POSIX::planted = \"secret\"; *POSIX::floor = sub { 666 }; print \"set\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "set\n",
+    ""
+   ],
+   [
+    0,
+    "set\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "set\n",
+    ""
+   ],
+   [
+    0,
+    "set\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "set\n",
+    ""
+   ],
+   [
+    0,
+    "set\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ },
+ {
+  "case": "leak_check",
+  "argv": [
+   "-MPOSIX=floor",
+   "-e",
+   "print defined $POSIX::planted ? \"LEAK\" : \"clean\", \" \", floor(1.5), \"\\n\""
+  ],
+  "env": {},
+  "kind": "same",
+  "plain": [
+   [
+    0,
+    "clean 1\n",
+    ""
+   ],
+   [
+    0,
+    "clean 1\n",
+    ""
+   ]
+  ],
+  "construct": [
+   [
+    0,
+    "clean 1\n",
+    ""
+   ],
+   [
+    0,
+    "clean 1\n",
+    ""
+   ]
+  ],
+  "preload": [
+   [
+    0,
+    "clean 1\n",
+    ""
+   ],
+   [
+    0,
+    "clean 1\n",
+    ""
+   ]
+  ],
+  "construct_same": true,
+  "preload_same": true
+ }
+]
