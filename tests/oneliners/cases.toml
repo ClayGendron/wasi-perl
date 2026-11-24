@@ -1,0 +1,1308 @@
+# The one-liner corpus: Perl commands of the kind coding agents run, over small files.
+#
+# Nothing here says what a case should print. The expected result is whatever native
+# perl 5.42.3 does with the same argv, files, stdin and environment, run at test time
+# (or recorded from it). A case is compared on stdout bytes, stderr bytes, exit code and
+# the final contents of every file and folder in its work directory.
+#
+# A case has:
+#   id        unique, used as the pytest id
+#   category  one of the categories listed in the specification
+#   argv      the arguments after "perl", exactly as a shell would pass them
+#   fixtures  names of file sets from [fixtures.*] laid out in the work directory
+#   files     extra files for this case only (name -> content)
+#   stdin     optional text on standard input (none means an empty stdin)
+#   env       optional extra environment variables
+#
+# A file's content is a TOML string (written as UTF-8) or { base64 = "..." } for bytes.
+# A name ending in "/" makes an empty folder.
+#
+# Rules every case keeps, so that the oracle is a fair one:
+#   - no output depends on hash order: keys are sorted before they are printed;
+#   - no time, pid, random number, %ENV dump, $^O or memory address in the output;
+#   - file names are relative to the work directory; readdir results are sorted.
+
+# ---------------------------------------------------------------------------
+# File sets
+
+[fixtures.log]
+"app.log" = """
+2026-11-20 10:00:01 INFO start service
+2026-11-20 10:00:02 WARN disk 81% full
+2026-11-20 10:00:05 ERROR db timeout after 30s
+2026-11-20 10:01:00 INFO request id=17 ms=120
+2026-11-20 10:01:02 error retry id=17
+2026-11-20 10:02:00 INFO request id=18 ms=95
+2026-11-20 10:03:00 ERROR db timeout after 30s
+2026-11-20 10:04:00 INFO stop service
+"""
+
+[fixtures.abc]
+"a.txt" = """
+alpha foo
+beta
+gamma foo foo
+"""
+"b.txt" = """
+one
+two foo
+"""
+"c.txt" = """
+x
+y
+z
+"""
+
+[fixtures.csv]
+"data.csv" = """
+name,dept,salary,start
+alice,eng,120000,2019-03-01
+bob,ops,95000,2020-07-15
+carol,eng,135000,2018-01-10
+dave,sales,70000,2021-11-30
+erin,ops,99000,2017-05-22
+"""
+
+[fixtures.tsv]
+"scores.tsv" = "id\tname\tscore\n1\tann\t91.5\n2\tben\t78\n3\tcat\t88.25\n4\tdan\t60\n"
+
+[fixtures.passwd]
+"passwd.txt" = """
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+alice:x:1000:1000:Alice:/home/alice:/bin/zsh
+bob:x:1001:1001:Bob:/home/bob:/bin/bash
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+"""
+
+[fixtures.src]
+"main.c" = """
+#include "util.h"
+int foo(int x);
+int main(void) { return foo(1) + foobar(2); }
+"""
+"util.c" = """
+int foo(int x) { return x * 2; } /* foo doubles */
+int foobar(int y) { return y; }
+"""
+
+[fixtures.ini]
+"config.ini" = """
+# settings
+[core]
+name=demo
+url=http://example.test/?a=b
+; legacy
+[extra]
+debug=0
+"""
+
+[fixtures.notes]
+"notes.txt" = """
+First paragraph line one.
+Still the first paragraph.
+
+
+
+TODO: second paragraph
+has two lines.
+
+Third paragraph, the last one.
+the end
+"""
+
+[fixtures.html]
+"page.html" = """
+<html><body>
+<p>Hello <b>
+  bold
+  words </b> and <b>more</b>.</p>
+<div class="x">tail</div>
+</body></html>
+"""
+
+[fixtures.nums]
+"nums.txt" = """
+a 10
+b 20.5
+c -3
+d 1e3
+"""
+
+[fixtures.words]
+"words.txt" = """
+café
+straße
+naïve
+日本語
+Zürich
+apple
+"""
+
+[fixtures.dups]
+"dups.txt" = """
+pear
+apple
+pear
+fig
+apple
+pear
+banana
+"""
+
+[fixtures.bin]
+"bin.dat" = { base64 = "UEsDBAAB//5iaW5hcnkNCgBlbmQ=" }
+
+[fixtures.dos]
+"dos.txt" = "line one\r\nline two\r\n\r\nlast\r\n"
+
+[fixtures.tree]
+"subdir/x.txt" = "x\n"
+"subdir/deeper/y.txt" = "y\n"
+"empty/" = ""
+
+[fixtures.jsonl]
+"records.jsonl" = """
+{"name":"alice","tags":["a","b"],"n":1}
+{"name":"bob","tags":[],"n":41}
+{"name":"caf\\u00e9","tags":["x"],"n":-2}
+"""
+"state.json" = """
+{"count": 9, "items": ["b", "a"], "meta": {"ok": true, "ratio": 0.25}}
+"""
+
+# ---------------------------------------------------------------------------
+# grep: print matching lines
+
+[[case]]
+id = "grep-match"
+category = "grep"
+argv = ["-ne", 'print if /ERROR/', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-icase"
+category = "grep"
+argv = ["-ne", 'print if /error/i', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-invert"
+category = "grep"
+argv = ["-ne", 'print unless /INFO/', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-count"
+category = "grep"
+argv = ["-ne", '$n++ if /INFO/; END { print "$n\n" }', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-line-numbers"
+category = "grep"
+argv = ["-ne", 'print "$.:$_" if /timeout/', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-capture"
+category = "grep"
+argv = ["-nle", 'print $1 if /id=(\d+)/', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-all-matches"
+category = "grep"
+argv = ["-nle", 'print for /\b(\d{2}:\d{2}):\d{2}\b/g', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-files-with-matches"
+category = "grep"
+argv = ["-ne", 'if (/foo/) { print "$ARGV\n"; close ARGV }', "a.txt", "b.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "grep-stdin"
+category = "grep"
+argv = ["-ne", 'print if /b/']
+stdin = "abc\nxyz\nbbb\n"
+
+[[case]]
+id = "grep-flipflop-regex"
+category = "grep"
+argv = ["-ne", 'print if /WARN/../timeout/', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-flipflop-lines"
+category = "grep"
+argv = ["-ne", 'print if 2..4', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-head-exit"
+category = "grep"
+argv = ["-ne", 'print; exit if $. == 3', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-previous-line"
+category = "grep"
+argv = ["-ne", 'print $p, $_ if /ERROR/; $p = $_', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "grep-named-captures"
+category = "grep"
+argv = ["-nle", 'print "$+{date} $+{level}" if /^(?<date>\S+) \S+ (?<level>[A-Z]+)/', "app.log"]
+fixtures = ["log"]
+
+# ---------------------------------------------------------------------------
+# multifile: $., eof and $ARGV across several files
+
+[[case]]
+id = "multi-line-numbers-continue"
+category = "multifile"
+argv = ["-ne", 'print "$ARGV:$.:$_"', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-eof-resets"
+category = "multifile"
+argv = ["-ne", 'print "$ARGV:$.:$_"; close ARGV if eof', "a.txt", "b.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-eof-parens-last-file"
+category = "multifile"
+argv = ["-ne", 'print "last: $_" if eof()', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-count-per-file"
+category = "multifile"
+argv = ["-ne", '$c{$ARGV}++; END { print "$_ $c{$_}\n" for sort keys %c }', "a.txt", "b.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-first-line-each"
+category = "multifile"
+argv = ["-ne", 'print "$ARGV: $_" if $. == 1; close ARGV if eof', "a.txt", "b.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-stdin-dash"
+category = "multifile"
+argv = ["-ne", 'print "$ARGV $_"', "a.txt", "-", "b.txt"]
+fixtures = ["abc"]
+stdin = "from stdin\n"
+
+[[case]]
+id = "multi-end-total"
+category = "multifile"
+argv = ["-ne", 'END { print "$.\n" }', "a.txt", "b.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-tac"
+category = "multifile"
+argv = ["-e", 'print reverse <>', "a.txt", "c.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "multi-tail"
+category = "multifile"
+argv = ["-e", '@l = <>; print @l[-2, -1]', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "multi-number-lines"
+category = "multifile"
+argv = ["-pe", 's/^/sprintf("%4d ", $.)/e', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+# ---------------------------------------------------------------------------
+# fields: -a, -F, columns and sums
+
+[[case]]
+id = "fields-column"
+category = "fields"
+argv = ["-lane", 'print $F[3]', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fields-sum"
+category = "fields"
+argv = ["-lane", '$s += $F[1]; END { print $s }', "nums.txt"]
+fixtures = ["nums"]
+
+[[case]]
+id = "fields-last"
+category = "fields"
+argv = ["-lane", 'print $F[-1]', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fields-count"
+category = "fields"
+argv = ["-lane", 'print scalar @F', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "fields-csv-filter"
+category = "fields"
+argv = ["-F,", "-lane", 'print $F[0] if $F[1] eq "eng"', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fields-csv-group-sum"
+category = "fields"
+argv = ["-F,", "-lane", 'next if $. == 1; $t{$F[1]} += $F[2]; END { printf "%s %d\n", $_, $t{$_} for sort keys %t }', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fields-csv-header-map"
+category = "fields"
+argv = ["-F,", "-lane", 'if ($. == 1) { @h = @F; next } my %r; @r{@h} = @F; print "$r{name}=$r{start}"', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fields-csv-table"
+category = "fields"
+argv = ["-F,", "-lane", 'printf "%-8s|%6s|%10s\n", @F[0 .. 2]', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "fields-passwd"
+category = "fields"
+argv = ["-F:", "-lane", 'print "$F[0] $F[6]" if $F[2] >= 1000', "passwd.txt"]
+fixtures = ["passwd"]
+
+[[case]]
+id = "fields-tsv-swap"
+category = "fields"
+argv = ['-F\t', "-lane", 'print join ",", @F[1, 0]', "scores.tsv"]
+fixtures = ["tsv"]
+
+[[case]]
+id = "fields-tsv-average"
+category = "fields"
+argv = ['-F\t', "-lane", 'next if $. == 1; $s += $F[2]; $n++; END { printf "%.3f\n", $s / $n }', "scores.tsv"]
+fixtures = ["tsv"]
+
+[[case]]
+id = "fields-regex-separator"
+category = "fields"
+argv = ['-F/\s*\|\s*/', "-lane", 'print $F[1]']
+stdin = "a | b | c\nd|e|f\n1 |2| 3\n"
+
+[[case]]
+id = "fields-max"
+category = "fields"
+argv = ["-lane", '$m = $F[1] if !defined $m || $F[1] > $m; END { print $m }', "nums.txt"]
+fixtures = ["nums"]
+
+[[case]]
+id = "fields-split-limit"
+category = "fields"
+argv = ["-lne", 'next unless /=/; my ($k, $v) = split /=/, $_, 2; print "$k -> $v"', "config.ini"]
+fixtures = ["ini"]
+
+[[case]]
+id = "fields-reverse-columns"
+category = "fields"
+argv = ["-lane", 'print join "\t", reverse @F', "nums.txt"]
+fixtures = ["nums"]
+
+# ---------------------------------------------------------------------------
+# inplace: -i, with and without backups
+
+[[case]]
+id = "inplace-sub-several-files"
+category = "inplace"
+argv = ["-pi", "-e", 's/foo/bar/g', "main.c", "util.c"]
+fixtures = ["src"]
+
+[[case]]
+id = "inplace-backup-suffix"
+category = "inplace"
+argv = ["-pi.bak", "-e", 's/\bfoo\b/baz/g', "main.c", "util.c"]
+fixtures = ["src"]
+
+[[case]]
+id = "inplace-backup-star"
+category = "inplace"
+argv = ["-iorig_*", "-pe", 's/^/# /', "config.ini"]
+fixtures = ["ini"]
+
+[[case]]
+id = "inplace-delete-comments"
+category = "inplace"
+argv = ["-ni", "-e", 'print unless /^\s*(#|;)/', "config.ini"]
+fixtures = ["ini"]
+
+[[case]]
+id = "inplace-print-argvout"
+category = "inplace"
+argv = ["-i", "-ne", 'print ARGVOUT uc; print STDOUT "$ARGV:$.\n" if eof; close ARGV if eof', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "inplace-slurp"
+category = "inplace"
+argv = ["-0777", "-pi", "-e", 's/\n{3,}/\n\n/g', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "inplace-begin-suffix"
+category = "inplace"
+argv = ["-pe", 'BEGIN { $^I = ".orig" } s/(-?\d+)/$1*2/e', "nums.txt"]
+fixtures = ["nums"]
+
+[[case]]
+id = "inplace-strip-cr"
+category = "inplace"
+argv = ["-pi", "-e", 's/\r$//', "dos.txt"]
+fixtures = ["dos"]
+
+[[case]]
+id = "inplace-missing-file"
+category = "inplace"
+argv = ["-pi", "-e", 's/a/A/', "nosuch.txt", "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "inplace-directory"
+category = "inplace"
+argv = ["-pi", "-e", 's/a/b/', "subdir"]
+fixtures = ["tree"]
+
+[[case]]
+id = "inplace-append-at-eof"
+category = "inplace"
+argv = ["-pi", "-e", '$_ .= "added\n" if eof', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "inplace-insert-header"
+category = "inplace"
+argv = ["-pi", "-e", 'print "// header\n" if $. == 1; close ARGV if eof', "main.c", "util.c"]
+fixtures = ["src"]
+
+[[case]]
+id = "inplace-with-l"
+category = "inplace"
+argv = ["-lpi", "-e", '$_ .= ";"', "a.txt"]
+fixtures = ["abc"]
+
+# ---------------------------------------------------------------------------
+# records: -0777 slurp, -00 paragraphs, -0 NUL records, $/
+
+[[case]]
+id = "records-slurp-count"
+category = "records"
+argv = ["-0777", "-ne", 'print scalar(() = /timeout/g), "\n"', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "records-slurp-multiline-sub"
+category = "records"
+argv = ["-0777", "-pe", 's{<b>\s*(.*?)\s*</b>}{**$1**}gs', "page.html"]
+fixtures = ["html"]
+
+[[case]]
+id = "records-slurp-binary-length"
+category = "records"
+argv = ["-0777", "-ne", 'print length, "\n"', "bin.dat"]
+fixtures = ["bin"]
+
+[[case]]
+id = "records-slurp-hex"
+category = "records"
+argv = ["-0777", "-ne", 'print unpack("H*", $_), "\n"', "bin.dat"]
+fixtures = ["bin"]
+
+[[case]]
+id = "records-paragraph-grep"
+category = "records"
+argv = ["-00", "-ne", 'print if /todo/i', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "records-paragraph-count"
+category = "records"
+argv = ["-00", "-ne", 'END { print "$.\n" }', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "records-paragraph-join"
+category = "records"
+argv = ["-00", "-lne", 'print "[", join("|", split /\n/), "]"', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "records-local-slash"
+category = "records"
+argv = ["-e", 'open my $f, "<", "page.html" or die "open: $!"; my $c = do { local $/; <$f> }; my @t = $c =~ /<(\w+)/g; print scalar(@t), " tags: @t\n"']
+fixtures = ["html"]
+
+[[case]]
+id = "records-custom-separator"
+category = "records"
+argv = ["-ne", 'BEGIN { $/ = ";" } chomp; s/^\s+//; print "<$_>\n"']
+stdin = "select 1;\nselect 2; drop x;"
+
+[[case]]
+id = "records-nul-separated"
+category = "records"
+argv = ["-0", "-ne", 'chomp; print "<$_>\n"', "nul.dat"]
+files = { "nul.dat" = { base64 = "YQBiAGMA" } }
+
+[[case]]
+id = "records-fixed-size"
+category = "records"
+argv = ["-e", '$/ = \4; while (<>) { print "[$_]" } print "\n"', "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "records-stdin-slurp"
+category = "records"
+argv = ["-0777", "-ne", 'print scalar(split /\n/), " lines\n"']
+stdin = "1\n2\n3\n4\n"
+
+# ---------------------------------------------------------------------------
+# counting: uniq, sort, frequencies
+
+[[case]]
+id = "count-uniq-seen"
+category = "counting"
+argv = ["-ne", 'print unless $seen{$_}++', "dups.txt"]
+fixtures = ["dups"]
+
+[[case]]
+id = "count-by-frequency"
+category = "counting"
+argv = ["-ne", '$c{$_}++; END { print "$c{$_} $_" for sort { $c{$b} <=> $c{$a} || $a cmp $b } keys %c }', "dups.txt"]
+fixtures = ["dups"]
+
+[[case]]
+id = "count-word-frequency"
+category = "counting"
+argv = ["-nle", '$w{lc $1}++ while /(\w+)/g; END { printf "%-10s %d\n", $_, $w{$_} for (sort { $w{$b} <=> $w{$a} || $a cmp $b } keys %w)[0 .. 4] }', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "count-sort-numeric"
+category = "counting"
+argv = ["-e", 'print sort { $a <=> $b } <>']
+stdin = "10\n9\n100\n-1\n3.5\n1e2\n"
+
+[[case]]
+id = "count-sort-by-column"
+category = "counting"
+argv = ["-e", 'print map { $_->[1] } sort { $b->[0] <=> $a->[0] } map { [(split /,/)[2], $_] } grep { !/^name/ } <>', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "count-sort-unique"
+category = "counting"
+argv = ["-e", 'my %s; $s{$_}++ for <>; print sort keys %s', "dups.txt"]
+fixtures = ["dups"]
+
+[[case]]
+id = "count-sort-by-length"
+category = "counting"
+argv = ["-e", 'print sort { length($a) <=> length($b) or $a cmp $b } <>', "dups.txt"]
+fixtures = ["dups"]
+
+[[case]]
+id = "count-hash-size"
+category = "counting"
+argv = ["-ne", '$h{$_} = 1; END { print scalar(keys %h), " ", scalar(%h), "\n" }', "dups.txt"]
+fixtures = ["dups"]
+
+[[case]]
+id = "count-large-sort"
+category = "counting"
+argv = ["-e", 'my @n = map { ($_ * 7919) % 1000 } 1 .. 500; my @s = sort { $a <=> $b } @n; print "@s[0 .. 9] | @s[-5 .. -1]\n"; my %c; $c{$_}++ for @n; print scalar(keys %c), "\n"']
+
+# ---------------------------------------------------------------------------
+# text: tr///, sprintf, case, regex features
+
+[[case]]
+id = "text-tr-upper"
+category = "text"
+argv = ["-pe", 'tr/a-z/A-Z/', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "text-tr-count"
+category = "text"
+argv = ["-ne", '$n += tr/,//; END { print "$n\n" }', "data.csv"]
+fixtures = ["csv"]
+
+[[case]]
+id = "text-tr-delete-complement"
+category = "text"
+argv = ["-pe", 'tr/a-zA-Z\n//cd', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "text-tr-squeeze-and-r"
+category = "text"
+argv = ["-le", 'my $s = "a   b    c"; (my $t = $s) =~ tr/ //s; print $t; print "hello" =~ tr/a-y/b-z/r; ($x = "a-b_c") =~ tr/-_/  /; print $x']
+
+[[case]]
+id = "text-sprintf-formats"
+category = "text"
+argv = ["-e", 'printf "%05.2f|%e|%g|%g|%x|%X|%o|%b|%-6s|%6s|%.3s|%+d|%%|%c\n", 3.14159, 12345.678, 0.0001, 1e20, 255, 255, 8, 5, "ab", "cd", "abcdef", 7, 65']
+
+[[case]]
+id = "text-sprintf-rounding"
+category = "text"
+argv = ["-e", 'printf "%.2f %.2f %.0f %.0f %.0f %.1f %.3g %.10g\n", 2.675, 1.005, 0.5, 1.5, 2.5, 0.05, 1234.5, 1/7']
+
+[[case]]
+id = "text-sprintf-star-and-vector"
+category = "text"
+argv = ["-e", 'printf "%*d|%-*s|%vd|%s|%s\n", 6, 42, 5, "x", "1.22.333", sprintf("%03d", 7), "-" x 10']
+
+[[case]]
+id = "text-commify"
+category = "text"
+argv = ["-e", 'for (1234567, 1000, 999, 12345678901) { my $n = reverse $_; $n =~ s/(\d{3})(?=\d)/$1,/g; print scalar reverse($n), "\n" }']
+
+[[case]]
+id = "text-ucfirst-lc"
+category = "text"
+argv = ["-pe", '$_ = ucfirst lc']
+stdin = "HELLO WORLD\nmIxEd CaSe\n"
+
+[[case]]
+id = "text-subst-r-and-e"
+category = "text"
+argv = ["-e", 'my $s = "a1b22c333"; print $s =~ s/(\d+)/"<" . length($1) . ">"/ger, "\n"; (my $t = $s) =~ s/\d/X/g; print "$t\n"']
+
+[[case]]
+id = "text-map-grep-join"
+category = "text"
+argv = ["-le", 'print join ",", map { $_ * $_ } grep { $_ % 2 } 1 .. 9']
+
+[[case]]
+id = "text-output-separators"
+category = "text"
+argv = ["-e", '$, = "-"; $\ = "!\n"; print 1, 2, 3; { local $" = ":"; my @a = (4, 5); print "@a" }']
+
+[[case]]
+id = "text-reverse-lines"
+category = "text"
+argv = ["-lpe", '$_ = reverse', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "text-line-lengths"
+category = "text"
+argv = ["-lne", 'print length', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "text-string-functions"
+category = "text"
+argv = ["-le", 'my $s = "  Hello, World  "; (my $t = $s) =~ s/^\s+|\s+$//g; print "[$t]"; print lc($t) =~ tr/a-z//; print join "|", split //, "abc"; print "ab" x 3; print substr("abcdef", 2, 3); print index("hello", "l"), rindex("hello", "l"); print join " ", map { ucfirst } qw(a b)']
+
+[[case]]
+id = "text-pos-and-g"
+category = "text"
+argv = ["-le", 'my $s = "aaabbbcccd"; while ($s =~ /(\w)\1*/g) { print "$1 ", pos $s }']
+
+[[case]]
+id = "text-big-regex"
+category = "text"
+argv = ["-le", 'my $s = "ab" x 50000; print $s =~ /^(?:ab)*$/ ? "match" : "no"; my @m = ($s =~ /b/g); print scalar @m']
+
+# ---------------------------------------------------------------------------
+# numbers: integers, 64-bit, floats, formatting
+
+[[case]]
+id = "num-int64-limits"
+category = "numbers"
+argv = ["-le", 'print 9223372036854775807; print 9223372036854775807 + 1; print -9223372036854775808; print 18446744073709551615; print ~0; print 2**53 + 1; print 4294967295 + 1; print 9007199254740993']
+
+[[case]]
+id = "num-integer-ops"
+category = "numbers"
+argv = ["-le", 'print int(-7/2); print -7 % 3; print 7 % -3; { use integer; print -7 / 2; print -7 % 3 } print 2**10; print 1_000_000 * 1_000_000; print 0xFFFF_FFFF * 0xFFFF_FFFF; print 1 << 40; print 0xFF & ~0x0F']
+
+[[case]]
+id = "num-float-print"
+category = "numbers"
+argv = ["-le", 'print 0.1 + 0.2; print 1/3; print 1e21; print 2**64; print 1e15 + 0.3; print 3.0; print -0.5e-5; print 10/3*3; print int((0.1 + 0.7) * 10); print 1.15 * 100']
+
+[[case]]
+id = "num-libm"
+category = "numbers"
+argv = ["-le", 'print sqrt(2); print atan2(1, 1) * 4; print exp(1); print log(10); print sin(1); print cos(0.5); print 2**0.5; print 10**-2; print abs(-3.5)']
+
+[[case]]
+id = "num-inf-nan"
+category = "numbers"
+argv = ["-le", 'print 9**9**9; print -9**9**9; print "inf" + 0; print "nan" + 0; print((9**9**9) / (9**9**9) == 0 ? "eq" : "ne")']
+
+[[case]]
+id = "num-hex-oct"
+category = "numbers"
+argv = ["-le", 'print hex("ff"); print hex("0xDEADBEEF"); print oct("755"); print oct("0b1011"); print oct("0x1F"); printf "%#x %#o %#b\n", 255, 8, 5']
+
+[[case]]
+id = "num-sprintf-big"
+category = "numbers"
+argv = ["-e", 'printf "%d %u %s %.0f %x %d\n", 2**62, 2**63, 2**63, 2**63, 2**40, -2**63']
+
+[[case]]
+id = "num-pack-unpack"
+category = "numbers"
+argv = ["-le", 'print join ",", unpack("N n C", pack("N n C", 305419896, 4660, 255)); print unpack("H*", pack("V", 1)); print unpack("%32C*", "abc"); print length pack("q", 1); print join ",", unpack("q<", pack("q<", -2)); print unpack("H*", pack("d>", 1.5))']
+
+[[case]]
+id = "num-sum-floats"
+category = "numbers"
+argv = ["-lne", '$s += $_; END { print $s; printf "%.2f\n", $s }']
+stdin = "0.1\n0.2\n0.3\n1e-3\n"
+
+[[case]]
+id = "num-loop-sum"
+category = "numbers"
+argv = ["-e", 'my $t = 0; $t += $_ * $_ for 1 .. 100000; print "$t\n"']
+
+[[case]]
+id = "num-bigint-module"
+category = "numbers"
+argv = ["-MMath::BigInt", "-le", 'print Math::BigInt->new(2)**100; print Math::BigInt->new("123456789012345678901234567890") * 3']
+
+[[case]]
+id = "num-bigint-pragma"
+category = "numbers"
+argv = ["-Mbigint", "-le", 'print 2**100; print 30 / 7']
+
+[[case]]
+id = "num-fib"
+category = "numbers"
+argv = ["-e", 'sub fib { my $n = shift; $n < 2 ? $n : fib($n - 1) + fib($n - 2) } print join(",", map { fib($_) } 0 .. 20), "\n"']
+
+# ---------------------------------------------------------------------------
+# modules: core modules loaded with -M
+
+[[case]]
+id = "mod-list-util"
+category = "modules"
+argv = ["-MList::Util=sum,sum0,max,min,first,uniq,reduce,maxstr", "-le", 'my @a = (3, 9, 2, 9, 4); print sum(@a); print sum0(); print max(@a); print min(@a); print first { $_ > 3 } @a; print join ",", uniq @a; print reduce { $a * $b } @a; print maxstr("apple", "pear", "fig")']
+
+[[case]]
+id = "mod-list-util-fields"
+category = "modules"
+argv = ["-MList::Util=sum,max", "-lane", 'print sum(@F[1 .. $#F]), " ", max(@F[1 .. $#F])']
+stdin = "r1 1 2 3\nr2 10 -5 7\n"
+
+[[case]]
+id = "mod-scalar-util"
+category = "modules"
+argv = ["-MScalar::Util=blessed,reftype,looks_like_number", "-le", 'my $o = bless {}, "Foo"; print blessed($o); print reftype($o); print blessed([]) // "undef"; print join ",", map { looks_like_number($_) ? 1 : 0 } 1, "1e5", "abc", "0x10", " 12 ", "Inf"']
+
+[[case]]
+id = "mod-data-dumper"
+category = "modules"
+argv = ["-MData::Dumper", "-e", '$Data::Dumper::Sortkeys = 1; $Data::Dumper::Indent = 1; print Dumper({ name => "x", list => [1, 2.5, "3"], nested => { b => undef, a => "q\"uote" } })']
+
+[[case]]
+id = "mod-data-dumper-terse"
+category = "modules"
+argv = ["-MData::Dumper", "-e", '$Data::Dumper::Terse = 1; $Data::Dumper::Useqq = 1; $Data::Dumper::Sortkeys = 1; print Dumper(["tab\there", "nl\n", { k => [], n => -1.5 }])']
+
+[[case]]
+id = "mod-json-encode"
+category = "modules"
+argv = ["-MJSON::PP", "-e", 'print JSON::PP->new->canonical->encode({ b => [1, "2", 3.5, undef], a => { t => JSON::PP::true, f => JSON::PP::false }, s => "caf\x{e9}" }), "\n"']
+
+[[case]]
+id = "mod-json-pretty"
+category = "modules"
+argv = ["-MJSON::PP", "-e", 'print JSON::PP->new->canonical->pretty->encode({ z => 1, a => [ { k => "v" }, 2 ] })']
+
+[[case]]
+id = "mod-json-decode-lines"
+category = "modules"
+argv = ["-MJSON::PP", "-ne", 'my $d = decode_json($_); print join(",", $d->{name} =~ /^\w+$/a ? $d->{name} : "non-ascii", scalar @{ $d->{tags} }, $d->{n} + 1), "\n"', "records.jsonl"]
+fixtures = ["jsonl"]
+
+[[case]]
+id = "mod-json-update-file"
+category = "modules"
+argv = ["-MJSON::PP", "-0777", "-i", "-ne", 'my $d = JSON::PP->new->decode($_); $d->{count}++; @{ $d->{items} } = sort @{ $d->{items} }; print JSON::PP->new->canonical->encode($d), "\n"', "state.json"]
+fixtures = ["jsonl"]
+
+[[case]]
+id = "mod-posix-math"
+category = "modules"
+argv = ["-MPOSIX=floor,ceil,fmod,strtol,INT_MAX,DBL_DIG", "-le", 'print floor(-2.5); print ceil(2.1); print fmod(10, 3); print +(strtol("ff", 16))[0]; print INT_MAX; print DBL_DIG']
+
+[[case]]
+id = "mod-posix-strftime"
+category = "modules"
+argv = ["-MPOSIX=strftime", "-le", 'print strftime("%Y-%m-%d %H:%M:%S %a %b %j", gmtime(1700000000)); print strftime("%A %d %B %Y", gmtime(0))']
+
+[[case]]
+id = "mod-gmtime"
+category = "modules"
+argv = ["-le", 'print scalar gmtime(0); print scalar gmtime(1700000000); my @t = gmtime(86400 * 365); print join ",", @t']
+
+[[case]]
+id = "mod-time-local"
+category = "modules"
+argv = ["-MTime::Local=timegm", "-le", 'print timegm(0, 0, 0, 1, 0, 2000); print timegm(59, 59, 23, 31, 11, 2037)']
+
+[[case]]
+id = "mod-time-piece"
+category = "modules"
+argv = ["-MTime::Piece", "-le", 'my $t = gmtime(1700000000); print $t->ymd; print $t->hms; print $t->strftime("%Y/%m/%d")']
+
+[[case]]
+id = "mod-digest-md5"
+category = "modules"
+argv = ["-MDigest::MD5=md5_hex", "-le", 'print md5_hex("hello world"); print md5_hex("")']
+
+[[case]]
+id = "mod-digest-md5-file"
+category = "modules"
+argv = ["-MDigest::MD5", "-le", 'open my $f, "<", "bin.dat" or die; binmode $f; print Digest::MD5->new->addfile($f)->hexdigest']
+fixtures = ["bin"]
+
+[[case]]
+id = "mod-digest-sha"
+category = "modules"
+argv = ["-MDigest::SHA=sha256_hex,sha1_hex", "-le", 'print sha256_hex("abc"); print sha1_hex("abc")']
+
+[[case]]
+id = "mod-digest-sha-lines"
+category = "modules"
+argv = ["-MDigest::SHA=sha256_hex", "-nle", 'print substr(sha256_hex($_), 0, 12), " $_"', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "mod-mime-base64"
+category = "modules"
+argv = ["-MMIME::Base64", "-le", 'print encode_base64("hello, world", ""); print decode_base64("aGVsbG8="); print encode_base64("x" x 60)']
+
+[[case]]
+id = "mod-file-basename"
+category = "modules"
+argv = ["-MFile::Basename", "-le", 'print basename("dir/sub/file.tar.gz"); print dirname("dir/sub/file.tar.gz"); my ($n, $d, $s) = fileparse("dir/file.tar.gz", qr/\.[^.]*/); print "$n|$d|$s"; print dirname("file")']
+
+[[case]]
+id = "mod-file-spec"
+category = "modules"
+argv = ["-MFile::Spec", "-le", 'print File::Spec->catfile("a", "b", "c.txt"); print File::Spec->catdir("x", "y"); print join "|", File::Spec->splitdir("p/q/r"); print File::Spec->canonpath("a//b/./c/"); print File::Spec->abs2rel("a/b/c", "a"); print File::Spec->file_name_is_absolute("/x") ? "abs" : "rel"']
+
+[[case]]
+id = "mod-cwd-relative"
+category = "modules"
+argv = ["-MCwd", "-e", 'my $c = cwd; mkdir "sub" or die "mkdir: $!"; chdir "sub" or die "chdir: $!"; print substr(cwd, length $c), "\n"; print -e "../a.txt" ? "sees parent\n" : "no parent\n"']
+fixtures = ["abc"]
+
+[[case]]
+id = "mod-cwd-abs-path"
+category = "modules"
+argv = ["-MCwd=abs_path,getcwd", "-le", 'my $c = getcwd; print abs_path("subdir/../subdir/x.txt") eq "$c/subdir/x.txt" ? "ok" : "bad"; print abs_path(".") eq $c ? "ok" : "bad"']
+fixtures = ["tree"]
+
+[[case]]
+id = "mod-text-wrap"
+category = "modules"
+argv = ["-MText::Wrap", "-e", '$Text::Wrap::columns = 30; print wrap("> ", "  ", "The quick brown fox jumps over the lazy dog and keeps on running far away."), "\n"']
+
+[[case]]
+id = "mod-text-parsewords"
+category = "modules"
+argv = ["-MText::ParseWords", "-nle", 'print join "|", parse_line(",", 0, $_)']
+stdin = "a,\"b,c\",d\n\"x \"\"y\"\"\",z\n"
+
+[[case]]
+id = "mod-storable-dclone"
+category = "modules"
+argv = ["-MStorable=dclone", "-le", 'my $x = { l => [1, 2] }; my $y = dclone($x); push @{ $y->{l} }, 3; print scalar @{ $x->{l} }, " ", scalar @{ $y->{l} }']
+
+[[case]]
+id = "mod-encode"
+category = "modules"
+argv = ["-MEncode=decode,encode", "-le", 'my $s = decode("UTF-8", "caf\xc3\xa9"); print length $s; print length encode("UTF-16BE", $s); print encode("iso-8859-1", $s) eq "caf\xe9" ? "latin1 ok" : "bad"']
+
+[[case]]
+id = "mod-file-path-copy"
+category = "modules"
+argv = ["-MFile::Path=make_path", "-MFile::Copy", "-e", 'make_path("out/deep/er") or die "make_path"; copy("a.txt", "out/deep/er/a.copy") or die "copy: $!"; move("b.txt", "out/b.moved") or die "move: $!"; print "done\n"']
+fixtures = ["abc"]
+
+[[case]]
+id = "mod-file-find"
+category = "modules"
+argv = ["-MFile::Find", "-e", 'find({ wanted => sub { print "$File::Find::name\n" }, preprocess => sub { sort @_ } }, ".")']
+fixtures = ["tree", "abc"]
+
+[[case]]
+id = "mod-term-ansicolor"
+category = "modules"
+argv = ["-MTerm::ANSIColor", "-e", 'print colored("warn", "bold red"), "\n"; print color("reset"), "\n"']
+
+[[case]]
+id = "mod-unicode-normalize"
+category = "modules"
+argv = ["-MUnicode::Normalize", "-CS", "-le", 'print length NFD("\x{e9}"); print length NFC("e\x{301}")']
+
+[[case]]
+id = "mod-config"
+category = "modules"
+argv = ["-MConfig", "-e", 'print "$Config{ivsize} $Config{uvsize} $Config{nvsize} $Config{byteorder} $Config{version}\n"']
+
+[[case]]
+id = "mod-missing-module"
+category = "modules"
+argv = ["-e", 'eval { require No::Such::Module; 1 } or print $@ =~ /^(Can.t locate \S+)/, "\n"']
+
+# ---------------------------------------------------------------------------
+# unicode: -C, utf8, encodings
+
+[[case]]
+id = "uni-csd-length"
+category = "unicode"
+argv = ["-CSD", "-nle", 'print length', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-bytes-length"
+category = "unicode"
+argv = ["-nle", 'print length', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-csd-uc"
+category = "unicode"
+argv = ["-CSD", "-pe", '$_ = uc', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-codepoints"
+category = "unicode"
+argv = ["-CSD", "-lne", 'print join " ", map { sprintf "U+%04X", ord } split //', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-utf8-literals"
+category = "unicode"
+argv = ["-Mutf8", "-Mfeature=fc", "-CS", "-le", 'print scalar reverse "héllo wörld"; print length "日本語"; print lc "ÀÉÎ"; print fc("Straße") eq fc("STRASSE") ? "same" : "diff"']
+
+[[case]]
+id = "uni-properties"
+category = "unicode"
+argv = ["-CSD", "-ne", 'print if /\p{Han}/ || /^\p{Lu}/ || /\x{df}/', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-wide-char-warning"
+category = "unicode"
+argv = ["-we", 'print chr(0x263A), "\n"']
+
+[[case]]
+id = "uni-binmode-encoding"
+category = "unicode"
+argv = ["-e", 'binmode STDOUT, ":encoding(UTF-8)"; print "\x{263A}\x{e9}\n"']
+
+[[case]]
+id = "uni-open-pragma"
+category = "unicode"
+argv = ["-Mopen=:std,:encoding(UTF-8)", "-ne", 'chomp; print length($_), " $_\n"', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-sort"
+category = "unicode"
+argv = ["-CSD", "-e", 'print sort <>', "words.txt"]
+fixtures = ["words"]
+
+[[case]]
+id = "uni-word-chars"
+category = "unicode"
+argv = ["-CSD", "-nle", 'print join ",", /(\w+)/g', "words.txt"]
+fixtures = ["words"]
+
+# ---------------------------------------------------------------------------
+# files: create, rename, list, test
+
+[[case]]
+id = "files-write-and-append"
+category = "files"
+argv = ["-e", 'open my $o, ">", "out.txt" or die "open: $!"; print $o "line $_\n" for 1 .. 3; close $o or die; open my $p, ">>", "out.txt" or die; print $p "appended\n"; close $p; print -s "out.txt", "\n"']
+
+[[case]]
+id = "files-glob"
+category = "files"
+argv = ["-le", 'print for glob "*.txt"; print for <sub*/*>; print for glob "{b,c}.txt"']
+fixtures = ["abc", "tree"]
+
+[[case]]
+id = "files-readdir"
+category = "files"
+argv = ["-le", 'opendir my $d, "." or die; print for sort grep { !/^\./ } readdir $d']
+fixtures = ["abc", "tree"]
+
+[[case]]
+id = "files-tests"
+category = "files"
+argv = ["-le", 'for (qw(a.txt subdir empty nosuch)) { print join " ", $_, (-e $_ ? "e" : "-"), (-f _ ? "f" : "-"), (-d _ ? "d" : "-"), (-f _ ? -s _ : "-"), (-r $_ ? "r" : "-"), (-z $_ ? "z" : "-") }']
+fixtures = ["abc", "tree"]
+
+[[case]]
+id = "files-rename-unlink"
+category = "files"
+argv = ["-e", 'rename "a.txt", "renamed.txt" or die "rename: $!"; unlink "b.txt" or die "unlink: $!"; print join(",", sort glob "*"), "\n"']
+fixtures = ["abc"]
+
+[[case]]
+id = "files-mkdir-rmdir"
+category = "files"
+argv = ["-e", 'mkdir "d1" or die; mkdir "d1" or print "again: $!\n"; rmdir "subdir" or print "rmdir: $!\n"; rmdir "d1" or die; print -d "d1" ? "still\n" : "gone\n"; unlink "nosuch" or print "unlink: $!\n"']
+fixtures = ["tree"]
+
+[[case]]
+id = "files-raw-crlf"
+category = "files"
+argv = ["-e", 'open my $f, "<:raw", "dos.txt" or die; local $/; my $c = <$f>; print length($c), " ", ($c =~ tr/\r//), "\n"']
+fixtures = ["dos"]
+
+[[case]]
+id = "files-seek-tell-rw"
+category = "files"
+argv = ["-e", 'open my $f, "+<", "b.txt" or die; seek $f, 0, 2; print tell($f), "\n"; print $f "tail\n"; seek $f, 0, 0; print scalar <$f>; close $f']
+fixtures = ["abc"]
+
+[[case]]
+id = "files-stdin-loop"
+category = "files"
+argv = ["-e", 'while (my $l = <STDIN>) { chomp $l; print "[$l]\n" } print "eof\n"']
+stdin = "one\ntwo"
+
+[[case]]
+id = "files-stat-size"
+category = "files"
+argv = ["-le", 'my @s = stat "c.txt"; print $s[7]; print +(stat "nosuch") ? "yes" : "no"']
+fixtures = ["abc"]
+
+[[case]]
+id = "files-errors"
+category = "files"
+argv = ["-e", 'open F, "<", "nosuch" and die; print $!{ENOENT} ? "ENOENT\n" : "other\n"; opendir D, "a.txt" or print "opendir: $!\n"; open G, ">", "subdir" or print "write dir: $!\n"; open H, "<", "a.txt/x" or print "under file: $!\n"']
+fixtures = ["abc", "tree"]
+
+# ---------------------------------------------------------------------------
+# errors: die, warn, exit codes, syntax checks, warnings
+
+[[case]]
+id = "err-die-newline"
+category = "errors"
+argv = ["-e", 'die "fatal: bad input\n"']
+
+[[case]]
+id = "err-die-location"
+category = "errors"
+argv = ["-e", 'my $x = 1;', "-e", 'die "oops"']
+
+[[case]]
+id = "err-die-mid-stream"
+category = "errors"
+argv = ["-ne", 'die "bad line $.: $_" if /ERROR/; print', "app.log"]
+fixtures = ["log"]
+
+[[case]]
+id = "err-die-after-failed-open"
+category = "errors"
+argv = ["-e", 'open my $f, "<", "nosuch.txt" or die "cannot open nosuch.txt: $!\n"']
+
+[[case]]
+id = "err-exit-code"
+category = "errors"
+argv = ["-e", 'print "before\n"; exit 3']
+
+[[case]]
+id = "err-end-sets-status"
+category = "errors"
+argv = ["-e", 'END { $? = 4 } print "x\n"']
+
+[[case]]
+id = "err-warn-newline"
+category = "errors"
+argv = ["-ne", 'warn "odd line $.\n" if $. % 2; print', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "err-warn-location"
+category = "errors"
+argv = ["-ne", 'warn "saw a" if /a/', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "err-missing-input-file"
+category = "errors"
+argv = ["-ne", 'print', "a.txt", "nosuch.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "err-syntax-ok"
+category = "errors"
+argv = ["-c", "-e", 'print "hi\n" for 1 .. 3']
+
+[[case]]
+id = "err-syntax-bad"
+category = "errors"
+argv = ["-c", "-e", 'print "hi\n" for (1 .. 3']
+
+[[case]]
+id = "err-unterminated-string"
+category = "errors"
+argv = ["-e", 'print "unterminated']
+
+[[case]]
+id = "err-strict-vars"
+category = "errors"
+argv = ["-Mstrict", "-e", '$x = 1; print $x']
+
+[[case]]
+id = "err-warn-uninitialized"
+category = "errors"
+argv = ["-we", 'my $x; my @a = (1); print $x + 1, $a[3] . "z", "\n"']
+
+[[case]]
+id = "err-warn-misc"
+category = "errors"
+argv = ["-we", 'my @a = (1, 2); my $n = @a[0]; print "$n\n"; my %h = (1); print "x" == 0, "\n"; printf "%s %s\n", "only"']
+
+[[case]]
+id = "err-warn-numeric"
+category = "errors"
+argv = ["-we", 'print "10" + "10abc", "\n"; print "3 apples" * 2, "\n"']
+
+[[case]]
+id = "err-fatal-warnings"
+category = "errors"
+argv = ["-e", 'use warnings FATAL => "all"; my $x; print "a" . $x; print "never\n"']
+
+[[case]]
+id = "err-eval-caught"
+category = "errors"
+argv = ["-le", 'eval { die { code => 42 } }; print $@->{code}; eval { die "inner\n" }; print "caught: $@"; my $r = eval { 1 / 0 }; print "div: $@"']
+
+[[case]]
+id = "err-croak"
+category = "errors"
+argv = ["-MCarp", "-e", 'sub f { croak "bad arg" } f()']
+
+[[case]]
+id = "err-deep-recursion"
+category = "errors"
+argv = ["-we", 'sub f { my $n = shift; return $n ? f($n - 1) : 0 } print f(5000), "\n"']
+
+[[case]]
+id = "err-try-catch"
+category = "errors"
+argv = ["-E", 'use v5.40; try { die "x\n" } catch ($e) { print "caught $e" } say "after"']
+
+# ---------------------------------------------------------------------------
+# switches: -l, -E, BEGIN/END, script files, -V, @ARGV
+
+[[case]]
+id = "sw-say"
+category = "switches"
+argv = ["-E", 'say for 1 .. 3; say "done"']
+
+[[case]]
+id = "sw-n-say"
+category = "switches"
+argv = ["-nE", 'say "$.: ", length if /a/', "a.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "sw-begin-end"
+category = "switches"
+argv = ["-ne", 'BEGIN { print "start\n" } $n++; END { print "end $n\n" }', "a.txt", "b.txt"]
+fixtures = ["abc"]
+
+[[case]]
+id = "sw-l-print"
+category = "switches"
+argv = ["-le", 'print for qw(x y z)']
+
+[[case]]
+id = "sw-several-e"
+category = "switches"
+argv = ["-e", 'print "a\n";', "-e", 'print "b\n"']
+
+[[case]]
+id = "sw-argv"
+category = "switches"
+argv = ["-e", 'print scalar(@ARGV), ": @ARGV\n"; print "$0\n"', "x", "y z", ""]
+
+[[case]]
+id = "sw-version-vars"
+category = "switches"
+argv = ["-e", 'print "$]\n"; printf "%vd\n", $^V']
+
+[[case]]
+id = "sw-V-ivsize"
+category = "switches"
+argv = ["-V:ivsize"]
+
+[[case]]
+id = "sw-p-next"
+category = "switches"
+argv = ["-pe", 'next if /^[#;\[]/; s/=/ = /', "config.ini"]
+fixtures = ["ini"]
+
+[[case]]
+id = "sw-n-last"
+category = "switches"
+argv = ["-ne", 'last if /^$/; print', "notes.txt"]
+fixtures = ["notes"]
+
+[[case]]
+id = "sw-signatures-postfix"
+category = "switches"
+argv = ["-E", 'use v5.36; sub add ($x, $y = 10) { $x + $y } say add(1); say add(1, 2); my $r = { a => [1, 2, 3] }; say scalar $r->{a}->@*; say join ",", $r->{a}->@[0, 1]']
+
+[[case]]
+id = "sw-multi-statement"
+category = "switches"
+argv = ["-e", 'my %inv; while (<>) { chomp; my ($k, @v) = split /:/; push @{ $inv{$_} }, $k for @v } for my $v (sort keys %inv) { print "$v: @{[ sort @{ $inv{$v} } ]}\n" }']
+stdin = "alice:eng:ops\nbob:ops\ncarol:eng:sales:ops\n"
+
+[[case]]
+id = "sw-script-file"
+category = "switches"
+argv = ["report.pl", "data.csv"]
+fixtures = ["csv"]
+files = { "report.pl" = "#!/usr/bin/perl -l\nuse strict;\nuse warnings;\nmy %by;\nwhile (<>) {\n    chomp;\n    next if $. == 1;\n    my @f = split /,/;\n    push @{ $by{$f[1]} }, $f[0];\n}\nprint \"$_: @{ $by{$_} }\" for sort keys %by;\n" }
+
+[[case]]
+id = "sw-script-file-check"
+category = "switches"
+argv = ["-c", "report.pl"]
+files = { "report.pl" = "use strict;\nmy $x = 1;\nprint $x\n" }
+
+[[case]]
+id = "sw-script-shebang-w"
+category = "switches"
+argv = ["warn.pl"]
+files = { "warn.pl" = "#!/usr/bin/perl -w\nmy $u;\nprint \"value: \", $u + 0, \"\\n\";\n" }
+
+[[case]]
+id = "sw-script-die-line"
+category = "switches"
+argv = ["fail.pl", "arg1"]
+files = { "fail.pl" = "use strict;\nuse warnings;\nmy $a1 = shift;\nprint \"got $a1\\n\";\ndie \"stopping\";\n" }
