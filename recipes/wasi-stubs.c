@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <wasi/api.h>
 
 #include "wasi-perl-libc.h"
 
@@ -52,4 +53,27 @@ __attribute__((constructor)) static void wasi_perl_chdir_to_pwd(void)
     const char *pwd = getenv("PWD");
     if (pwd && pwd[0] == '/')
         (void)chdir(pwd);
+}
+
+/* The exit status, kept where the embedder can read it.
+ *
+ * wasmtime refuses a WASI exit status of 126 or more and reports an error in place of the
+ * exit, yet Perl ends an uncaught die with 255 and exit() takes any byte. Every exit passes
+ * through wasi-libc's __wasi_proc_exit; the link wraps it (-Wl,--wrap=__wasi_proc_exit), so
+ * the status is stored here first and then passed on unchanged. The module exports
+ * wasi_perl_exit_status, which returns that status, or -1 if the program has not exited: an
+ * embedder calls it after a refused exit to learn the real code. An export adds no import. */
+static int32_t wasi_perl_status = -1;
+
+_Noreturn void __real___wasi_proc_exit(__wasi_exitcode_t rval);
+
+_Noreturn void __wrap___wasi_proc_exit(__wasi_exitcode_t rval)
+{
+    wasi_perl_status = (int32_t)rval;
+    __real___wasi_proc_exit(rval);
+}
+
+__attribute__((export_name("wasi_perl_exit_status"))) int32_t wasi_perl_exit_status(void)
+{
+    return wasi_perl_status;
 }
