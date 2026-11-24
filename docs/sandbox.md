@@ -95,3 +95,11 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
 - **`/dev` lists only `null`.** `/dev/urandom` and `/dev/random` open and stat, but `readdir` on `/dev` does not show them: the listing is the host's folder.
 - **The random device refuses what a device file allows.** On its handle, `truncate` and `sync` answer EINVAL ("Invalid argument"), and `utime` dies with "The futimes function is unimplemented", as on any handle here. By name, `mkdir`, `rmdir`, `unlink`, `rename`, `link`, `symlink` and `utime` answer EPERM ("Operation not permitted"), the read-only `/dev` folder's answer. Natively root may do each. Its `stat` gives `/dev`'s own times and an inode number of the guest's choosing. `/dev/random` is always ready to write, where Linux's may not be.
+
+## The artifact set is checked in every new process
+
+Before a process's first call with the set it finds, the runner hashes every file of that set: `perl.wasm`, `MANIFEST` and each file of the library. Each must match `SHA256SUMS`, and no file may be missing or added. This happens in every new process, on every system.
+
+A set passed as `run(artifacts=...)` is used as you give it. It is not hashed.
+
+The runner keeps no record of what it hashed across processes. Such a record would trust a file whose size and times had not moved. A write through a shared memory mapping can change a file's bytes without moving its times, so a changed library would be trusted.

@@ -213,17 +213,15 @@ def _runtime_folders(found: Artifacts) -> tuple[Any, ...]:
     return tuple(dict.fromkeys(Path(os.path.abspath(f)) for f in folders))
 
 
-def _runtime_files(found: Artifacts) -> list[Path]:
+def _runtime_files(found: Artifacts) -> _grants.RuntimeFiles:
     """The files a writable grant may not hold a second name of: wasmtime-py's (its native
-    library above all), this package's, and the artifact set's, the library tree included."""
+    library above all), this package's, and the artifact set's, the library tree included. The
+    scan is kept, and made again when a folder in it changes."""
     import wasmtime
 
-    files: list[Path] = []
-    for top in (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent):
-        files += [p for p in top.rglob("*") if p.is_file()]
-    files += [found.perl, found.manifest, found.sums, found.dev / "null"]
-    files += [p for p in found.lib.rglob("*") if p.is_file()]
-    return files
+    tops = (Path(wasmtime.__file__).parent, Path(wasi_perl.__file__).parent, found.lib)
+    singles = (found.perl, found.manifest, found.sums, found.dev / "null")
+    return _grants.runtime_scan(tops, singles)
 
 
 def run(

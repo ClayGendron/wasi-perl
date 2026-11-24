@@ -1,8 +1,8 @@
 # The runner's fixed cost, measured
 
-- **Status:** research, 2026-11-24. The before and after timings that specification 014's acceptance asks for. It stands beside study A (`2026-11-24-perf-runner.md`) and reuses its scripts.
+- **Status:** research, 2026-11-24. The before and after timings that specification 014's acceptance asks for. It stands beside study A (`2026-11-24-perf-runner.md`) and reuses its scripts. Section 8 adds specification 015's, session s4.
 - **Researcher:** the implementer of 014 (Claude Opus 5.5), on `spec/014-the-runners-fixed-cost`.
-- **Evidence:** `2026-11-24-the-runners-fixed-cost-measured/`: `measure.sh` (the whole run), `peak_rss.py` (peak memory), and `results/` (raw JSON lines).
+- **Evidence:** `2026-11-24-the-runners-fixed-cost-measured/`: `measure.sh` (the whole run), `peak_rss.py` (peak memory), `mmap_stamp.py` (section 8.4), and `results/` (raw JSON lines).
 
 Labels: EXECUTED means run and seen. READ means read from a file. INFERRED means the implementer's reasoning.
 
@@ -170,3 +170,87 @@ So on Linux the runner now copies the checked bytes, through the checked descrip
 
 - The sealed copy costs about 6 ms of a first call against mapping the file (7.2 against 1.0–1.2 ms). It keeps about three quarters of L7's saving.
 - Peak RSS is lower than with the mapped file. `ru_maxrss` counts the copy's pages only as they are touched through the mapping, as it does for a mapped file (INFERRED). The copy is about 15 MB of memory per process for the module's life, charged to the process. A mapped file's pages were the page cache's, which processes share. So several host processes each hold their own copy (INFERRED, from `memfd_create(2)`: a memfd is anonymous memory). The round-3 review noted this.
+
+## 8. Specification 015: the scan kept across calls (session s4)
+
+- **Researcher:** the implementer of 015 (Claude Opus 5.5), on `spec/015-the-runners-checks-kept-across-calls`.
+- **What was measured.** Decision 1 (L5: the runtime scan kept while its folder stamps hold) and decision 6 (string paths in the tree walk) are built. Decision 3 (L6: the record of hashed files in the module cache) is **not** built: section 8.4 and the specification's landing notes say why, and the owner dropped it on 2026-11-24. So the first call keeps hashing every library file.
+- **Before** is `dev` at `8b81f84`, which holds 014 as merged: `git archive 8b81f84 src`, with the same set copied into it, first on `PYTHONPATH`. **After** is the worktree's `src/` at the head of the implementation, through its `.venv`. Same machine, same set, same lock as sections 2–7.
+
+The commands, from the worktree (EXECUTED):
+
+```
+P=/home/user/wasi-perl-wt/perf-base
+flock /home/user/wasi-perl-wt/machine.lock uv run --no-project python scripts/assemble_artifacts.py \
+  --source $P/build/artifacts --target $P/build/target --downloads $P/downloads
+# "assembled 1455 files, 32193546 bytes"
+S=<scratch>; mkdir -p $S/base && git archive 8b81f84 src | tar -x -C $S/base
+cp -a src/wasi_perl/artifacts $S/base/src/wasi_perl/
+env -u WASI_PERL_ARTIFACTS context/research/2026-11-24-the-runners-fixed-cost-measured/measure.sh $S/base/src s4
+F=context/research/2026-11-24-perf-runner/phases.py
+R=context/research/2026-11-24-the-runners-fixed-cost-measured/results
+flock /home/user/wasi-perl-wt/machine.lock env PYTHONPATH=$S/base/src .venv/bin/python $F rw 100 $R/phases-before-rw-s4.json
+flock /home/user/wasi-perl-wt/machine.lock .venv/bin/python $F rw 100 $R/phases-after-rw-s4.json
+```
+
+The raw lines carry the labels `base-s4` and `after-s4`.
+
+### 8.1 Warm calls
+
+`results/calls.jsonl`, ms per call, medians of 60 (EXECUTED):
+
+| label | bare | read-only | writable | stdin + env | fuel cap | `-ne print` on a granted file |
+|---|---|---|---|---|---|---|
+| before, s4 | 1.72 | 1.94 | 22.30 | 1.83 | 1.67 | 2.28 |
+| after, s4 | 1.75 | 1.69 | **2.67** | 1.59 | 1.61 | 2.57 |
+
+- **A writable call** falls from 22.3 ms to 2.67 ms. The specification's intent says about 3 ms, and study A's prototype gave 2.8–3.3 ms (READ: its `results/calls.jsonl`).
+- The other scenarios are 014's and do not change. Their differences are within the session spread this memo reports (section 1).
+
+`phases.py rw 100`, median µs per call of each wrapped function (EXECUTED, `results/phases-{before,after}-rw-s4.json`):
+
+| phase | before | after |
+|---|---|---|
+| `runner._runtime_files` | 14,257 | **386** |
+| `_grants.judge` (with the walk of the grants) | 5,003 | **524** |
+| `runner._runtime_folders` | 288 | 267 |
+| `runner._call` | 1,713 | 1,416 |
+| **total `run()`** | **22,155** | **2,857** |
+
+- `_runtime_files` is now a check of the kept scan's 272 folder stamps; the scan holds 1,543 file identities in the wheel's layout (EXECUTED: `len(runtime.stamps)`, `len(runtime.files)` of `runner._runtime_files(artifacts())`).
+- `judge` no longer `lstat`s every runtime file. It walks the writable grant and looks up only files with more than one name.
+- A process's first writable call still scans, once: about 14 ms, the before row (INFERRED from it).
+
+What a writable call no longer does is counted, not timed, by `tests/runner/test_kept_checks.py` (EXECUTED, all pass): ten writable calls list the library folder once, where before they listed it twenty times (`rglob` lists it twice per call).
+
+### 8.2 A fresh process's first call
+
+`results/first_call.jsonl`, five fresh processes each, warm module cache, ms (EXECUTED):
+
+| label | first call, range (median) | artifact check, range (median) | module load | second call |
+|---|---|---|---|---|
+| before, s4 | 103.3–108.2 (104.0) | 77.9–81.2 (78.8) | 5.7–6.2 | 1.4–1.6 |
+| after, s4 | 67.5–76.5 (**73.2**) | 42.7–47.0 (**45.8**) | 5.9–6.6 | 1.5–3.0 |
+
+- **The check** falls by about 33 ms, from string paths alone (decision 6). Study A measured 86 → 64 ms for the same change (READ: its `results/tree-check.txt`). Here the hash is also handed a string, so no `Path` is made per file.
+- **The specification's 34 ms is not met.** That figure needs decision 3, the record, which is not built (section 8.4).
+- The before first call, 104 ms, is lower than section 7's 113.9 ms for the same code. The machine's sessions differ, as section 1 says.
+
+### 8.3 Peak memory
+
+`results/peak_rss.jsonl`, three fresh processes each (EXECUTED): before 38.9–39.1 MiB, after 38.6–38.9 MiB. No change was expected: the scan is not made by a call with no writable grant.
+
+### 8.4 Why the record of hashed files was not built
+
+Decision 3 trusts a file whose stamp `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` matches the one recorded when it was last hashed. Its argument is that a write moves the file's mtime and ctime, and only the clock sets a ctime.
+
+A write through a shared, writable mapping does not always move them.
+- Linux stamps a mapped file when a write faults a clean page. Later writes to that page, while it stays dirty, fault no more, and stamp nothing (INFERRED from the result below).
+- `mmap_stamp.py` maps a file, writes one byte, waits 3 s (past the 2 s window), reads the bytes and the stamp as a check would, then writes the same page again.
+- Three runs on this ext4 disk, Linux 6.18 (EXECUTED: `uv run python mmap_stamp.py build/mmap-probe-$i.pm 3`): each time the bytes changed, and the stamp did not move after the second write, after the unmap, or after `os.sync()`.
+
+So anyone who can write a library file can change it after a check recorded its stamp, and keep the stamp. Every later process would trust the record and not hash the file. Today every new process hashes it and refuses it. The specification's line "whoever could forge it could already write a `.cwasm`" is about the record; this needs no change to the record at all.
+
+Not this change's: the same holds within one process for 0.1.0's per-stamp `digest()` of `perl.wasm` and `MANIFEST`, and for 014's per-stamp parse of `SHA256SUMS` (READ: `_artifacts.digest`, `_read_sums`). Within a process, the library tree is checked only once anyway (READ: `checked`).
+
+Decision 1 does not rest on file stamps. It rests on folder stamps, and a folder's entries change only through calls such as `link`, `unlink` and `rename`, which stamp the folder. A folder cannot be mapped.

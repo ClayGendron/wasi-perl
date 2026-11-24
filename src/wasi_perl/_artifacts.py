@@ -113,7 +113,7 @@ def forget() -> None:
         _sums.clear()
 
 
-def _stamp(path: Path) -> tuple[str, int, int, int, int, int]:
+def _stamp(path: str | Path) -> tuple[str, int, int, int, int, int]:
     st = os.stat(path)
     return (str(path), st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
@@ -125,7 +125,7 @@ def _hash_stream(f: BinaryIO) -> str:
     return h.hexdigest()
 
 
-def digest(path: Path) -> str:
+def digest(path: str | Path) -> str:
     """The SHA-256 of `path`, kept per path and stamp, so an unchanged file is hashed once and a
     replacement of the same size and time (another inode or ctime) is hashed again. It is kept
     only when the descriptor hashed is the file the stamp names."""
@@ -190,7 +190,7 @@ def _parse_sums(found: Artifacts) -> dict[str, str]:
     return sums
 
 
-def _refuse(path: Path, sums: Path, got: str, want: str) -> ArtifactsMissing:
+def _refuse(path: str | Path, sums: Path, got: str, want: str) -> ArtifactsMissing:
     return ArtifactsMissing(
         f"{path} does not match {sums} (SHA-256 {got[:16]}…, listed {want[:16]}…): the set "
         "changed after it was built; rebuild or reinstall it"
@@ -236,11 +236,14 @@ def _check_tree(root: Path, sums: dict[str, str], sums_path: Path) -> None:
     for top in ("lib", "lib/perl5", "dev"):
         if stat.S_ISLNK(os.lstat(root / top).st_mode):
             raise ArtifactsMissing(f"{root / top} is a link; a set holds no links")
+    base = os.path.join(str(root), "")  # the root with one separator after it
     for top in ("lib", "dev"):
         for dirpath, dirnames, filenames in os.walk(root / top, followlinks=False):
-            for name in filenames + [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:
-                path = Path(dirpath) / name
-                rel = path.relative_to(root).as_posix()
+            # Names joined as strings: a Path per file costs more than the file's lstat.
+            links = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+            for name in filenames + links:
+                path = os.path.join(dirpath, name)
+                rel = path[len(base) :].replace(os.sep, "/")
                 st = os.lstat(path)
                 if not stat.S_ISREG(st.st_mode):
                     raise ArtifactsMissing(f"{path} is not a regular file; a set holds no links")

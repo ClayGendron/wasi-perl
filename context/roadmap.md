@@ -31,7 +31,7 @@ The research phase of 2026-11-24 (`research/2026-11-24-perf-synthesis.md`) propo
 |---|---|---|
 | 013 | Seeds from the host's randomness: a guest-side `/dev/urandom` and `/dev/random` from WASI `random_get`, so the hash seed and `rand` are no longer guessable from the clock | 009, 010 |
 | 014 | The runner's fixed cost: version once, `SHA256SUMS` per stamp, rule inputs only when needed, one `InstancePre`, the `.cwasm` mapped, the version from `dist-info`, and four engine pins | 004, 012 |
-| 015 | The runner's checks kept across calls: runtime-file identities per folder stamp, and a tree record in the module cache | 014 |
+| 015 | The runner's checks kept across calls: runtime-file identities per folder stamp (its tree record in the module cache was dropped by the owner) | 014 |
 | 016 | The guest's reads and writes: a 64 KiB PerlIO buffer, a SIMD `memchr`, and `isatty` answered for files the table looked at | 009, 010, 013 |
 
 Then, under "You can do all 10":
@@ -49,3 +49,8 @@ Open items from the review of 016 (`reviews/016-the-guests-reads-and-writes-pr-2
 
 - **A skip in `tests/build` should fail CI.** The checks on the built `perl.wasm` skip when a tool is missing: the wasmtime command line at its one pinned path, `llvm-objdump`, native perl or wasmtime-py. CI's build job passes on skips, so a wasmtime bump that leaves `tests/build/_build_helpers.py` behind would skip 016's call-count checks unseen. Either a step after the build job's checks reads a JUnit file and fails on any skip, as the wheel-test job does for the guest checks, or `_need` in `tests/build/conftest.py` fails instead of skipping when `CI` is set.
 - **`src/wasi_perl/_engines.py` should state `wasm_simd = True`** beside `wasm_exceptions`. Since 016 the module needs SIMD128 to load at all; wasmtime enables it by default today, and the engine states only the performance defaults.
+
+Open items from specification 015 and its review (`reviews/015-the-runners-checks-kept-across-calls-pr-2026-11-24.md`, H1), for a later change:
+
+- **014's checks skip in CI.** Most of `tests/runner/test_fixed_cost.py` runs the stand-in guest, which needs wasi-sdk, and no CI job that runs `tests/runner` has it. So those checks are skipped there, unseen. 015 moved its own checks to the set `$WASI_PERL_ARTIFACTS` names, as the wheel jobs set it, and added them to the wheel job's gate on skips; 014's can follow the same way.
+- **A shared-mapping write within one process.** The per-stamp `digest()` of `perl.wasm` and `MANIFEST` (0.1.0) and the per-stamp parse of `SHA256SUMS` (014) are used again while the file's stamp is unchanged. A write through a shared mapping can change a file without moving its stamp (`research/2026-11-24-the-runners-fixed-cost-measured.md` §8.4), so a process's later calls would not see it. It is the owner's to decide.
