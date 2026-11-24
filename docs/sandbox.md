@@ -49,7 +49,17 @@ About `%SIG`:
 - Reopening a standard handle onto a file: `open STDOUT, '>', 'out.txt'`, `open STDERR, '>>', 'log'`, `open STDIN, '<', 'in'`.
 - Four-argument `select` over the bit vectors `vec` builds, `IO::Select` and `IO::Poll`. A regular file is always ready to read and to write, as on POSIX.
 - In-place edits (`-i`) on every host. A Windows host refuses to rename a file over one the program holds open, which `-i` does; the guest then closes its own descriptors on that file, renames again and opens the new file in their place.
+- An open with no access mode reads, as on Linux, where `O_RDONLY` is 0: `sysopen(F, $path, 0)` opens for reading, and the handle is one for input, so a `print` to it fails with "opened only for input". `O_APPEND` alone reads from the start. wasi-libc alone would refuse such an open with EINVAL. Perl's own seed opens `/dev/urandom` this way.
 - Copying a descriptor, as on POSIX: `open my $save, '>&', STDOUT`, `open STDERR, '>&STDOUT'`, the `&=` forms, `POSIX::dup`, `POSIX::dup2` and `fcntl(F_DUPFD)`. The copies share one open file and its offset; the file closes with the last of them. Test::More loads and works.
+
+## Randomness
+
+The guest's randomness is the host's. Perl seeds its hash order, its internal random state and `rand` from `/dev/urandom`, as natively. In the guest, `/dev/urandom` and `/dev/random` are served by the guest itself, from WASI's `random_get`. The host never sees the name, and `perl.wasm` imports `random_get` for it. So no two calls share a hash seed, and the seed cannot be guessed from when a call started.
+
+- A program can read the device itself: `open my $f, '<', '/dev/urandom'` gives the host's random bytes. Every read is filled in full, whatever its size.
+- It works as Linux's device does for a user who is not root. A write takes every byte and drops it. `sysseek` answers 0. `-c` is true, `-t` is false, and `select` finds it ready at once. `fcntl` flags such as `O_NONBLOCK` read back. A path through it, such as `/dev/urandom/x`, answers ENOTDIR, and `readlink` of it EINVAL.
+- `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`, `PERL_INTERNAL_RAND_SEED` and `srand(N)` pin what they pin natively: a fixed `PERL_HASH_SEED` gives the same key order on every call. That order equals native perl's only with `PERL_HASH_SEED=0` or `PERL_PERTURB_KEYS=0`. With any other seed, in the default deterministic mode (`PERL_PERTURB_KEYS=2`), the guest's order is pinned but differs from native's.
+- Only `/dev/urandom` and `/dev/random`, with `.` components dropped, are the device. `/dev/zero` and every other name under `/dev` are missing, and a path that climbs out of a grant into `/dev` is refused, as before.
 
 ## Exit statuses
 
@@ -71,6 +81,8 @@ wasmtime refuses an exit status of 126 or more and reports an error instead. The
 - **Special files are refused at open.** Opening a FIFO, a device or a socket file in a granted folder fails with ENXIO ("No such device or address"), or ENOTDIR for `opendir`, before the host is asked: a host's open of a FIFO would wait for the other end, past every limit. So does a link to one. `utime` on a FIFO sets its times, as natively, but through a link to one it fails with ENXIO. A name that does not exist is created as usual. `-e` sees a FIFO, but `-p` is false: WASI has no file type for a FIFO.
 - **After a rename over an open file on Windows, the old handle reads the new file.** Natively it goes on reading the old one. For `-i` the handle is already at its end, so nothing changes. Linux and macOS hosts allow the rename, and the handle reads the old file as natively.
 - **Every identity is root.** `getuid` and its kin answer 0, so file tests such as `-w` answer from root's view; the grant still decides what a write may do.
+- **`/dev` lists only `null`.** `/dev/urandom` and `/dev/random` open and stat, but `readdir` on `/dev` does not show them: the listing is the host's folder.
+- **The random device refuses what a device file allows.** On its handle, `truncate` and `sync` answer EINVAL ("Invalid argument"), and `utime` dies with "The futimes function is unimplemented", as on any handle here. By name, `mkdir`, `rmdir`, `unlink`, `rename`, `link`, `symlink` and `utime` answer EPERM ("Operation not permitted"), the read-only `/dev` folder's answer. Natively root may do each. Its `stat` gives `/dev`'s own times and an inode number of the guest's choosing. `/dev/random` is always ready to write, where Linux's may not be.
 
 ## The artifact set is checked in every new process
 

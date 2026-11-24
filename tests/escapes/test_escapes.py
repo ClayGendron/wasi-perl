@@ -403,6 +403,58 @@ def test_the_library_and_dev_null_are_not_writable(perl_set, host):
     assert sorted(p.name for p in (host / "rw").iterdir()) == ["w.txt"]
 
 
+def test_every_call_has_its_own_seeds(perl_set):
+    # Seeds taken from the time of day can be guessed from when a call started, which undoes
+    # Perl's defence against hash flooding. From the host's randomness, no two calls share one.
+    code = 'print unpack("H*", Hash::Util::hash_seed()), " ", rand(), "\\n"'
+    seeds, rands = set(), set()
+    for _ in range(20):
+        done = run(["-MHash::Util", "-e", code], artifacts=perl_set)
+        assert (done.exit_code, done.trapped, done.stderr) == (0, None, b""), done
+        seed, value = done.stdout.split()
+        seeds.add(seed)
+        rands.add(value)
+    assert (len(seeds), len(rands)) == (20, 20), (seeds, rands)
+
+
+def test_a_big_read_of_the_device_does_not_trap(perl_set):
+    # wasmtime refuses one random_get of more than 64 MiB with a trap; the guest asks in pieces,
+    # so a read of 100 MB under the runner's default limits is filled whole, as natively.
+    code = 'open(my $f, "<", "/dev/urandom") or die; print sysread($f, my $b, 100_000_000), "\\n"'
+    done = run(["-e", code], artifacts=perl_set)
+    assert (done.exit_code, done.trapped, done.stdout, done.stderr) == (
+        0,
+        None,
+        b"100000000\n",
+        b"",
+    ), done
+
+
+def test_a_write_to_the_random_device_reaches_no_host_file(perl_set):
+    # As on Linux, every byte written to the device is taken and dropped. The host's /dev folder
+    # never sees the name: it still holds exactly one empty null.
+    before = _digest_tree(perl_set.dev)
+    done = perl(
+        """
+        sub dev { open(my $f, $_[0], $_[1]) or die "$!\\n"; $f }
+        t("urandom>", sub { syswrite(dev(">", "/dev/urandom"), "x" x 10) == 10 });
+        t("random>>", sub { my $f = dev(">>", "/dev/random"); print $f "y" x 99999 and close $f });
+        t("urandom+<", sub { syswrite(dev("+<", "/dev/urandom"), "z") == 1 });
+        t("unlink", sub { unlink("/dev/urandom") });
+        t("rename", sub { rename("/dev/urandom", "/dev/u2") });
+        t("read", sub { read(dev("<", "/dev/urandom"), my $b, 4) == 4 });
+        """,
+        artifacts=perl_set,
+    )
+    want: dict[str, str | tuple[str, ...]] = dict.fromkeys(
+        ("urandom>", "random>>", "urandom+<", "read"), "ok"
+    )
+    want.update({"unlink": "", "rename": ""})  # refused, by whichever text
+    expect(done, want)
+    assert _digest_tree(perl_set.dev) == before
+    assert sorted(p.name for p in perl_set.dev.iterdir()) == ["null"]
+
+
 def test_there_is_no_network(perl_set):
     done = perl(
         """

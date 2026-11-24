@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Security
+
+- Perl's seeds now come from the host's randomness. Before, the guest had no `/dev/urandom`, so Perl seeded its hash order, its internal random state and `srand` from the time of day, which can be guessed from when a call started; that weakened Perl's defence against hash flooding. Now the guest serves `/dev/urandom` and `/dev/random` itself, from WASI's `random_get`, which `perl.wasm` now imports; the host never sees the name. The device answers as Linux's does. An open with no access mode, as Perl's seed makes, now reads as on Linux, so `sysopen(F, $path, 0)` opens a handle for input where it failed with EINVAL. `docs/sandbox.md` lists what differs from native.
+
 ### Changed
 
 - A call with a writable grant costs 2.7 ms instead of 22.3 ms, and a fresh process's first call 73 ms instead of 104 ms, its library check 46 ms instead of 79 ms, on one Linux VM (medians). On Linux and macOS the runtime's files are scanned once per process, and the scan is used again while every folder it walked keeps its stamp; a folder changed within two seconds of a scan is scanned again. The writable grants are still walked on every call, so the hard-link rule refuses what it refused before. The library check walks its tree with string paths, and every new process still hashes every library file: a kept record of hashed files was refused, since a write through a shared mapping can change a file without moving its stamp. Specification 015; the timings are in `context/research/2026-11-24-the-runners-fixed-cost-measured.md` §8.
