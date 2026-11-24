@@ -15,18 +15,18 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build"
-ARTIFACTS = Path(os.environ.get("WASI_PERL_ARTIFACTS", BUILD / "artifacts"))
-PERL_WASM = ARTIFACTS / "perl.wasm"
-LIBRARY = ARTIFACTS / "lib" / "perl5"
-DEV = ARTIFACTS / "dev"
-WASMTIME_CLI = BUILD / "tools" / "wasmtime-v51.0.0-x86_64-linux" / "wasmtime"
-NATIVE_PERL = BUILD / "native-install" / "bin" / "perl"
-
-# The guest's view: the library and the stand-in /dev, both read-only.
-LIBRARY_GUEST = "/usr/local/lib/perl5"
-DEV_GUEST = "/dev"
+from _build_paths import (
+    ARTIFACTS,
+    BUILD,
+    DEV,
+    DEV_GUEST,
+    LIBRARY,
+    LIBRARY_GUEST,
+    NATIVE_PERL,
+    PERL_WASM,
+    ROOT,
+    WASMTIME_CLI,
+)
 
 
 @dataclass

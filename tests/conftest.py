@@ -5,14 +5,13 @@ every check, so no check writes the user's own cache."""
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
+from _set_helpers import REPO, write_set
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 BUILT = REPO / "build" / "fixtures"
 SJLJ = ["-mllvm", "-wasm-enable-sjlj", "-mllvm", "-wasm-use-legacy-eh=false"]
@@ -74,23 +73,6 @@ def standin_without_status() -> Path:
     if built is None:
         pytest.skip("no wasi-sdk 34 found ($WASI_SDK_PATH or downloads/): the stand-in guest")
     return built
-
-
-def write_set(folder: Path, wasm: Path) -> Path:
-    """An artifact set around `wasm`: perl.wasm, a one-module library, dev/null, MANIFEST and
-    SHA256SUMS, sealed by the same tool the build uses."""
-    folder.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(wasm, folder / "perl.wasm")
-    lib = folder / "lib" / "perl5" / "5.42"
-    lib.mkdir(parents=True, exist_ok=True)
-    (lib / "strict.pm").write_text("package strict; 1;\n")
-    (folder / "dev").mkdir(exist_ok=True)
-    (folder / "dev" / "null").write_bytes(b"")
-    (folder / "MANIFEST").write_text("perl 5.42.3 (stand-in)\n")
-    subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "write_sums.py"), str(folder)], check=True
-    )
-    return folder
 
 
 @pytest.fixture
