@@ -28,3 +28,13 @@
 {"label": "after-s3", "import_ms": 25.6, "first_call_ms": 114.7, "artifact_check_ms": 84.0, "module_ms": 7.4, "second_call_ms": 1.9, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
 {"label": "after-s3", "import_ms": 26.6, "first_call_ms": 113.2, "artifact_check_ms": 83.3, "module_ms": 6.7, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
 {"label": "after-s3", "import_ms": 25.7, "first_call_ms": 113.6, "artifact_check_ms": 84.1, "module_ms": 6.8, "second_call_ms": 1.8, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s4", "import_ms": 22.2, "first_call_ms": 104.0, "artifact_check_ms": 79.6, "module_ms": 5.7, "second_call_ms": 1.5, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s4", "import_ms": 22.8, "first_call_ms": 104.5, "artifact_check_ms": 78.8, "module_ms": 5.9, "second_call_ms": 1.4, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s4", "import_ms": 25.8, "first_call_ms": 103.3, "artifact_check_ms": 77.9, "module_ms": 6.1, "second_call_ms": 1.4, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s4", "import_ms": 23.7, "first_call_ms": 108.2, "artifact_check_ms": 81.2, "module_ms": 6.2, "second_call_ms": 1.6, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "base-s4", "import_ms": 22.8, "first_call_ms": 103.5, "artifact_check_ms": 78.5, "module_ms": 5.8, "second_call_ms": 1.4, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s4", "import_ms": 27.2, "first_call_ms": 76.5, "artifact_check_ms": 46.4, "module_ms": 6.6, "second_call_ms": 3.0, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s4", "import_ms": 24.8, "first_call_ms": 76.5, "artifact_check_ms": 47.0, "module_ms": 6.3, "second_call_ms": 1.6, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s4", "import_ms": 22.6, "first_call_ms": 68.0, "artifact_check_ms": 42.7, "module_ms": 6.1, "second_call_ms": 1.5, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s4", "import_ms": 24.5, "first_call_ms": 73.2, "artifact_check_ms": 45.8, "module_ms": 6.5, "second_call_ms": 1.7, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
+{"label": "after-s4", "import_ms": 22.3, "first_call_ms": 67.5, "artifact_check_ms": 43.1, "module_ms": 5.9, "second_call_ms": 1.6, "counts": {"compiled": 0, "loaded": 1, "written": 0}}
