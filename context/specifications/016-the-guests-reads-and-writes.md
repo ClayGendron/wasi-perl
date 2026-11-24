@@ -58,3 +58,80 @@ The fuel (guest instructions) drops by 10–20% on line work. Perl's behaviour d
 5. A research memo records the wall times before and after on the baseline's workloads, with commands.
 6. `CHANGELOG.md` under "Unreleased", and `docs/` note that the module needs SIMD128.
 7. A fresh agent's review lands.
+
+## Landing notes
+
+Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/016-the-guests-reads-and-writes`, from dev at `236dddc`, Linux x86-64, CPython 3.13, wasmtime-py 51.0.0, as root. **Not yet reviewed.** Every claim below was run (EXECUTED) unless it says otherwise.
+
+### What was built
+
+- **Decision 1.** `recipes/config.sh`'s `ccflags` begins with `-DPERLIOBUF_DEFAULT_BUFSIZ=65536`, with a comment saying why.
+- **Decision 2.** `recipes/wasi-memchr.c`, written for this project from study C's prototype: aligned 16-byte loads, `i8x16.eq`, `i8x16.bitmask`, the bytes outside the range masked off. `scripts/20_target.sh` compiles it alone with `-msimd128` into `build/stubs/wasi-memchr.o`, which `libs` and `perllibs` name after `wasi-stubs.o`, so it is linked ahead of wasi-libc. `20_target.sh` also links `tests/build/memchr-test.c` with the same object into `build/tests/memchr-test.wasm`, and the test source is one of the step's stamp inputs.
+- **Decision 3.** `recipes/wasi-fd-table.c`: each open file has a `regular` flag, set from the look before `path_open` and cleared for every other new entry. `__wrap_isatty` answers 0 with errno ENOTTY when the descriptor's open file has the flag and still has a host descriptor; everything else calls wasi-libc's `isatty`. `recipes/wasi-cc` adds `--wrap=isatty`. dup, dup2, `fd_renumber` and a reopen after a rename keep the open file, so they keep the flag.
+- No patch to Perl. No change under `src/`.
+
+### Choices the specification left to the implementer
+
+- **How the checks count calls.** Check 1 asks for "a counting probe linker". wasmtime-py's WASI functions cannot be called from a Python host function: a wrapper that counts and passes the call on fails with "missing required memory export" (EXECUTED: a scratch probe on dev's module). So the checks count from the wasmtime 51 command line's trace, `WASMTIME_LOG=wasmtime_wasi=trace`, which is the same wasmtime-wasi; study C counted the same way. The traced runs get a throwaway `/dev` and a folder of their own and no library, since the command line grants every folder writable; none of their programs loads a module.
+- **What "1 MiB" is.** Exactly 1,048,576 bytes: 16,384 lines of 64 bytes, every fourth holding an `x`.
+- **Check 3's "0.1.0 module".** No 0.1.0 wheel is published (EXECUTED: PyPI answers "Not Found" for wasi-perl). The `perf-base` worktree's `perl.wasm` is built from the same recipes and scripts as 0.1.0 (EXECUTED: `git diff aac5d4d a5fd83a -- recipes scripts` is empty). The check holds its count, `FUEL_0_1_0 = 643_780_719`, measured by the check's own `_fuel`, and the memo gives the command. The check is not marked slow: it takes about two seconds.
+- **Check 4's "fewer than today".** The check cannot run today's module, so it asserts two things that are each false today: no `fd_fdstat_get` is made on any descriptor `path_open` gave (today 201), and 200 files make at most 199 more `fd_fdstat_get` than one file (today 398).
+- **More checks than the four,** each a part of decision 3: `-t` and `POSIX::isatty` on a file opened for reading, for append, on a copy of it and on `STDIN` reopened onto it all answer as native perl does, "notty" with ENOTTY; a file created by its open, which the look could not see, still asks the host; and `-t` on each of `STDIN`, `STDOUT` and `STDERR` makes one more host call. And for decision 2: `memchr` in `perl.wasm` and in `memchr-test.wasm` holds `i8x16` instructions, and no other function of `perl.wasm` holds a SIMD instruction.
+- **`memchr` without SIMD.** Study C's prototype had a 64-bit word loop for a build without `-msimd128`. Decision 2 has no such build, so the file stops with `#error` instead.
+- **The SIMD note** is in `docs/sandbox.md` ("What the host must run") and in the README's first lines, where the host's needs are stated.
+
+### The checks
+
+`tests/build/test_reads_and_writes.py`, 15 checks. On dev's module (the "before" build, `build/artifacts` before the change) 10 failed and 5 passed (EXECUTED: `uv run pytest tests/build/test_reads_and_writes.py`):
+
+| check | before | after |
+|---|---|---|
+| a line read over 1 MiB: at most 17 `fd_read` | failed, 129 | passed, 17 |
+| `-pi` over 1 MiB: at most 17 `fd_write` (and `fd_read`) | failed, 128 | passed, 16 (17) |
+| `memchr-test.wasm`: 108,800 cases | failed, not built | passed, "ok 108800" |
+| `memchr` holds `i8x16`, in `perl.wasm` and in the test | failed, both | passed |
+| only `memchr` uses SIMD | failed | passed |
+| fuel of `grep_log` at most 92% of 0.1.0's | failed, 100.0% | passed, 89.2% |
+| 200 files: no `fd_fdstat_get` on an opened file, at most 199 more than one file | failed, 201 and 398 | passed, 0 and 199 |
+| a regular file is not asked whether it is a terminal | failed, 5 | passed, 0 |
+| a created file still asks the host twice | failed, 3 (with `/dev/null`'s) | passed, 2 |
+| `-t` on a regular file, as native | passed | passed |
+| `-t STDIN`, `STDOUT`, `STDERR` ask the host | passed (3) | passed (3) |
+| a FIFO in a grant: ENXIO, and no `path_open` of it | passed | passed |
+
+The five that passed before are controls: they hold a behaviour the change must keep. Perl opens `/dev/null` at every start, a regular file in the `/dev` grant, so every program saves one `fd_fdstat_get`; the counts above include it.
+
+### Results
+
+```
+$ uv run pytest tests/build tests/escapes
+463 passed in 57.42s
+$ uv run pytest -m "not slow"
+472 passed, 3 skipped, 245 deselected
+$ uv run ruff check src tests && uv run ruff format --check src tests
+All checks passed!
+31 files already formatted
+$ uv run --no-project python -I scripts/assemble_artifacts.py
+assembled 1455 files, 32195712 bytes
+$ WASI_PERL_ORACLE=$PWD/build/native-install/bin/perl WASI_PERL_ARTIFACTS=$PWD/src/wasi_perl/artifacts \
+    uv run pytest tests/runner tests/escapes tests/oneliners -ra
+678 passed, 2 skipped               # the oneliners alone: 448 passed
+$ flock /home/user/wasi-perl-wt/machine.lock uv run python tests/perl_t/run_suite.py --quiet --list-failures --jobs 4
+perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6,
+platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)
+```
+
+- The skips: `test_arguments.py:208` (root can write every folder), `test_fixed_cost.py:392` (macOS, run in CI), and in the first run `tests/perl_t/test_suite.py:155` (the pristine tree was not yet unpacked).
+- The whole `t/` suite has the same score as 013's, with `tests/perl_t/exclusions.toml` untouched.
+- The one-liner oracle here is native perl, `build/native-install/bin/perl`, not the recorded JSON CI uses. Acceptance 2 asks for every platform in CI; that is for the pull request's run (not run here).
+- `perl.wasm` is SHA-256 `06ea464ba43c62fc2a3967326c9cea247c6f95bfe1e73c1bf21d64dc1c21a53d`, the same in `build/artifacts` and in the package copy.
+- wasmtime 51 refuses the module with SIMD turned off ("failed to compile: wasm[0]::function[3518]::memchr"), and runs dev's.
+
+### Measured
+
+`../research/2026-11-24-the-guests-reads-and-writes-measured.md`, against dev's module, three interleaved rounds under the lock: `grep_log` 113.6 → 61.3 ms, `-pi` 202.3 → 122.4 ms, 200 small files 57.7 → 45.4 ms, `count_lines` over the 10 MB log 72.8 → 32.2 ms. Fuel against 0.1.0: −10.8% `grep_log`, −13.0% `-pi`, −19.9% `count_lines`, −16.0% `many_files`, −2.5% `sum_csv`, nothing elsewhere. `-pi` lands 10 ms above study C's prediction of 112 ms; the other two at or below theirs.
+
+### Doubts
+
+- **The runner relies on wasmtime's default for SIMD.** `src/wasi_perl/_engines.py` states four wasmtime defaults the speed depends on, but not `wasm_simd`, which the module now needs to load at all. wasmtime-py 51 enables it (EXECUTED: every runner check passes). Stating it there belongs to `src/`, which specification 015 is changing now, so it is left for a later change (INFERRED: a one-line `cfg.wasm_simd = True`).
+- **The checks need the wasmtime command line** for their counts. It is in `build/tools` on Linux x86-64 only, so on another host those checks skip with the name of the script that fetches it, as the other checks of `tests/build` that use it do.

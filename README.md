@@ -8,7 +8,7 @@ pip install wasi-perl
 
 wasi-perl is Perl 5.42 compiled to WebAssembly (`wasm32-wasip1`) as one static binary, with the core XS modules linked in and the pure-Perl core library beside it. It is built to run the Perl that AI agents write, above all `perl -ne`, `-pi -e`, `-lane` and `-0777` one-liners over files, kept apart from the host process. By default the sandbox sees no host files, cannot write anything and has no network.
 
-Run it from Python, from the command line, or load the same `perl.wasm` into any WebAssembly host that supports exception handling.
+Run it from Python, from the command line, or load the same `perl.wasm` into any WebAssembly host that supports exception handling and SIMD128.
 
 Every release is tested on Linux (x86-64 and arm64), macOS (arm64) and Windows (x86-64): Perl's own `t/` suite, a set of agent-style one-liners compared byte for byte with native perl 5.42.3 (two differ on Windows, as its filesystem does), and sandbox escape tests. [Modules](https://github.com/ClayGendron/wasi-perl/blob/main/docs/modules.md) lists what is linked in and what is left out. [The sandbox](https://github.com/ClayGendron/wasi-perl/blob/main/docs/sandbox.md) lists what a guest cannot do: `fork`, `exec`, `system`, backticks, pipe opens and signal handlers die with "… is not available in the wasi-perl sandbox".
 

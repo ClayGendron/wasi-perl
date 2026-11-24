@@ -2,6 +2,15 @@
 
 wasi-perl runs Perl inside WebAssembly with WASI preview1. WASI preview1 has no processes and no signals. So the operations that would start a process or handle a signal are refused. A refusal is an ordinary Perl `die`, never a crash.
 
+## What the host must run
+
+`perl.wasm` is one `wasm32-wasip1` command. A host needs WASI preview1 and two WebAssembly features:
+
+- **Exception handling.** `die` and `eval` unwind through it.
+- **SIMD128.** `memchr`, which finds each line's end, compares sixteen bytes a step with it. Nothing else in the module uses SIMD.
+
+wasmtime enables SIMD128 by default; the runner turns on exception handling. A host without either refuses to load the module.
+
 ## The refusal
 
 Every refusal dies with one message:
