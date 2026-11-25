@@ -50,7 +50,8 @@ KINDS = ("prelude",)  # what made an image: a making's code
 # from the image redoes: the hash seed's two in perl_construct, whose seed is frozen in the
 # image; JSON::PP's switch, read when it is compiled; the locale's names, PERL_UNICODE and the
 # locale switches, read by the locale's set-up in perl_construct; PERLIO and PERLIO_DEBUG, read
-# at the first open of a handle; and PERL_RE_COLORS, read once per interpreter. A making may not
+# at the first open of a handle; PERL_RE_COLORS, read once per interpreter; and
+# PERL_ENCODE_DEBUG, which Encode reads with `use constant` as it loads. A making may not
 # set them, so an image is always made without them, and a call whose environment has any of
 # them runs perl.wasm instead. The locale's names are exactly the categories wasi-libc defines,
 # which are all Perl reads, and LC_ALL, LANG and LANGUAGE.
@@ -74,6 +75,7 @@ FROZEN_ENV = (
     "PERLIO",
     "PERLIO_DEBUG",
     "PERL_RE_COLORS",
+    "PERL_ENCODE_DEBUG",
 )
 _NOT_PUBLIC = "make a Snapshot with make_snapshot, make_package_snapshot or Snapshot.load"
 _OWNED_RULE = (

@@ -355,11 +355,13 @@ jobs:
           if sys.platform == "win32":
               host_lacks = {"POSIX links", "POSIX FIFOs", "a scan is not kept on this system",
                             "POSIX file modes"}
-          ran = skipped = 0
+          ran = skipped = from_image = 0
           for case in ET.parse(sys.argv[1]).iter("testcase"):
               where, name = case.get("classname", ""), case.get("name", "")
               if not where:  # a whole module, collected or skipped as one
                   where, name = name, "(the module)"
+              if name.startswith("test_guest_from_the_package_image_matches_native["):
+                  from_image += 1  # each corpus case again, from the package image
               guest = where.startswith(
                   (
                       "tests.escapes",
@@ -386,7 +388,8 @@ jobs:
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
           print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {page} page checks, {kept} kept-scan checks, {lettercase} library-case checks, {mounts} mount checks, {images} image checks, {release} output-release checks), {skipped} skipped")
-          sys.exit(1 if skipped or ran < floor else 0)
+          print(f"{from_image} corpus cases from the package image (exactly {cases})")
+          sys.exit(1 if skipped or ran < floor or from_image != cases else 0)
           PY
 
       # The same escape and mount walls with every call that can start from the package preload

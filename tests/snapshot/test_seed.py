@@ -125,6 +125,7 @@ READ_ONCE = {
     "PERLIO": ":crlf",
     "PERLIO_DEBUG": "/nowhere/perlio.log",
     "PERL_RE_COLORS": "",
+    "PERL_ENCODE_DEBUG": "1",
 }
 
 

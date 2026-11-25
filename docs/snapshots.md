@@ -46,7 +46,6 @@ A call from an image pays for the pages of the image it touches. That is less th
 | `use strict; use warnings; use POSIX; use JSON::PP; use List::Util` | about 23 ms | about 5 ms |
 | `-MPOSIX -e 1` | about 13 ms | about 4.5 ms |
 
-
 A bare `-e 1` costs 0.64–0.76 ms more from the image than from `perl.wasm` ([the memo](../context/research/2026-11-24-the-preload-image-measured.md), §1). So pass the image to calls that load modules, and not to bare one-liners. The runner never guesses from the program's text.
 
 ## Save it and load it in another process
@@ -84,6 +83,7 @@ So give `make_snapshot` only code you would run in every call yourself. Never ma
 - A module the image loaded is usable without `use`, and is in `%INC`: `POSIX::floor(2.5)` works with no `use POSIX`, and `defined &POSIX::floor` is true.
 - `hash_seed()` is the same in every call. The hash *order* still varies from call to call.
 - The code's subroutines, package variables and END blocks.
+- What a module the image loaded read from the environment as it loaded. Encode reads `PERL_ENCODE_DEBUG` then, so that name is among those below that send a call to `perl.wasm`.
 
 ## What is fresh in every call
 
@@ -98,7 +98,7 @@ Perl reads some variables only once, as it starts, or at the first open of a han
 - the hash seed's: `PERL_HASH_SEED` and `PERL_PERTURB_KEYS`;
 - the locale's: `LC_ALL`, `LC_CTYPE`, `LC_NUMERIC`, `LC_COLLATE`, `LC_TIME`, `LC_MESSAGES`, `LC_MONETARY`, `LANG`, `LANGUAGE`, `PERL_BADLANG`, `PERL_SKIP_LOCALE_INIT` and `PERL_DEBUG_LOCALE_INIT`;
 - `PERL_UNICODE`, `PERLIO` and `PERLIO_DEBUG`;
-- `PERL_JSON_PP_USE_B` and `PERL_RE_COLORS`.
+- `PERL_JSON_PP_USE_B`, `PERL_ENCODE_DEBUG` and `PERL_RE_COLORS`.
 
 A call that ran `perl.wasm` this way has `Completed.image_sha256` `None`; a call that started from the image has the image's hash there. So a call that sets `LC_ALL=C` gets `perl.wasm`'s speed, not the image's.
 

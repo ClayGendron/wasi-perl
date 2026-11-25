@@ -116,12 +116,19 @@ CASES = [
      {"LC_ALL": "C"}, None, "falls back"),
     ("lang_c", ["-MPOSIX", "-e", 'print "${^UTF8LOCALE} ", setlocale(LC_CTYPE), "\\n"'],
      {"LANG": "C"}, None, "falls back"),
+    # Encode reads PERL_ENCODE_DEBUG as it loads, with `use constant`, so the package image keeps
+    # the making's: the call runs perl.wasm.
+    ("encode_debug", ["-MEncode", "-e", 'print Encode::DEBUG() ? 1 : 0, "\\n"'],
+     {"PERL_ENCODE_DEBUG": "1"}, None, "falls back"),
+    # With no locale variable set, the image's locale is perl.wasm's.
+    ("locale_unset", ["-MPOSIX", "-e", 'print setlocale(LC_ALL), " ${^UTF8LOCALE}\\n"'],
+     {}, None, "same"),
 ]  # fmt: skip
 FALLS_BACK = {
     "hash_seed_env", "hash_order_env", "perturb_env", "json_pp_use_b", "hash_seed_empty",
     # the locale's, PERL_UNICODE's and PERLIO's names, read at start-up
     "env", "locale", "lang_utf8", "perl_unicode", "perl_unicode_argv", "perlio_crlf", "lc_all_c",
-    "lc_all_c_csl", "lc_all_c_locale_w", "lang_c",
+    "lc_all_c_csl", "lc_all_c_locale_w", "lang_c", "encode_debug",
 }  # fmt: skip
 ACCEPTED_EMPTY = {"hash_seed"}
 ACCEPTED_PACKAGES = {"no_use_posix", "defined_sub", "inc_keys", "hash_seed"}
