@@ -2,7 +2,7 @@
 
 - **Status:** agreed by the owner 2026-11-24, through AskUserQuestion: "Agree, build it (Recommended)" (as the orchestrator relayed it). Written by an investigating agent, 2026-11-24, from the evidence below, for the abort at interpreter exit seen twice on `ubuntu-24.04-arm` (the roadmap's item on it, which called it one-time, is corrected in the same change).
 - **Owner:** Clay Gendron
-- **Kind:** `src/wasi_perl/runner.py` (`_set_up`, `_call`, `_writer`) and `src/wasi_perl/_wasmtime_ffi.py` (a new `set_custom_outputs`, `NEEDED`, `on_epoch`); the checks in `tests/runner/test_output_release.py`; `CHANGELOG.md`. No guest change, no artifact change, no public API change.
+- **Kind:** `src/wasi_perl/runner.py` (`_set_up`, `_call`, `_writer`), `src/wasi_perl/_wasmtime_ffi.py` (a new `set_custom_outputs`, `NEEDED`, `on_epoch`) and a new `src/wasi_perl/_outputs.py` (the table of Decision 2); the checks in `tests/runner/test_output_release.py`, counted in the wheel legs' no-skip gate in `.github/workflows/ci.yml`; `CHANGELOG.md`. No guest change, no artifact change, no public API change.
 - **Depends on:** nothing unbuilt. Independent of 022.
 
 Labels: EXECUTED means run and seen. READ means read from a file. INFERRED means reasoned.
@@ -127,14 +127,17 @@ The mounts' host functions are Python callbacks with wasmtime-py's free, but was
 
 ## Checks (written first, seen failing)
 
-In `tests/runner/test_output_release.py`, on the stand-in guest:
+In `tests/runner/test_output_release.py`, on the real `perl.wasm`, so that they run in every wheel leg, on Python 3.11, where the stand-in is not built. The wheel legs' no-skip gate counts them.
 
 1. `test_the_outputs_give_wasmtime_no_python_free`: both C setters, wrapped, are called once each, and each is given no free (None or a NULL pointer). On dev: FAILED, two Python frees (EXECUTED, 2026-11-24).
 2. `test_nothing_of_a_call_runs_in_python_after_it_returns`: every free the setters are given is wrapped so that, called off the calling thread, it waits until `run()` has returned; the check asserts none ran after. On dev: FAILED in 15 of 20 runs, `[True, True]`; it passes when both frees happen to run on the calling thread inside `store.close()` (EXECUTED). Check 1 is the deterministic one.
+3. One check per way a call ends, each asserting that both outputs were given no free and that the runner holds neither key afterwards: a normal end; `exit 3` and `die`; out of fuel; the deadline; a trap at instantiation (`memory_bytes` below the first memory); a host error at the guest's start (a grant's folder removed between the check and the open); a provider's own `BaseException`, raised from `run`; Ctrl-C, in a child process, `KeyboardInterrupt` raised from `run`. On dev: each FAILED, at the free (EXECUTED, 2026-11-25; Ctrl-C's child at the import of `_outputs`).
+4. `test_a_free_held_until_finalization_does_not_abort`: the forced reproduction, in a child under the check's own Python. The first free a worker runs is held there until Python is finalizing, then let go while the main thread sleeps; five calls; the child must exit 0. On dev under Python 3.11.18 on x86-64: FAILED in 19 of 20 runs, the child aborted (exit -6); it passes on a run where no free went to a worker (EXECUTED). Under 3.13 it passes whatever the runner does (§3), so its proof is the wheel legs' 3.11.
+5. `test_the_streams_still_reach_the_result`: stdout, stderr, the exit code and the output cap, unchanged. Passes on dev and after.
 
 ## Acceptance
 
-- Both checks pass; `uv run pytest -m "not slow"`, `ruff check` and `ruff format --check` stay green.
+- Every check above passes, under 3.13 and 3.11; `uv run pytest -m "not slow"`, `ruff check` and `ruff format --check` stay green.
 - On the next ARM runs the step does not abort. That alone proves little at about 3% (evidence §1); the checks are the proof.
 
 ## Evidence scripts
@@ -249,3 +252,10 @@ pending = len(_wasi.CUSTOM_OUTPUTS.handles)
 if sys.argv[1:] == ["late"]:
     builtins._release_late = ReleaseLate(_wasi.CUSTOM_OUTPUTS)
 ```
+
+## Landing notes
+
+- Built 2026-11-25 on `fix/arm-exit-abort`. The table of Decision 2 is its own module, `_outputs.py` (`take`, `drop`, `holds`, `write`), so that `_wasmtime_ffi` can make the C write once at its import and `runner` imports no wasmtime to reach the table. `_call` takes the keys just before its `try`, and drops them in a `finally` around `store.close()`.
+- The partial-holder row of `tests/mounts/test_mount_api.py` gives its stand-in `_bindings` the real `_wasi_config_set_stdout_custom` record, so that it still lacks exactly one record, as it was written to.
+- Python per CI leg (READ: the job logs of dev's run 45505997660): lint, build and Perl's suite 3.12.3; the four wheel legs 3.11 (3.11.14 on Linux, 3.11.9 on macOS and Windows). The wheel legs run `tests/runner` on the installed wheel, so the main case, 3.11, is tested in CI on all four systems, and no extra leg is needed.
+- Suites (EXECUTED, x86-64, 2026-11-25, with `build/artifacts` built from dev and `WASI_PERL_ORACLE` set to the build's native perl): `uv run pytest -m "not slow"` 645 passed, 3 skipped; `tests/runner tests/escapes tests/mounts tests/oneliners`, every mark, 981 passed, 2 skipped; the runner, escape and mount tests under Python 3.11.18, 476 passed, 2 skipped, all 12 checks of `test_output_release.py` run; `ruff check` and `ruff format --check` clean. The checks of item 2, Ctrl-C and item 4, 20 runs each under 3.11: all passed.
