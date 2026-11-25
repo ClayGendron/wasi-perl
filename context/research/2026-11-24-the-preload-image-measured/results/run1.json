@@ -1,0 +1,164 @@
+{
+ "making": {
+  "runs": [
+   {
+    "total_s": 3.2129371560004074,
+    "prepare_s": 0.02799643500111415,
+    "capture_s": 0.003321185999084264,
+    "write_s": 0.06347985899992636,
+    "image_compile_s": 1.48515630899783
+   },
+   {
+    "total_s": 3.310703891002049,
+    "prepare_s": 0.02824944099847926,
+    "capture_s": 0.005415946001448901,
+    "write_s": 0.0442819240015524,
+    "image_compile_s": 1.586110190000909
+   },
+   {
+    "total_s": 3.194761577000463,
+    "prepare_s": 0.030830873001832515,
+    "capture_s": 0.0030427109995798673,
+    "write_s": 0.04400385699773324,
+    "image_compile_s": 1.5639385299982678
+   },
+   {
+    "total_s": 3.0680828240001574,
+    "prepare_s": 0.026036977000330808,
+    "capture_s": 0.0038059110011090524,
+    "write_s": 0.04751520099671325,
+    "image_compile_s": 1.5613396419976198
+   },
+   {
+    "total_s": 3.2538607320020674,
+    "prepare_s": 0.026046286002383567,
+    "capture_s": 0.0038022070002625696,
+    "write_s": 0.04709615799947642,
+    "image_compile_s": 1.580022846999782
+   }
+  ],
+  "median": {
+   "total_s": 3.2129371560004074,
+   "prepare_s": 0.02799643500111415,
+   "capture_s": 0.0038022070002625696,
+   "write_s": 0.04709615799947642,
+   "image_compile_s": 1.5639385299982678,
+   "reactor_compile_s_cold": 1.5836437980033224,
+   "prelude_fuel": 150685604,
+   "image_compile_metered_s": 2.078514627999539,
+   "segments": 14,
+   "data_bytes": 8105984,
+   "pages": 253,
+   "module_bytes": 10930736,
+   "image_bytes": 16580608,
+   "cwasm_bytes_plain": 17583288,
+   "cwasm_bytes_fuel": 19598704,
+   "perl_wasm_cwasm_bytes": 14879336
+  }
+ },
+ "calls_in_process": {
+  "five": {
+   "plain_ms": 24.155322500519105,
+   "image_ms": 5.309311500241165,
+   "speedup": 4.549614860499689,
+   "plain_minflt": 569.0,
+   "image_minflt": 466.0
+  },
+  "posix": {
+   "plain_ms": 12.863793501310283,
+   "image_ms": 4.29659899964463,
+   "speedup": 2.993947888172539,
+   "plain_minflt": 368.0,
+   "image_minflt": 457.0
+  },
+  "e1": {
+   "plain_ms": 1.0191104993282352,
+   "image_ms": 1.654591998885735,
+   "speedup": 0.6159285793806224,
+   "plain_minflt": 81.0,
+   "image_minflt": 291.0
+  }
+ },
+ "fuel": {
+  "five": {
+   "plain": 119950140,
+   "image": 17793677
+  },
+  "posix": {
+   "plain": 70483589,
+   "image": 17181357
+  },
+  "e1": {
+   "plain": 1565265,
+   "image": 1277753
+  }
+ },
+ "calls_cwasm": {
+  "five": {
+   "plain_ms": 24.265516998639214,
+   "image_ms": 5.362131500078249,
+   "speedup": 4.525349107586249,
+   "plain_minflt": 569.0,
+   "image_minflt": 466.0
+  },
+  "posix": {
+   "plain_ms": 14.531128499584156,
+   "image_ms": 5.132770998898195,
+   "speedup": 2.8310494473070045,
+   "plain_minflt": 368.0,
+   "image_minflt": 457.0
+  },
+  "e1": {
+   "plain_ms": 0.9851899976638379,
+   "image_ms": 1.6751365019445075,
+   "speedup": 0.5881252044357126,
+   "plain_minflt": 81.0,
+   "image_minflt": 291.0
+  }
+ },
+ "cwasm_counts": {
+  "compiled": 0,
+  "loaded": 2,
+  "written": 0,
+  "snapshots_made": 0,
+  "snapshots_restored": 186
+ },
+ "instantiation": [
+  {
+   "label": "perl.wasm, in process",
+   "ms": 0.007543500032625161,
+   "minflt": 0.0,
+   "mapped": {
+    "/memfd:wasm-memory-image (deleted)": 5533696,
+    "memory_bytes": 14024704
+   }
+  },
+  {
+   "label": "image, in process",
+   "ms": 0.0070900005084695294,
+   "minflt": 0.0,
+   "mapped": {
+    "/memfd:wasm-memory-image (deleted)": 8224768,
+    "memory_bytes": 16580608
+   }
+  },
+  {
+   "label": "perl.wasm, from .cwasm",
+   "ms": 0.006315000064205378,
+   "minflt": 0.0,
+   "mapped": {
+    "/memfd:wasi-perl-module (deleted)": 5533696,
+    "memory_bytes": 14024704
+   }
+  },
+  {
+   "label": "image, from .cwasm",
+   "ms": 0.006227499397937208,
+   "minflt": 0.0,
+   "mapped": {
+    "/memfd:wasi-perl-module (deleted)": 8224768,
+    "memory_bytes": 16580608
+   }
+  }
+ ]
+}

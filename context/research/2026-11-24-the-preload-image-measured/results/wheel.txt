@@ -1,0 +1,4 @@
+10068237 9fb37d8f12648e0c dist-without/wasi_perl-0.1.0-py3-none-any.whl
+13298264 506e8870ee2bf8ec dist/wasi_perl-0.1.0-py3-none-any.whl
+ 8677592  Defl:N  3229822  63% 2020-02-02 00:00 58e94b6c  wasi_perl/artifacts/perl-reactor.wasm
+ 8675094  Defl:N  3227064  63% 2020-02-02 00:00 2c3145dc  wasi_perl/artifacts/perl.wasm
