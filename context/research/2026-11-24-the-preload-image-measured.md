@@ -130,5 +130,5 @@ The memo's driver reads `/proc/self/maps` and was not run on CI. So the macOS an
 ## 7. Limits
 
 - One shared x86-64 Linux machine. Times are medians of alternated calls; the two runs differ by up to 60% on the compiles and 15% on the calls. Instruction counts and faults are the primary evidence.
-- **The build is not reproducible across full rebuilds of step 20 here.** `perl.wasm`'s SHA-256 changed between rebuilds whose only changed input was `recipes/wasi-reactor.c`, which `perl.wasm` does not link: `3493714…` and then `fa24c9d…` (EXECUTED: `sha256sum` after each). The cause was not looked into. A relink alone, as 021's review found, gives the same bytes.
+- **The build is not reproducible across full rebuilds of step 20 here.** `perl.wasm`'s SHA-256 changed between rebuilds whose only changed input was `recipes/wasi-reactor.c`, which `perl.wasm` does not link: `3493714…` and then `fa24c9d…`, and after the final clean rebuild from an empty `build/`, `5556f69…` (EXECUTED: `sha256sum` after each). The cause was not looked into. A relink alone, as 021's review found, gives the same bytes.
 - The default image's data is 8.1 MB here and 8.1 MB in the prototype; another prelude may be sparser and may not be mapped (amendment A9).
