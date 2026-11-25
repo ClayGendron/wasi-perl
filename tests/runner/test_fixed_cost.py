@@ -23,6 +23,13 @@ POSIX = pytest.mark.skipif(os.name == "nt", reason="the POSIX checks of the modu
 FD_PREFIX = "/proc/self/fd/" if sys.platform == "linux" else None
 
 
+def _cache_counts() -> dict[str, int]:
+    """The module cache's three counts: how this process got its compiled modules. The counts
+    of preload images made and started from are not the cache's."""
+    counts = _engines.counts()
+    return {k: counts[k] for k in ("compiled", "loaded", "written")}
+
+
 def _counted(monkeypatch: pytest.MonkeyPatch, owner: object, name: str, calls: list) -> None:
     """`owner.name` replaced by a wrapper that records each call's arguments in `calls`."""
     real = getattr(owner, name)
@@ -336,7 +343,7 @@ def cache(tmp_path: Path) -> Path:
 
 def _fresh_call(standin, cache):
     _engines.forget()
-    before = dict(_engines.counts())
+    before = _cache_counts()
     done = run(["hello"], cache_dir=cache, artifacts=standin)
     assert done.stdout == b"hello\n"
     return {k: _engines.counts()[k] - before[k] for k in before}
@@ -395,7 +402,7 @@ def test_on_macos_a_cwasm_is_read_into_memory(perl, cache, monkeypatch):
     # macOS has no sealed memory file, and a mapped cache file could change under the module.
     def call() -> dict[str, int]:
         _engines.forget()
-        before = dict(_engines.counts())
+        before = _cache_counts()
         done = run(["-e", "print 1"], cache_dir=cache, artifacts=perl)
         assert (done.exit_code, done.stdout) == (0, b"1")
         return {k: _engines.counts()[k] - before[k] for k in before}
