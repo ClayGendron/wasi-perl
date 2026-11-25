@@ -190,7 +190,7 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 | state | in the image | what `run` does | checked by |
 |---|---|---|---|
 | argv, `$0`, `@ARGV`, switches | the making's `-e <code>` | reads argv from this instance's WASI; the second `perl_parse` sets the rest | drift `argv_0`, every switch case |
-| environment, `%ENV` | dropped at the end of `prepare` | `__wasilibc_initialize_environ`, then the parse builds `%ENV` | drift `env` |
+| environment, `%ENV` | dropped at the end of `prepare`, its strings zeroed (A10) | `__wasilibc_initialize_environ`; `%ENV` emptied without its magic (A14); then the parse builds it | drift `env`; reset check 2 |
 | working folder | not kept: `prepare`'s step 8 sets wasi-libc's back to `/` (A4) | `chdir($PWD)` when `PWD` is absolute, as `wasi-stubs.c`'s constructor does for perl.wasm | drift `pwd`; reset check 9 |
 | time, `$^T` | the clocks were pinned, then unpinned | nothing: the parse reads the real clock | drift `basetime`; reset check 6 |
 | the descriptor table and wasi-libc's preopens | emptied | filled again on first use, from this instance's preopens | drift `n_file`, `p_i`; reset check 4 |
@@ -216,7 +216,11 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 > - the per-handle state of `STDIN`, `STDOUT` and `STDERR`: `$|`, the line count of `$.`, and the format variables `$%`, `$-`, `$=`, `$~` and `$^`;
 > - `${^UTF8CACHE}`, `${^RE_TRIE_MAXBUF}`, `${^RE_COMPILE_RECURSION_LIMIT}` and `${^MAX_NESTED_EVAL_BEGIN_BLOCKS}` to their defaults, where a prelude made them.
 >
+> *Made exact at the build, 2026-11-25:* `${^UTF8CACHE}` is set back to 1. The other three are left unset, as a fresh interpreter has them: the regular-expression engine and the compiler set each to its default when they find it unset (READ: `regcomp.c:3127-3130`, `regcomp_trie.c:617-620`, `op.c:11622-11627`).
+>
 > Variables with no built-in meaning, `$a`, `$b` and `@F` among them, are package variables, and stay frozen as every package variable does (Decision 5). So do `%SIG`'s `__DIE__` and `__WARN__` hooks and `%{^HOOK}`, which are code, under A11's trust point. A drift case, `punctuation`, has a prelude that sets every variable of the list, and calls that print each; they are expected equal to perl.wasm's.
+
+> **Amended 2026-11-25, at the build (A14).** The parse does not empty `%ENV`: `S_init_postdump_symbols` stores each variable into the hash it finds, and the image's still holds the making's. So a making with `env={"MAKING": "1"}` gave every call a `%ENV` with `MAKING` beside the call's own (EXECUTED: reset check 2 failed with `CALL,MAKING,OTHER` where `CALL` was due; the prototype's drift case `env` had no variables at the making, so it did not see it). `run` now takes the hash's environment magic off, empties it, and leaves the parse to put the magic back and fill it. The magic comes off first because its clear would clear the C environment just read.
 
 ### 5. The making: `make_snapshot` and `make_package_snapshot`
 
@@ -439,3 +443,39 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
    - on macOS, the same counts from CI's macOS runner, if it can run the memo's driver; otherwise the macOS and Windows rows of Decision 1's table stay INFERRED, and the memo says so.
 5. `docs/snapshots.md` exists, and `docs/sandbox.md` has the seed's paragraph. `CHANGELOG.md` has its lines under "Unreleased", naming `perl-reactor.wasm` as a new artifact.
 6. A fresh agent's review lands.
+
+## Landing notes, 2026-11-25
+
+Built on `spec/022-a-preload-image`, with dev at 388ddd3 merged in. The prototype's code was adapted into `recipes/wasi-reactor.c`, `recipes/wasi-fd-table.c` and `src/wasi_perl/_image_module.py`, each saying so.
+
+### What was built, by decision
+
+- **1. The image module.** `_image_module.py`: `check_form`, `runs`, `coalesce`, `write`. A form fault is `FormError`, an `ArtifactsMissing`. An image past a maximum or below the reactor's own pages is `SnapshotMismatch`. `_engines.image_module` keys the module by `SHA-256("wasi-perl image module 1\0" + reactor digest + "\0" + image_sha256)`, in the process and as the `.cwasm` name, through the same `_miss` and `_cache` as perl.wasm. A compile refused by wasmtime is `ArtifactsMissing`, with wasmtime's words ("data count section required").
+- **2. The second binary.** `20_target.sh` compiles the entry after the final `make`, with Perl's `perlmain.o` command, `-Werror -Wno-c++-keyword` and the two prefix maps (A2). `40_link.sh` links it before the command, with `perlmain_objs`, `libs` and `CLDFLAGS` set (A1), then runs the pass over both. `assemble_artifacts.py` requires it. `Artifacts.reactor` is the last field. The reactor is also a release file (`ci.yml`'s release files, `release.yml`'s six assets): the spec named the set and the wheel, and `SHA256SUMS`, a release file, lists it.
+- **3. The entry.** `prepare` and `run` as the decision and A3–A7 say, with A6's list in `fresh_special_variables`, A10's zeroing and A14's `fresh_environment_hash`. It is pinned to Perl 5.42.3 and to wasi-sdk 34 (`<wasi/version.h>`). Perl's `nostdio.h` hides `fflush` behind a macro, so C's is called as `(fflush)(NULL)`.
+- **4. The resets** are checked by `tests/snapshot/test_resets.py` 1–9 and `test_drift.py`'s eleven special-variable cases.
+- **5. The making.** `_snapshot_make.py`, adapted from wasi-python's. The making is `runner._run(..., making=True)`: `run`'s own checks, grants, mounts, limits, streams and stop, with `_prepare` as the entry and `_capture` after a status of 0. `make_snapshot` compiles the unmetered flavour before it returns, and the metered one with `fuel`.
+- **6. The calls.** `run(snapshot=)` stands after `stdin`. The set is checked against the image before the fallback is judged, so a wrong image fails the same way whatever the environment. `Completed.image_sha256` is the last field.
+- **7. The seed.** As the decision says; `save` writes 0600 and `load` refuses a file group or others may read or write.
+- **8. The drift.** `test_drift.py` ports the 41 cases and adds three fallback cases, `bad_switch`, `no_code_e` and `-v`. The sets are exactly `{hash_seed}` and `{no_use_posix, defined_sub, inc_keys, hash_seed}`.
+
+### Choices made in the build
+
+- `--no-snapshot` passes `snapshot=False`, which runs perl.wasm as `True` does.
+- The process's counts gain `snapshots_made` and `snapshots_restored`. The module cache's checks in `tests/runner` compared the whole counts dict; they now read the cache's three counts by name, which asserts the same of the cache.
+- Spec 017's check A1 now holds `files` second to last and `image_sha256` last, as this decision's check 9 says it extends.
+- A save or load publishes its folder in `_grants`, under the lock a starting call holds while it registers its grants, so of a call and a save at once one sees the other.
+
+### Seen failing first
+
+- The new Python checks failed to collect without the new modules. On a reactor built without A6's and A10's code, the eleven special-variable cases and the environment-once check failed (12 failed); with them, all passed (EXECUTED). Reset check 2 failed on the first reactor and found A14.
+- The listing checks, the link-step checks and `--no-snapshot` each failed on the old code. `test_the_public_api` and the cache checks failed in CI's lint job before the counts change.
+- On CI's windows-2025 leg, three image checks failed because `Path.write_text` writes CRLF there (job 138875087731); they now write bytes.
+
+### Acceptance
+
+1. The suites, EXECUTED on this machine on the final build: `tests/build` 603 passed (one run had one failure of `test_perturb_keys_and_the_internal_seed_work_as_natively`, a check of perl.wasm alone that compares three random orders, which passed on the next run); `tests/runner tests/escapes tests/mounts tests/oneliners tests/snapshot` with `WASI_PERL_ORACLE=build/native-install/bin/perl`, 1045 passed, 2 skipped; `-m "not slow"`, 647 passed, 3 skipped; ruff clean.
+2. The one-liner oracle's tests pin `PERL_HASH_SEED=0` and `PERL_PERTURB_KEYS=0`, so by Decision 6 every one of their calls runs perl.wasm even when given an image. So acceptance 2 ran the 226 cases with those two names removed, from perl.wasm twice and from each image once: 226 equal on both images, none hash-order dependent (EXECUTED: the memo, §5).
+3. Perl's `t/`: from `make_snapshot("")`, the scoreboard equals perl.wasm's exactly; from the package image, too, but for `lib/deprecate.t`, already excluded, which fails the same way with another message because Carp is preloaded, so its `shows` pattern does not match. No file fails only from an image, so `exclusions-image.toml` is not needed; `exclusions.toml` is not touched (EXECUTED: the memo, §5).
+4. `../research/2026-11-24-the-preload-image-measured.md`. The macOS and Windows rows of Decision 1 stay INFERRED.
+5. `docs/snapshots.md`, `docs/sandbox.md`'s paragraph, the README's section and the changelog's lines.
