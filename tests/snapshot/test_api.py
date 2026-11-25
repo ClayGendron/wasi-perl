@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import pickle
 import shutil
-import sys
 
 import pytest
 
@@ -297,7 +296,6 @@ def test_a_grant_serves_the_making(tmp_path) -> None:
     assert call(["-e", "print scalar(@w), $w[1]"], snap).stdout == b"2beta\n"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX rule of the saved file's folder")
 def test_a_save_where_a_running_call_may_write_is_refused(small, tmp_path) -> None:
     from wasi_perl import _grants
 
