@@ -28,7 +28,7 @@ snap = make_snapshot(
     "our $schema = decode_json(<$f>); close $f;",
     grants=grants,
 )
-done = run(["-e", 'print scalar keys %$schema'], snapshot=snap)
+done = run(["-e", "print scalar keys %$schema"], snapshot=snap)
 ```
 
 The code runs as a `-e` program in package `main`. A call from the image runs its own program after it, as if both were one script. The code's END blocks run at the end of every call, after the call's own.
