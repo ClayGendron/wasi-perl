@@ -8,7 +8,9 @@ One call runs one program in a fresh, sealed guest::
     done = run(["-ne", "print if /error/", "/logs/app.log"], grants=[Grant("logs", "/logs")])
     done.exit_code, done.stdout
 
-A `Mount` serves the guest's files from the embedder's own code instead of a host folder.
+A `Mount` serves the guest's files from the embedder's own code instead of a host folder. A
+`Snapshot`, made once with `make_snapshot` or `make_package_snapshot`, starts later calls with
+their modules already loaded.
 
 The public API is this module's `__all__`, the `wasi-perl` command, and the environment
 variables `WASI_PERL_ARTIFACTS` and `WASI_PERL_CACHE`. Everything else is internal and may
@@ -19,6 +21,8 @@ from __future__ import annotations
 
 from wasi_perl._artifacts import Artifacts, ArtifactsMissing, artifacts
 from wasi_perl._limits import TooManyCalls
+from wasi_perl._snapshot import Snapshot, SnapshotFailed, SnapshotMismatch, SnapshotOrigin
+from wasi_perl._snapshot_make import make_package_snapshot, make_snapshot
 from wasi_perl.mounts import (
     Errno,
     FileFault,
@@ -45,12 +49,18 @@ __all__ = [
     "Grant",
     "Mount",
     "RefusedWrite",
+    "Snapshot",
+    "SnapshotFailed",
+    "SnapshotMismatch",
+    "SnapshotOrigin",
     "Stat",
     "TooManyCalls",
     "WritableFileProvider",
     "__version__",
     "artifacts",
     "defaults",
+    "make_package_snapshot",
+    "make_snapshot",
     "run",
     "set_defaults",
 ]

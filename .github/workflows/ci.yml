@@ -94,15 +94,17 @@ jobs:
             echo "the last 60 lines of $log:"
             tail -n 60 "$log"
           fi
-      - name: The checks on the built perl.wasm
-        run: uv run pytest tests/build -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/build-junit.xml"
+      - name: The checks on the built perl.wasm and its preload images
+        run: uv run pytest tests/build tests/snapshot -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/build-junit.xml"
       # The checks of the CPAN modules need the build tree, the native install in build/native-cpan
       # and the pinned tarballs; the checks of the library index need the build tree, its stubs,
       # its logs and the wasmtime command line; the checks of wasm-opt need binaryen under
-      # build/tools and the linked module in build/link. This job has all of them, so a skip here
-      # means one went missing, and it fails. Every test function of the five files must have run
-      # at least once.
-      - name: No check of the CPAN modules, the library index or wasm-opt was skipped
+      # build/tools and the linked module in build/link; the checks of the reactor need the build
+      # tree, wasi-sdk and both linked modules; the checks of perl.wasm need the set, the
+      # wasmtime command line and the native perl; the preload image's need the set and its
+      # reactor. This job has all of them, so a skip here means one went missing, and it fails.
+      # Every test function of these files must have run at least once.
+      - name: No check of the CPAN modules, the library index, wasm-opt, the reactor or the images was skipped
         if: always()
         run: |
           if [ ! -f "$RUNNER_TEMP/build-junit.xml" ]; then
@@ -111,18 +113,22 @@ jobs:
           fi
           uv run --no-project python -I - "$RUNNER_TEMP/build-junit.xml" <<'PY'
           import ast, sys, xml.etree.ElementTree as ET
-          files = ("test_cpan_modules", "test_cpan_unpack", "test_lib_index", "test_library_lookups",
-                   "test_wasm_opt")
+          import glob
+          files = [f"tests/build/{f}.py" for f in ("test_cpan_modules", "test_cpan_unpack",
+                   "test_lib_index", "test_library_lookups", "test_wasm_opt", "test_reactor",
+                   "test_perl_wasm")]
+          files += sorted(glob.glob("tests/snapshot/test_*.py"))
           floor = 0
           for f in files:
-              tree = ast.parse(open(f"tests/build/{f}.py", encoding="utf-8").read())
+              tree = ast.parse(open(f, encoding="utf-8").read())
               floor += sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
+          prefixes = tuple(f.removesuffix(".py").replace("/", ".") for f in files)
           ran = skipped = 0
           for case in ET.parse(sys.argv[1]).iter("testcase"):
               where, name = case.get("classname", ""), case.get("name", "")
               if not where:  # a whole module, collected or skipped as one
                   where, name = name, "(the module)"
-              if not where.startswith(tuple(f"tests.build.{f}" for f in files)):
+              if not where.startswith(prefixes):
                   continue
               ran += 1
               skip = case.find("skipped")
@@ -131,7 +137,7 @@ jobs:
               if skip is not None:
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
-          print(f"{ran} checks of the CPAN modules, the library index and wasm-opt (at least {floor}), {skipped} skipped")
+          print(f"{ran} checks of the CPAN modules, the library index, wasm-opt, the reactor, perl.wasm and the images (at least {floor}), {skipped} skipped")
           sys.exit(1 if skipped or ran < floor else 0)
           PY
       - name: Keep the verified downloads for the next run
@@ -172,7 +178,8 @@ jobs:
           uv run --no-project python -I - "${wheels[0]}" <<'PY'
           import sys, zipfile
           names = set(zipfile.ZipFile(sys.argv[1]).namelist())
-          for need in ("perl.wasm", "MANIFEST", "SHA256SUMS", "dev/null", "Artistic", "Copying"):
+          for need in ("perl.wasm", "perl-reactor.wasm", "MANIFEST", "SHA256SUMS", "dev/null",
+                       "Artistic", "Copying"):
               if f"wasi_perl/artifacts/{need}" not in names:
                   sys.exit(f"the wheel has no wasi_perl/artifacts/{need}")
           if not any(n.startswith("wasi_perl/artifacts/lib/perl5/5.42/") for n in names):
@@ -224,6 +231,7 @@ jobs:
           name: release-files
           path: |
             build/artifacts/perl.wasm
+            build/artifacts/perl-reactor.wasm
             build/artifacts/MANIFEST
             build/artifacts/SHA256SUMS
           if-no-files-found: error
@@ -303,20 +311,21 @@ jobs:
           set -eu
           WASI_PERL_ARTIFACTS=$("$WHEEL_PY" -I -c "import pathlib, wasi_perl; print(pathlib.Path(wasi_perl.__file__).parent / 'artifacts')")
           export WASI_PERL_ARTIFACTS
-          "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/oneliners tests/mounts \
+          "$WHEEL_PY" -m pytest tests/runner tests/escapes tests/oneliners tests/mounts tests/snapshot \
             -p no:cacheprovider -ra --junitxml="$RUNNER_TEMP/junit.xml"
       # A guest check that skipped proved nothing: the escape tests (the mounts' among them), the
       # guest one-liners (the module cases among them, compared with answers recorded with the
       # CPAN modules), the checks of docs/fast-perl.md's numbers, the checks of the kept runtime
-      # scan and of a library name in another case, every check of the mounts, and the checks
-      # that a call leaves wasmtime nothing to run in Python, here on the Python 3.11 the abort
-      # at exit needs, must all have run (a known difference, an expected
+      # scan and of a library name in another case, every check of the mounts, every check of the
+      # preload images, and the checks that a call leaves wasmtime nothing to run in Python, here
+      # on the Python 3.11 the abort at exit needs, must all have run (a known difference, an expected
       # failure, is reported and allowed). A skip of a whole module shows in JUnit with an empty
       # classname and the module as its name, so it is counted too. And at least one escape test per test function and one one-liner per
       # corpus case must have run, so a collection that drops checks fails. The one exception is
       # a check of a host feature the system does not have, by its exact reason: Windows has no
       # POSIX links an unprivileged process can make, and no FIFOs; and it keeps no scan of the
-      # runtime, so the checks of a kept scan do not apply there.
+      # runtime, so the checks of a kept scan do not apply there; and it has no POSIX file modes,
+      # which the check of a saved image's mode reads.
       - name: No guest check was skipped
         if: always()
         run: |
@@ -339,16 +348,20 @@ jobs:
           page = tests_in("tests/oneliners/test_fast_perl.py", prefix="test_guest_")
           lettercase = tests_in("tests/runner/test_library_case.py")
           mounts = tests_in(*sorted(glob.glob("tests/mounts/test_*.py")))
+          images = tests_in(*sorted(glob.glob("tests/snapshot/test_*.py")))
           release = tests_in("tests/runner/test_output_release.py")
-          floor = cases + escapes + kept + page + lettercase + mounts + release
+          floor = cases + escapes + kept + page + lettercase + mounts + images + release
           host_lacks = set()
           if sys.platform == "win32":
-              host_lacks = {"POSIX links", "POSIX FIFOs", "a scan is not kept on this system"}
-          ran = skipped = 0
+              host_lacks = {"POSIX links", "POSIX FIFOs", "a scan is not kept on this system",
+                            "POSIX file modes"}
+          ran = skipped = from_image = 0
           for case in ET.parse(sys.argv[1]).iter("testcase"):
               where, name = case.get("classname", ""), case.get("name", "")
               if not where:  # a whole module, collected or skipped as one
                   where, name = name, "(the module)"
+              if name.startswith("test_guest_from_the_package_image_matches_native["):
+                  from_image += 1  # each corpus case again, from the package image
               guest = where.startswith(
                   (
                       "tests.escapes",
@@ -356,6 +369,7 @@ jobs:
                       "tests.runner.test_library_case",
                       "tests.runner.test_output_release",
                       "tests.mounts",
+                      "tests.snapshot",
                   )
               ) or (
                   where.startswith(("tests.oneliners.test_oneliners", "tests.oneliners.test_fast_perl"))
@@ -373,8 +387,65 @@ jobs:
                       continue
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
-          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {page} page checks, {kept} kept-scan checks, {lettercase} library-case checks, {mounts} mount checks, {release} output-release checks), {skipped} skipped")
-          sys.exit(1 if skipped or ran < floor else 0)
+          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {page} page checks, {kept} kept-scan checks, {lettercase} library-case checks, {mounts} mount checks, {images} image checks, {release} output-release checks), {skipped} skipped")
+          print(f"{from_image} corpus cases from the package image (exactly {cases})")
+          sys.exit(1 if skipped or ran < floor or from_image != cases else 0)
+          PY
+
+      # The same escape and mount walls with every call that can start from the package preload
+      # image started there (tests/conftest.py, WASI_PERL_TESTS_FROM_IMAGE). The runner's own
+      # checks are not run this way: most use stand-in sets with no reactor, and many count the
+      # module cache's compiles and loads, which an image's module changes by design.
+      - name: The escape and mount checks, from a preload image
+        if: always() && env.WHEEL_PY != ''
+        env:
+          WASI_PERL_TESTS_FROM_IMAGE: "1"
+        run: |
+          set -euo pipefail
+          WASI_PERL_ARTIFACTS=$("$WHEEL_PY" -I -c "import pathlib, wasi_perl; print(pathlib.Path(wasi_perl.__file__).parent / 'artifacts')")
+          export WASI_PERL_ARTIFACTS
+          "$WHEEL_PY" -m pytest tests/escapes tests/mounts -p no:cacheprovider -ra \
+            --junitxml="$RUNNER_TEMP/junit-image.xml" | tee "$RUNNER_TEMP/image-run.txt"
+      # Every escape and mount check must have run from the image too, but for a host's lack, as
+      # above; the one expected failure is the shared hash seed. At least one call must have
+      # started from the image.
+      - name: No check from the image was skipped
+        if: always()
+        run: |
+          if [ -z "${WHEEL_PY:-}" ] || [ ! -f "$RUNNER_TEMP/junit-image.xml" ]; then
+            echo "the checks did not run, so there is nothing to check here"
+            exit 0
+          fi
+          "$WHEEL_PY" -I - "$RUNNER_TEMP/junit-image.xml" "$RUNNER_TEMP/image-run.txt" <<'PY'
+          import ast, glob, re, sys, xml.etree.ElementTree as ET
+          def tests_in(*paths):
+              count = 0
+              for path in paths:
+                  tree = ast.parse(open(path, encoding="utf-8").read())
+                  count += sum(isinstance(n, ast.FunctionDef) and n.name.startswith("test_") for n in tree.body)
+              return count
+          floor = tests_in(*sorted(glob.glob("tests/escapes/test_*.py")), *sorted(glob.glob("tests/mounts/test_*.py")))
+          host_lacks = {"POSIX links", "POSIX FIFOs"} if sys.platform == "win32" else set()
+          ran = skipped = 0
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              where, name = case.get("classname", ""), case.get("name", "")
+              if not where:
+                  where, name = name, "(the module)"
+              if not where.startswith(("tests.escapes", "tests.mounts")):
+                  continue
+              ran += 1
+              skip = case.find("skipped")
+              if skip is None:
+                  skip = case.find("error")
+              if skip is not None and skip.get("type") != "pytest.xfail":
+                  if skip.get("message") in host_lacks:
+                      continue
+                  skipped += 1
+                  print(f"did not run: {where}::{name}: {skip.get('message')}")
+          started = re.findall(r"calls started from the package image: (\d+)", open(sys.argv[2], encoding="utf-8").read())
+          started = int(started[-1]) if started else 0
+          print(f"{ran} checks from the image (at least {floor}), {skipped} skipped, {started} calls started from it")
+          sys.exit(1 if skipped or ran < floor or started == 0 else 0)
           PY
 
   perl-t:

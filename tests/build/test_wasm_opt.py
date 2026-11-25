@@ -194,6 +194,25 @@ def test_the_link_step_runs_the_guard_before_the_pass():
     assert guard < run < sums
 
 
+# The tool itself: binaryen's folder as unpacked holds only regular files and folders, none
+# setuid or setgid, so a later pin cannot bring a link or a privileged file in unseen.
+
+
+def test_binaryens_folder_holds_only_files_and_folders(wasm_opt: Path):
+    import stat
+
+    top = wasm_opt.parent.parent
+    odd = []
+    for path in [top, *top.rglob("*")]:
+        st = path.lstat()
+        if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+            odd.append((str(path.relative_to(top)), "not a file or a folder"))
+        elif st.st_mode & (stat.S_ISUID | stat.S_ISGID):
+            odd.append((str(path.relative_to(top)), "setuid or setgid"))
+    assert odd == []
+    assert (top / "bin" / "wasm-opt").is_file()
+
+
 # 4. The imports and the exports.
 
 

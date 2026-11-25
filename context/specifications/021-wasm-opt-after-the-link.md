@@ -128,6 +128,7 @@ Built 2026-11-24 by the implementer (Claude Opus 5.5) on `spec/021-wasm-opt-afte
   - `assert_exit_refused` read the innermost frame's name, `perl!__wasi_proc_exit`. Without names, it is `<unknown>!<wasm function 2982>`, and six checks failed. It now reads the module's byte at that frame's offset, which must be a call of the `proc_exit` import: the same claim, read from the instruction itself. A new check shows that a frame one byte off is refused.
   - `test_the_memchr_linked_compares_sixteen_bytes_a_step[perl.wasm]` and `test_only_memchr_uses_simd` disassembled `<memchr>` by name, and both failed. Their claims are about the link, so they read `build/link/perl.wasm`, as Decision 7 does. A new check holds the shipped module to `i8x16.eq` and `i8x16.bitmask`. "Only memchr uses SIMD" is not true of the shipped module: the pass writes one 16-byte store of zeros as `v128.store`.
   - Keeping names with `-g` was tried: 9,172,757 bytes, and every frame of the exit path kept, so far less inlining. It would change Decision 5, and was not taken.
+    - *Corrected 2026-11-24 (review L3).* That run kept the DWARF sections, and the lost inlining comes from them, not from the names: `--strip-dwarf -O3 -g` keeps a 246 KB name section at the same fuel, and is 8.36 MB (EXECUTED in the review). It is an open item in `../roadmap.md`, for the owner's later choice about DWARF.
 - **The `.debug_*` sections** stay, 534,499 bytes, 6.2% of the shipped module, as Decision 5 says.
 
 ### The checks

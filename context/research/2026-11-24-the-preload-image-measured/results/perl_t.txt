@@ -1,0 +1,3 @@
+results.json perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)
+results-image-empty.json perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 0 regressed (19052 guarded oks)
+results-image-packages.json perl t/: 616 run, 439 passed, 177 excluded (subprocess 143, signals 11, refused 2, porting 6, platform 6, not-this-platform 6, bug 3), 0 failed, 0 stale exclusions, 1 regressed (19052 guarded oks)

@@ -1,0 +1,181 @@
+{
+ "reactors": [
+  {
+   "path": "build/proto022/perl-reactor.wasm",
+   "bytes": 9445627,
+   "sections": [
+    "type",
+    "import",
+    "function",
+    "table",
+    "memory",
+    "tag",
+    "global",
+    "export",
+    "element",
+    "code",
+    "data",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom"
+   ],
+   "form": {
+    "memory_min": 214,
+    "memory_max": null,
+    "stack_global": 0,
+    "stack_init": 8388608,
+    "exports": [
+     "memory",
+     "_initialize",
+     "wasi_perl_open_files",
+     "prepare",
+     "run",
+     "wasi_perl_exit_status"
+    ],
+    "data_segments": 2,
+    "has_datacount": false
+   },
+   "form_ok": true,
+   "dis": {
+    "memory.init": 0,
+    "data.drop": 0
+   }
+  },
+  {
+   "path": "build/proto022/perl-reactor.opt.wasm",
+   "bytes": 8676076,
+   "sections": [
+    "type",
+    "import",
+    "function",
+    "table",
+    "memory",
+    "tag",
+    "global",
+    "export",
+    "element",
+    "datacount",
+    "code",
+    "data",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom",
+    "custom"
+   ],
+   "form": {
+    "memory_min": 214,
+    "memory_max": null,
+    "stack_global": 0,
+    "stack_init": 8388608,
+    "exports": [
+     "memory",
+     "_initialize",
+     "wasi_perl_open_files",
+     "prepare",
+     "run",
+     "wasi_perl_exit_status"
+    ],
+    "data_segments": 11958,
+    "has_datacount": true
+   },
+   "form_ok": true,
+   "dis": {
+    "memory.init": 0,
+    "data.drop": 0
+   }
+  }
+ ],
+ "command_for_comparison": {
+  "path": "build/artifacts/perl.wasm",
+  "bytes": 8675094,
+  "sections": [
+   "type",
+   "import",
+   "function",
+   "table",
+   "memory",
+   "tag",
+   "global",
+   "export",
+   "element",
+   "datacount",
+   "code",
+   "data",
+   "custom",
+   "custom",
+   "custom",
+   "custom",
+   "custom",
+   "custom",
+   "custom",
+   "custom"
+  ],
+  "form_ok": false,
+  "form_error": "the exports are ['_start', 'memory', 'wasi_perl_exit_status']",
+  "dis": {
+   "memory.init": 0,
+   "data.drop": 0
+  }
+ },
+ "one_page_image_module": {
+  "segments": 0,
+  "data_bytes": 0,
+  "pages": 1,
+  "module_bytes": 2823088,
+  "compiles": true,
+  "sections": [
+   "type",
+   "import",
+   "function",
+   "table",
+   "memory",
+   "tag",
+   "global",
+   "export",
+   "element",
+   "code",
+   "data"
+  ]
+ },
+ "standins": {
+  "passive_segment": {
+   "has_datacount": false,
+   "refused": "a data segment is passive (flag 1)"
+  },
+  "two_mutable_globals": {
+   "has_datacount": false,
+   "refused": "the reactor has 2 mutable globals, not one"
+  },
+  "start_section": {
+   "has_datacount": false,
+   "refused": "the reactor has a start section"
+  },
+  "memory_init_in_code": {
+   "has_datacount": true,
+   "written_has_datacount": false,
+   "compiles": false,
+   "compile_error": "1: Invalid input WebAssembly code at offset 138: data count section required"
+  },
+  "data_drop_in_code": {
+   "has_datacount": true,
+   "written_has_datacount": false,
+   "compiles": false,
+   "compile_error": "1: Invalid input WebAssembly code at offset 132: data count section required"
+  },
+  "datacount_section_only": {
+   "has_datacount": true,
+   "written_has_datacount": false,
+   "compiles": true
+  }
+ }
+}

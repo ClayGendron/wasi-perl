@@ -1,0 +1,8 @@
+# sha256  bytes  deflate-6-bytes  path   (EXECUTED: sha256sum; wc -c; gzip -6 -c | wc -c)
+f4076345d19c50120dd91bea477cafb66b6cbc0602caab216dff9f6efb15fa0e  9445627  3387808  build/proto022/perl-reactor.wasm
+ca0327c6df3ed02833e76db956cdd8e28ca872dc50ed2917248c102e6bae2c88  8676076  3252601  build/proto022/perl-reactor.opt.wasm
+d0dda31b4f26f383a4d0f22bdfb8993d67e83bb723d3904d91e1f88a59db04f8  9443860  3383036  build/proto022/perl-command.wasm
+d0dda31b4f26f383a4d0f22bdfb8993d67e83bb723d3904d91e1f88a59db04f8  9443860  3383028  build/link/perl.wasm
+cde7600bbc7b6e9426d3a23446637ae3fa59f6f364c168e19785f2e663df0901  8675094  3256737  build/artifacts/perl.wasm
+a59bfa0e625c36722594732cfdf906e7f97eacdb30b6a17ab2bce4bd5609977d  12920  5937  build/proto022/wasi-reactor.o
+58883ef25bdc7d622970d9d6cf26abec80aea42637337ba52c14cce44fcae252  50168  9794  build/proto022/fdtable-reset.o

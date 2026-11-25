@@ -57,6 +57,7 @@ These are the side effects specification 021's Decision 5 lists, seen on this bu
 - **Time:** 5.8 s of wall time and 18.8 s of CPU on this machine, under the lock (EXECUTED: `time wasm-opt -O3 <flags> build/link/perl.wasm -o …`).
 - **Determinism:** the same input gave the same bytes with `BINARYEN_CORES=1`, with `BINARYEN_CORES=4`, and with every core (EXECUTED: three runs over the build copied from 019's branch, SHA-256 `2249473a…` each). On this branch's build, the check of the build runs the pass again with every core and gets the shipped bytes (EXECUTED: `test_the_shipped_module_is_the_pass_run_over_the_linked_one`). `40_link.sh` passes `BINARYEN_CORES=$WASI_PERL_JOBS`.
 - **`-g` was tried and not taken.** `wasm-opt -O3 -g` keeps the names, and its output is 9,172,757 bytes: it keeps every frame of the exit path, so it inlines far less (EXECUTED: the same `exit 200`, seven frames, as before the pass). The specification gives no `-g`.
+  - *Corrected 2026-11-24, from the review of 021 (`../reviews/021-wasm-opt-after-the-link-pr-2026-11-24.md`, L3).* The lost inlining comes from the DWARF sections, not from the names. That `-g` run was taken with DWARF present, and while DWARF is present binaryen runs only the passes that keep it (INFERRED there, from the figures below). `--strip-dwarf -O3 -g` keeps a name section of 245,961 bytes (about 246 KB), loses no fuel (`hello`, `grep_log`, `eval_die`, `sort`: +0.00% each), and is 8,360,960 bytes, about 8.36 MB, 314 KB smaller than the shipped module (EXECUTED there: the pinned `wasm-opt` with the script's flags over `build/link/perl.wasm`, then `sections.py` and this memo's `fuel.py`). It is an open item for the owner's later choice about DWARF (`../roadmap.md`).
 - **The hashes** of this build: linked `d0dda31b4f26f383a4d0f22bdfb8993d67e83bb723d3904d91e1f88a59db04f8`, shipped `cde7600bbc7b6e9426d3a23446637ae3fa59f6f364c168e19785f2e663df0901` (EXECUTED: `sha256sum`).
 
 ## 5. The checks that read names
@@ -94,7 +95,7 @@ Each change is its own commit, with its reason and the failure that showed it.
 |---|---:|---:|---:|---:|
 | five modules | 121,707,825 | 123,212,541 | **120,184,111** | −1.25% |
 | `-MPOSIX -e 1` | 71,062,047 | 72,001,857 | **70,195,305** | −1.22% |
-| `-e 1` | 1,600,585 | 1,600,492 | **1,557,752** | −2.67% |
+| `-e 1` | 1,600,585 | 1,600,492 | **1,557,752** | −2.68% |
 
 - The "dev before 019" column is READ from the 019 memo. The other two are this branch's build, whose index also sends names Windows cannot hold to the host. Its linked figures are 14,572 and 9,021 below 019's final ones (123,227,113 and 72,010,878), though the index now tests more bytes. The cause was not looked into; the compiler may lay out the longer test of each byte differently (INFERRED).
 - The failed host stats under the library stay at 0, for both programs (EXECUTED: `tests/build/test_library_lookups.py`, passed).

@@ -1,0 +1,100 @@
+{
+ "reactor_sha256": "ca0327c6df3ed02833e76db956cdd8e28ca872dc50ed2917248c102e6bae2c88",
+ "image_sha256": "0a4d20f6c1c23e643610e54b3bc9ea3ff172dffdbceb1188d7eeb0bbc8403951",
+ "module_sha256": "24f297101f401d885ae13badc275a8981d5f7b25d67b06aed7dc4878fd6dc628",
+ "module": {
+  "segments": 15,
+  "data_bytes": 8101888,
+  "pages": 253,
+  "module_bytes": 10925127
+ },
+ "sections": {
+  "custom": {
+   "reactor": 8,
+   "image": 0,
+   "identical": false
+  },
+  "type": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "import": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "function": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "table": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "memory": {
+   "reactor": 1,
+   "image": 1,
+   "identical": false
+  },
+  "global": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "export": {
+   "reactor": 1,
+   "image": 1,
+   "identical": false
+  },
+  "element": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "code": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  },
+  "data": {
+   "reactor": 1,
+   "image": 1,
+   "identical": false
+  },
+  "datacount": {
+   "reactor": 1,
+   "image": 0,
+   "identical": false
+  },
+  "tag": {
+   "reactor": 1,
+   "image": 1,
+   "identical": true
+  }
+ },
+ "must_be_identical": {
+  "type": true,
+  "import": true,
+  "function": true,
+  "table": true,
+  "global": true,
+  "tag": true,
+  "element": true,
+  "code": true
+ },
+ "all_must_identical": true,
+ "absent_in_reactor": [],
+ "image_holds": {
+  "build_host_path": 0,
+  "home_user": 0,
+  "making_env_value": 2,
+  "granted_file_text": 1,
+  "grant_host_folder": 0
+ },
+ "stack_region_bytes": 8388608,
+ "stack_region_written_4k_blocks": 8,
+ "image_written_4k_blocks": 1978
+}

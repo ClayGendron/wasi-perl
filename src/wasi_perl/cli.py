@@ -109,6 +109,10 @@ def _parser() -> argparse.ArgumentParser:
         help="where compiled modules are kept, a folder only you and the runner write",
     )  # fmt: skip
     caches.add_argument("--no-cache", action="store_true", help="keep no compiled module on disk")
+    p.add_argument(
+        "--no-snapshot", action="store_true",
+        help="accepted as wasi-python's command line takes it; perl.wasm runs either way",
+    )  # fmt: skip
     return p
 
 
@@ -200,6 +204,8 @@ def _main(args: list[str]) -> int:
             given[name] = getattr(ns, name)
     if ns.no_cache:
         given["cache_dir"] = False
+    if ns.no_snapshot:
+        given["snapshot"] = False
     if env is not None:
         given["env"] = env
     if grants:

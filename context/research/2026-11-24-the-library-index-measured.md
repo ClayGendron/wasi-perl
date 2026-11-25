@@ -46,7 +46,7 @@ Specification 021 runs binaryen's `wasm-opt -O3` over the linked module. On that
 |---|---:|---:|---:|---:|
 | five modules, fuel | 121,707,825 | 123,212,541 | **120,184,111** | −1,523,714, −1.25% |
 | `-MPOSIX -e 1`, fuel | 71,062,047 | 72,001,857 | **70,195,305** | −866,742, −1.22% |
-| `-e 1`, fuel | 1,600,585 | 1,600,492 | **1,557,752** | −42,833, −2.67% |
+| `-e 1`, fuel | 1,600,585 | 1,600,492 | **1,557,752** | −42,833, −2.68% |
 
 - The pass removes about 2.5% of the instructions, so the index's fuel is paid back: the five modules and `-MPOSIX` now run fewer instructions than before 019.
 - The failed host stats under the library stay at 0 for both programs (EXECUTED: `tests/build/test_library_lookups.py` on that build).

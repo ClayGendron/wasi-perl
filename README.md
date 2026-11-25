@@ -90,6 +90,10 @@ A grant is refused before the guest runs when its guest path is not absolute and
 
 A `Mount` serves the guest's files from your own Python code instead of a host folder: rows in a database, an object store, or a permission layer of your own. Your provider answers `stat`, `list` and `read` on normalized paths, and, for a writable mount, `write`, `mkdir`, `remove`, `rmdir` and `rename`. Every provider call is counted in `done.files` and bounded by `max_file_calls`. The API is wasi-python's, name for name. [docs/mounts.md](docs/mounts.md) shows a provider, what each Perl operation costs it, and the limits.
 
+# Preload images
+
+A *preload image* is the guest's memory after your code ran once. `make_package_snapshot()` loads eight core modules once, and each call given `snapshot=` that image starts with them compiled: a call that loads them runs several times faster, on Linux. You make the image yourself, at install time; wasi-perl ships none. The API is wasi-python's. [docs/snapshots.md](docs/snapshots.md) says what an image keeps, what each call gets afresh, and how to keep its hash seed private.
+
 # Limits
 
 Every call runs under limits; a call that names none has the defaults: 1 GiB of memory, 60 s, and 16 MiB of output per stream. `defaults()` and `set_defaults()` read and replace them.

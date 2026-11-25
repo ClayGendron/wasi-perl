@@ -1,0 +1,11 @@
+fa24c9d422e526d9a9835ec23cfc967f5a2e7be3a64f969e3972ba2f348b7fae  build/artifacts/perl.wasm
+e50422aef349ebfde8c86229872455f360a7d5b8620e2b94e4d3c21131a26fd5  build/artifacts/perl-reactor.wasm
+16ab566ba9469f3d11191915fa6d08e20c1c375924addc9cf67be11c95b1595b  build/link/perl.wasm
+886cbd97c5a63e61bc3419f9530a37328e0c3a62c610ab7e4e3a0379bd536617  build/link/perl-reactor.wasm
+ 8675094 build/artifacts/perl.wasm
+ 8677592 build/artifacts/perl-reactor.wasm
+ 9443860 build/link/perl.wasm
+ 9447212 build/link/perl-reactor.wasm
+36243758 total
+build/artifacts/perl.wasm deflate-6 3256744
+build/artifacts/perl-reactor.wasm deflate-6 3252905

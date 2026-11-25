@@ -1,0 +1,865 @@
+{
+ "making": {
+  "status": 0,
+  "open_files": 0,
+  "sp_initial": 8388608,
+  "sp_after_prepare": 8388608,
+  "sp_back": true,
+  "image_bytes": 16580608,
+  "image_sha256": "7962c7c37260c39305df102833cbb9e45e2ea0d0977ffd1b58dd0f3a7ff9fbf3",
+  "stdout": "",
+  "stderr": ""
+ },
+ "module": {
+  "segments": 15,
+  "data_bytes": 8101888,
+  "pages": 253,
+  "module_bytes": 10925127
+ },
+ "programs": [
+  {
+   "name": "posix_floor",
+   "argv": [
+    "-e",
+    "use POSIX; print floor(2.5)"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "2",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "2",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "five_print",
+   "argv": [
+    "-e",
+    "use strict; use warnings; use POSIX; use JSON::PP; use List::Util qw(sum max); print JSON::PP->new->canonical->encode({s => sum(1..10), m => max(3,9,4), f => floor(7.9), c => ceil(7.1), l => [1,2,3]}), qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "{\"c\":8,\"f\":7,\"l\":[1,2,3],\"m\":9,\"s\":55}\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "{\"c\":8,\"f\":7,\"l\":[1,2,3],\"m\":9,\"s\":55}\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "five_bare",
+   "argv": [
+    "-e",
+    "use strict; use warnings; use POSIX; use JSON::PP; use List::Util; 1"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "e_1",
+   "argv": [
+    "-e",
+    "1"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "die_in_eval",
+   "argv": [
+    "-e",
+    "eval { die \"boom\\n\" }; print \"caught: $@\"; eval { die { code => 7 } }; print \"ref: $@->{code}\\n\"; die \"final\\n\""
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "caught: boom\nref: 7\n",
+    "stderr": "final\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "caught: boom\nref: 7\n",
+    "stderr": "final\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "die_line",
+   "argv": [
+    "-e",
+    "eval { die q{x} }; print $@; die"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "x at -e line 1.\n",
+    "stderr": "x at -e line 1.\n\t...propagated at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "x at -e line 1.\n",
+    "stderr": "x at -e line 1.\n\t...propagated at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "exit_3",
+   "argv": [
+    "-e",
+    "print qq{a\\n}; exit 3"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 3,
+    "stdout": "a\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 3,
+    "stdout": "a\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "read_grant_ne",
+   "argv": [
+    "-ne",
+    "print if /b/",
+    "/data/f.txt"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "beta two\nbob four\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "beta two\nbob four\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "read_grant_lane",
+   "argv": [
+    "-lane",
+    "print $F[1]",
+    "/data/f.txt"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "one\ntwo\nthree\nfour\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "one\ntwo\nthree\nfour\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "read_grant_0777",
+   "argv": [
+    "-0777",
+    "-ne",
+    "print length, qq{\\n}",
+    "/data/f.txt"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "40\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "40\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "read_missing",
+   "argv": [
+    "-e",
+    "open my $f, q{<}, q{/data/nope} or die qq{no: $!\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "no: No such file or directory\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "no: No such file or directory\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "env_argv",
+   "argv": [
+    "-e",
+    "print join(\",\", map { \"$_=$ENV{$_}\" } sort keys %ENV), \"\\n\"; print \"@ARGV|$0|\", scalar(@ARGV), \"\\n\"; $ENV{NEW} = \"v\"; delete $ENV{FOO}; print join(\",\", sort keys %ENV), \"\\n\"",
+    "a",
+    "b c",
+    ""
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "EMPTY=,FOO=bar,LANG=C\na b c |-e|3\nEMPTY,LANG,NEW\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "EMPTY=,FOO=bar,LANG=C\na b c |-e|3\nEMPTY,LANG,NEW\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "env_none",
+   "argv": [
+    "-e",
+    "print scalar(keys %ENV), qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "0\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "0\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "stdin",
+   "argv": [
+    "-e",
+    "print scalar <STDIN>; print eof(STDIN) ? qq{eof\\n} : qq{more\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "a\nmore\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "a\nmore\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "warn_w",
+   "argv": [
+    "-we",
+    "my $x; print $x + 1, qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "1\n",
+    "stderr": "Use of uninitialized value $x in addition (+) at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "1\n",
+    "stderr": "Use of uninitialized value $x in addition (+) at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "use_warnings",
+   "argv": [
+    "-e",
+    "use warnings; my @a = (1); print $a[3] // q{u}, qq{\\n}; print undef . q{}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "u\n",
+    "stderr": "Use of uninitialized value in concatenation (.) or string at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "u\n",
+    "stderr": "Use of uninitialized value in concatenation (.) or string at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "strict_refs",
+   "argv": [
+    "-e",
+    "use strict; my $n = q{x}; print $$n"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "Can't use string (\"x\") as a SCALAR ref while \"strict refs\" in use at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "Can't use string (\"x\") as a SCALAR ref while \"strict refs\" in use at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "no_strict_leak",
+   "argv": [
+    "-e",
+    "$x = 1; print qq{ok $x\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "ok 1\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "ok 1\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "begin_end",
+   "argv": [
+    "-e",
+    "BEGIN { print qq{b\\n} } INIT { print qq{i\\n} } END { print qq{e\\n} } print qq{m\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "b\ni\nm\ne\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "b\ni\nm\ne\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "refusal_system",
+   "argv": [
+    "-e",
+    "my $r = system(\"true\"); print \"r=$r err=$!\\n\""
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "system is not available in the wasi-perl sandbox at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "system is not available in the wasi-perl sandbox at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "refusal_fork",
+   "argv": [
+    "-e",
+    "fork"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "fork is not available in the wasi-perl sandbox at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "fork is not available in the wasi-perl sandbox at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "time",
+   "argv": [
+    "-e",
+    "print time - $^T < 30 ? q{ok} : q{bad}, $^T == 1767225600 ? q{ PINNED} : q{}, qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "ok\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "ok\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "phase",
+   "argv": [
+    "-e",
+    "BEGIN { print qq{${^GLOBAL_PHASE}\\n} } print qq{${^GLOBAL_PHASE}\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "START\nRUN\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "START\nRUN\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "inc_dirs",
+   "argv": [
+    "-le",
+    "print for @INC"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "/usr/local/lib/perl5/5.42/site_perl/wasm32-wasi\n/usr/local/lib/perl5/5.42/site_perl\n/usr/local/lib/perl5/5.42/wasm32-wasi\n/usr/local/lib/perl5/5.42\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "/usr/local/lib/perl5/5.42/site_perl/wasm32-wasi\n/usr/local/lib/perl5/5.42/site_perl\n/usr/local/lib/perl5/5.42/wasm32-wasi\n/usr/local/lib/perl5/5.42\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "dumper",
+   "argv": [
+    "-e",
+    "use Data::Dumper; $Data::Dumper::Sortkeys = 1; print Dumper({a => 1, b => [2]})"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "$VAR1 = {\n          'a' => 1,\n          'b' => [\n                   2\n                 ]\n        };\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "isa_mro",
+   "argv": [
+    "-e",
+    "package A; sub f { q{A} } package B; our @ISA = (q{A}); package main; print B->f, qq{\\n}; print join(q{,}, @{mro::get_linear_isa(q{B})}), qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "A\n",
+    "stderr": "Undefined subroutine &mro::get_linear_isa called at -e line 1.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "A\n",
+    "stderr": "Undefined subroutine &mro::get_linear_isa called at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "bad_switch",
+   "argv": [
+    "-Q",
+    "-e",
+    "1"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 29,
+    "stdout": "",
+    "stderr": "Unrecognized switch: -Q  (-h will show valid options).\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 29,
+    "stdout": "",
+    "stderr": "Unrecognized switch: -Q  (-h will show valid options).\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "no_code_e",
+   "argv": [
+    "-e"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 29,
+    "stdout": "",
+    "stderr": "No code specified for -e.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 29,
+    "stdout": "",
+    "stderr": "No code specified for -e.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "missing_script",
+   "argv": [
+    "/data/nope.pl"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "Can't open perl script \"/data/nope.pl\": No such file or directory\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "Can't open perl script \"/data/nope.pl\": No such file or directory\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "script_file",
+   "argv": [
+    "/data/s.pl",
+    "x"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "9 /data/s.pl x\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "9 /data/s.pl x\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "missing_module",
+   "argv": [
+    "-MNo::Such::Mod",
+    "-e",
+    "1"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "Can't locate No/Such/Mod.pm in @INC (you may need to install the No::Such::Mod module) (@INC entries checked: /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42).\nBEGIN failed--compilation aborted.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 2,
+    "stdout": "",
+    "stderr": "Can't locate No/Such/Mod.pm in @INC (you may need to install the No::Such::Mod module) (@INC entries checked: /usr/local/lib/perl5/5.42/site_perl/wasm32-wasi /usr/local/lib/perl5/5.42/site_perl /usr/local/lib/perl5/5.42/wasm32-wasi /usr/local/lib/perl5/5.42).\nBEGIN failed--compilation aborted.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "version",
+   "argv": [
+    "-v"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "\nThis is perl 5, version 42, subversion 3 (v5.42.3) built for wasm32-wasi\n\nCopyright 1987-2026, Larry Wall\n\nPerl may be copied only under the terms of either the Artistic License or the\nGNU General Public License, which may be found in the Perl 5 source kit.\n\nComplete documentation for Perl, including FAQ lists, should be found on\nthis system using \"man perl\" or \"perldoc perl\".  If you have access to the\nInternet, point your browser at https://www.perl.org/, the Perl Home Page.\n\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "\nThis is perl 5, version 42, subversion 3 (v5.42.3) built for wasm32-wasi\n\nCopyright 1987-2026, Larry Wall\n\nPerl may be copied only under the terms of either the Artistic License or the\nGNU General Public License, which may be found in the Perl 5 source kit.\n\nComplete documentation for Perl, including FAQ lists, should be found on\nthis system using \"man perl\" or \"perldoc perl\".  If you have access to the\nInternet, point your browser at https://www.perl.org/, the Perl Home Page.\n\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "syntax_error",
+   "argv": [
+    "-e",
+    "print 1 +;"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "syntax error at -e line 1, near \"+;\"\nExecution of -e aborted due to compilation errors.\n",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "syntax error at -e line 1, near \"+;\"\nExecution of -e aborted due to compilation errors.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "rand_seed_env",
+   "argv": [
+    "-e",
+    "print int(rand(1000000)), qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "266444\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "266444\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "encode",
+   "argv": [
+    "-e",
+    "use Encode; print length(encode(q{UTF-8}, qq{\\x{263a}})), qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "3\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "3\n",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "storable",
+   "argv": [
+    "-e",
+    "use Storable qw(freeze thaw); print thaw(freeze([1,2,3]))->[2], qq{\\n}"
+   ],
+   "same": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "3\n",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "3\n",
+    "stderr": "",
+    "trapped": null
+   }
+  }
+ ],
+ "all_same": true,
+ "isolation": {
+  "first": {
+   "exit_code": 0,
+   "stdout": "99\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "second": {
+   "exit_code": 0,
+   "stdout": "clean 2\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "clean": true
+ },
+ "seed": {
+  "image_sha256_of_3_makings": [
+   "5528fd6074bd044b12beea03f053bd5b57c39f9d8d1003f6f342c3cc757715fb",
+   "4b687a3d36150c4e9e7bdf9b094feff69ae9a75b71ebf2bea14ff1adf0a3c48d",
+   "e1c2569eb65a805b85a5743b915d99517f365b2cd6e8fe5efa01f215815f5140"
+  ],
+  "hash_seed_of_3_makings": [
+   "049d591ab82a10431ec52151b9f9ab2d1758ff43fc718a6a1d43c52e350d6228",
+   "d80cb68829e39f7779833e088f8dd149b126a6e444c14734017db451d825b434",
+   "fbb53fdc4127aa5bfbb7a825340cab75c2f78893f6c29a774e92e6881401c659"
+  ],
+  "makings_differ": true,
+  "hash_seed_of_10_calls_one_image": [
+   "4f933e68ef546c77f914ef0fd6fa2fe6c3376f650923a9eb5cd11f2262511f32"
+  ],
+  "calls_share_seed": true,
+  "distinct_key_orders_in_10_calls": 10,
+  "plain_hash_seeds_3_calls": [
+   "bb2de157b3e2b85517b89d1d87c4175a095540e5a3ff01cdf355fa4bf9e3d2c6",
+   "8c7c767d38e30a1109654644e06ee05ce734615673acffa1881d3431d482be35",
+   "fa7e60fe9f149fdf533250b611772224dd105d0a715b79c5da06b46d370fdb8c"
+  ]
+ },
+ "accepted_drifts": [
+  {
+   "name": "no_use_posix",
+   "differs": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "2",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 255,
+    "stdout": "",
+    "stderr": "Undefined subroutine &POSIX::floor called at -e line 1.\n",
+    "trapped": null
+   }
+  },
+  {
+   "name": "defined_sub",
+   "differs": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "1",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "0",
+    "stderr": "",
+    "trapped": null
+   }
+  },
+  {
+   "name": "inc_keys",
+   "differs": true,
+   "image": {
+    "exit_code": 0,
+    "stdout": "25",
+    "stderr": "",
+    "trapped": null
+   },
+   "plain": {
+    "exit_code": 0,
+    "stdout": "0",
+    "stderr": "",
+    "trapped": null
+   }
+  }
+ ],
+ "prelude_hints_and_end": {
+  "making_status": 0,
+  "no_strict": {
+   "exit_code": 0,
+   "stdout": "ok 2\npre\n",
+   "stderr": "",
+   "trapped": null
+  },
+  "end_order": {
+   "exit_code": 0,
+   "stdout": "call\npre\n",
+   "stderr": "",
+   "trapped": null
+  }
+ },
+ "making_failures": {
+  "open_file": {
+   "status": 0,
+   "open_files": 1
+  },
+  "die": {
+   "status": 255,
+   "stderr": "nope\n"
+  },
+  "exit_0": {
+   "status": 0,
+   "open_files": 0
+  }
+ }
+}

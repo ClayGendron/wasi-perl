@@ -21,6 +21,13 @@ def cache(tmp_path: Path) -> Path:
     return tmp_path / "cache"
 
 
+def _cache_counts() -> dict[str, int]:
+    """The module cache's three counts: how this process got its compiled modules. The counts
+    of preload images made and started from are not the cache's."""
+    counts = _engines.counts()
+    return {k: counts[k] for k in ("compiled", "loaded", "written")}
+
+
 def _one(cache: Path) -> Path:
     (found,) = [p for p in cache.iterdir() if p.suffix == ".cwasm"]
     return found
@@ -28,7 +35,7 @@ def _one(cache: Path) -> Path:
 
 def _fresh_call(standin, cache, **kw):
     _engines.forget()
-    before = dict(_engines.counts())
+    before = _cache_counts()
     done = run(["hello"], cache_dir=cache, artifacts=standin, **kw)
     assert done.stdout == b"hello\n"
     return {k: _engines.counts()[k] - before[k] for k in before}

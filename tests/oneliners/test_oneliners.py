@@ -160,9 +160,28 @@ def guest():
     return wasi_perl
 
 
-def run_guest(wasi_perl, case: oo.Case, workdir: Path) -> oo.Result:
+# The base environment's names a preload image cannot honour, so a call that names them runs
+# perl.wasm: the hash seed's two and the locale. A call from the image goes without them; the
+# corpus never prints in hash order, and none of its cases reads the locale.
+FROM_IMAGE_DROPS = ("PERL_HASH_SEED", "PERL_PERTURB_KEYS", "LC_ALL")
+
+
+@pytest.fixture(scope="session")
+def package_image(guest):
+    """The package image of the set the guest runs, made once."""
+    found = guest.artifacts()
+    if found.reactor is None:
+        pytest.fail(f"{found.perl.parent} has no perl-reactor.wasm; the image cases need it")
+    return guest.make_package_snapshot(artifacts=found, cache_dir=False)
+
+
+def run_guest(wasi_perl, case: oo.Case, workdir: Path, image=None) -> oo.Result:
     oo.lay_out(case, workdir)
     env = {**oo.BASE_ENV, **case.env}
+    extra = {}
+    if image is not None:
+        env = {k: v for k, v in env.items() if k not in FROM_IMAGE_DROPS}
+        extra = {"snapshot": image}
     done = wasi_perl.run(
         oo.expand_argv(case.argv, oo.GUEST_ROOT),
         grants=[wasi_perl.Grant(str(workdir), oo.GUEST_ROOT, writable=True)],
@@ -171,7 +190,10 @@ def run_guest(wasi_perl, case: oo.Case, workdir: Path) -> oo.Result:
         cwd=oo.GUEST_ROOT,
         fuel=GUEST_FUEL,
         deadline_s=None,
+        **extra,
     )
+    if image is not None:
+        assert done.image_sha256 == image.origin.image_sha256, "the call did not start from it"
     notes = [f"output truncated by the runner's limit: {done.truncated}"] if done.truncated else []
     return oo.Result(
         exit_code=done.exit_code,
@@ -195,9 +217,18 @@ def test_guest_module_case_matches_native(case, module_expected_results, guest, 
     _check_guest(case, module_expected_results, guest, tmp_path)
 
 
-def _check_guest(case, expected_results, guest, tmp_path):
+@pytest.mark.slow
+@pytest.mark.parametrize("case", CASES, ids=IDS)
+def test_guest_from_the_package_image_matches_native(case, request, guest, package_image, tmp_path):
+    """Every case again, each call started from the package image, against the same native
+    answers."""
+    which = "module_expected_results" if case.group == "cpan" else "expected_results"
+    _check_guest(case, request.getfixturevalue(which), guest, tmp_path, package_image)
+
+
+def _check_guest(case, expected_results, guest, tmp_path, image=None):
     expected = expected_results(case, tmp_path / "native")
-    actual = run_guest(guest, case, tmp_path / "guest")
+    actual = run_guest(guest, case, tmp_path / "guest", image)
     diff = oo.differences(expected, actual)
     outcome, message = oo.verdict(case.id, diff, oo.known_here(KNOWN.get(case.id)))
     if outcome == "xfail":

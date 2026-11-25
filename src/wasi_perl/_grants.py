@@ -322,6 +322,11 @@ class Placed(NamedTuple):
 # writable grant must never be on another live call's way, nor hold another's read-only grant.
 _live_lock = threading.Lock()
 _live: dict[object, tuple[tuple[str, Placed], ...]] = {}
+# The folders this process saved a preload image to or loaded one from, each counted once per
+# save or load. A saved image is code every call from it runs, so for the process's life no
+# writable grant may be at or above one of them; and no save or load is made where a call
+# running now may write.
+_snapshot_folders: dict[str, int] = {}
 
 
 def live_count() -> int:
@@ -350,11 +355,45 @@ def hold(placed: Sequence[Placed], slot: object) -> None:
                             "change it, or it theirs; grant a folder apart from it, or wait for "
                             "that call to end"
                         )
+        for i, p in enumerate(placed):
+            if not p.writable:
+                continue
+            for folder in _snapshot_folders:
+                if p.chain[0] in chain(Path(folder)):
+                    raise ValueError(
+                        f"grants[{i}] at {p.guest}: {p.host} is at or above {folder}, where this "
+                        "process saved or loaded a snapshot, which every call from it runs; grant "
+                        "it read-only, or another folder"
+                    )
         for p in placed:
             if p.writable:
                 _ever_writable[p.chain[0]] = (str(p.host), p.chain)
         _bound_ever_writable()
         _live[slot] = tuple((f"grant at {p.guest}", p) for p in placed)
+
+
+def publish_snapshot_folder(folder: Path) -> None:
+    """Keep `folder` from every later call's writable grants, then refuse it if a writable
+    grant of a call running now is at or above it. Both are one step under the lock that a
+    starting call holds while it registers its grants, so of a call and a save at once, one
+    always sees the other. A refusal takes back its own count alone.
+
+    Raises:
+        PermissionError: A call running now may write the folder.
+    """
+    key = str(folder)
+    with _live_lock:
+        mine = chain(folder)
+        for others in _live.values():
+            for where, q in others:
+                if q.writable and q.chain[0] in mine:
+                    raise PermissionError(
+                        errno.EACCES,
+                        f"{folder} is at or inside the writable {where} of a call running now "
+                        f"({q.host}), whose guest could rewrite a snapshot there; save it "
+                        "elsewhere, or wait for that call to end",
+                    )
+        _snapshot_folders[key] = _snapshot_folders.get(key, 0) + 1
 
 
 def let_go(slot: object) -> None:

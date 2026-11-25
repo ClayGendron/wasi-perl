@@ -198,8 +198,7 @@ def test_no_wasm_opt(perl_wasm: Path):
     # The linked module is what wasm-ld wrote: binaryen's wasm-opt never ran on it, so clang ran
     # none of its own at the link. The shipped module is the build's own pass over this one.
     linked = BUILD / "link" / "perl.wasm"
-    if not linked.exists():
-        pytest.skip("build/link/perl.wasm is missing; run scripts/build.sh")
+    assert linked.exists(), f"{linked} is missing: scripts/40_link.sh builds it"
     assert b"binaryen" not in linked.read_bytes()
 
 

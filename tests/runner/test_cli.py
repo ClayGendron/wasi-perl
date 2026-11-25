@@ -194,3 +194,11 @@ def test_python_dash_m(standin_dir):
         env=env, capture_output=True, check=True,
     )  # fmt: skip
     assert json.loads(got.stdout)["exit_code"] == 4
+
+
+def test_no_snapshot_is_accepted_and_changes_nothing(fake, capsysbinary):
+    # wasi-python's command line takes it; here perl.wasm runs either way.
+    code, out, _ = _main(["run", "--no-snapshot", "--", "-e", "1"], capsysbinary)
+    assert code == 0
+    assert fake["kw"] == {"snapshot": False}
+    assert json.loads(out)["exit_code"] == 0
