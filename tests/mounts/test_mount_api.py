@@ -444,6 +444,25 @@ def test_missing_names_each_absent_name_in_order_and_all_lists_the_table() -> No
     assert spelled == held
 
 
+def test_a_record_whose_callbacks_are_not_c_function_types_is_missing() -> None:
+    """A binding record is read for its callback and free types, which the seam calls at import
+    to make C function pointers: one retyped there reads as missing, so `check` names it in the
+    one ImportError, rather than the import failing on the call."""
+    import ctypes
+
+    record = _bindings._wasi_config_set_stdout_custom
+    holders = real_holders()
+    holders["wasmtime._bindings"] = SimpleNamespace(
+        _wasmtime_store_epoch_deadline_callback=_bindings._wasmtime_store_epoch_deadline_callback,
+        _wasi_config_set_stdout_custom=SimpleNamespace(argtypes=[ctypes.c_void_p] * 4),
+    )
+    assert ffi.missing(holders) == ["wasmtime._bindings._wasi_config_set_stdout_custom"]
+    retyped = list(record.argtypes)
+    retyped[3] = ctypes.c_void_p  # the free alone
+    holders["wasmtime._bindings"]._wasi_config_set_stdout_custom = SimpleNamespace(argtypes=retyped)
+    assert ffi.missing(holders) == ["wasmtime._bindings._wasi_config_set_stdout_custom"]
+
+
 def test_check_raises_one_import_error_naming_the_version_the_names_and_the_pin() -> None:
     holders = real_holders()
     holders["wasmtime.Trap"] = SimpleNamespace()

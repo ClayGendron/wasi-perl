@@ -108,8 +108,15 @@ def _has(holder: object, name: str, where: str) -> bool:
     if not hasattr(holder, name):
         return False
     if where == _RECORDS:
-        return len(getattr(getattr(holder, name), "argtypes", None) or ()) == 4
+        # Four arguments, the second a callback and the fourth its free: C function types, which
+        # this module calls at import to make the pointers it passes.
+        kinds = list(getattr(getattr(holder, name), "argtypes", None) or ())
+        return len(kinds) == 4 and all(_is_function_type(kinds[i]) for i in (1, 3))
     return True
+
+
+def _is_function_type(kind: object) -> bool:
+    return isinstance(kind, type) and issubclass(kind, ctypes._CFuncPtr)
 
 
 def missing(holders: dict[str, object]) -> list[str]:

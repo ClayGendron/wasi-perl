@@ -180,17 +180,21 @@ from pathlib import Path
 from wasmtime import _ffi
 from wasi_perl import Artifacts, _outputs, run
 
-keys = []
+keys, frees = [], []  # frees: per output, whether wasmtime was given one
 for name in ("wasi_config_set_stdout_custom", "wasi_config_set_stderr_custom"):
     def setter(config, callback, data, finalizer, _original=getattr(_ffi, name)):
         keys.append(data)
+        frees.append(bool(finalizer))
         return _original(config, callback, data, finalizer)
     setattr(_ffi, name, setter)
+artifacts = Artifacts.at(Path(sys.argv[1]))
+run(["-e", "1"], artifacts=artifacts)  # the module compiled first, so Ctrl-C meets the guest
+del keys[:], frees[:]
 threading.Timer(0.5, signal.raise_signal, (signal.SIGINT,)).start()
 try:
-    run(["-e", "1 while 1"], deadline_s=None, artifacts=Artifacts.at(Path(sys.argv[1])))
+    run(["-e", "1 while 1"], deadline_s=None, artifacts=artifacts)
 except KeyboardInterrupt:
-    print("interrupted", len(keys), any(_outputs.holds(k) for k in keys))
+    print("interrupted", len(keys), frees, any(_outputs.holds(k) for k in keys))
     sys.exit(0)
 print("returned")
 """
@@ -206,7 +210,7 @@ def test_ctrl_c_releases_the_outputs(perl):
         )
     except subprocess.TimeoutExpired:
         pytest.fail("Ctrl-C never reached the guest")
-    assert (out.returncode, out.stdout) == (0, "interrupted 2 False\n"), out.stderr
+    assert (out.returncode, out.stdout) == (0, "interrupted 2 [False, False] False\n"), out.stderr
 
 
 # The abort itself, forced: the first free a worker has to run is held there until Python is
