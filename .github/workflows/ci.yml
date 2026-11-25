@@ -308,8 +308,9 @@ jobs:
       # A guest check that skipped proved nothing: the escape tests (the mounts' among them), the
       # guest one-liners (the module cases among them, compared with answers recorded with the
       # CPAN modules), the checks of docs/fast-perl.md's numbers, the checks of the kept runtime
-      # scan and of a library name in another case, and every check of the mounts must all have
-      # run (a known difference, an expected
+      # scan and of a library name in another case, every check of the mounts, and the checks
+      # that a call leaves wasmtime nothing to run in Python, here on the Python 3.11 the abort
+      # at exit needs, must all have run (a known difference, an expected
       # failure, is reported and allowed). A skip of a whole module shows in JUnit with an empty
       # classname and the module as its name, so it is counted too. And at least one escape test per test function and one one-liner per
       # corpus case must have run, so a collection that drops checks fails. The one exception is
@@ -338,7 +339,8 @@ jobs:
           page = tests_in("tests/oneliners/test_fast_perl.py", prefix="test_guest_")
           lettercase = tests_in("tests/runner/test_library_case.py")
           mounts = tests_in(*sorted(glob.glob("tests/mounts/test_*.py")))
-          floor = cases + escapes + kept + page + lettercase + mounts
+          release = tests_in("tests/runner/test_output_release.py")
+          floor = cases + escapes + kept + page + lettercase + mounts + release
           host_lacks = set()
           if sys.platform == "win32":
               host_lacks = {"POSIX links", "POSIX FIFOs", "a scan is not kept on this system"}
@@ -352,6 +354,7 @@ jobs:
                       "tests.escapes",
                       "tests.runner.test_kept_checks",
                       "tests.runner.test_library_case",
+                      "tests.runner.test_output_release",
                       "tests.mounts",
                   )
               ) or (
@@ -370,7 +373,7 @@ jobs:
                       continue
                   skipped += 1
                   print(f"did not run: {where}::{name}: {skip.get('message')}")
-          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {page} page checks, {kept} kept-scan checks, {lettercase} library-case checks, {mounts} mount checks), {skipped} skipped")
+          print(f"{ran} guest checks (at least {floor}: {cases} cases, {escapes} escape tests, {page} page checks, {kept} kept-scan checks, {lettercase} library-case checks, {mounts} mount checks, {release} output-release checks), {skipped} skipped")
           sys.exit(1 if skipped or ran < floor else 0)
           PY
 
