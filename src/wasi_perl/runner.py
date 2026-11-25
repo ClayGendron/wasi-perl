@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import wasi_perl
-from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _stop
+from wasi_perl import _artifacts, _cache, _engines, _grants, _limits, _outputs, _stop
 from wasi_perl._artifacts import Artifacts
 from wasi_perl._fs_memory import EBADF, EIO, STAGING_CEILING
 from wasi_perl._grants import DEV_GUEST, LIBRARY_GUEST, Grant
@@ -148,15 +148,6 @@ class _Stream:
 
     def value(self) -> bytes:
         return b"".join(self.parts)
-
-
-def _writer(stream: _Stream) -> Any:
-    def write(data: bytes) -> int:
-        size = len(data)
-        stream.write(data)
-        return size
-
-    return write
 
 
 def _set_stdin(wt: Any, wasi: Any, data: bytes) -> None:
@@ -367,20 +358,21 @@ def _set_up(
     placed: tuple[_grants.Placed, ...],
     inputs: _limits.Inputs,
     guest_env: dict[str, str],
-    out: _Stream,
-    err: _Stream,
+    keys: tuple[int, int],
     mounts: tuple[Mount, ...] = (),
     placeholder: str | None = None,
 ) -> None:
     """The store's WASI context, which the module's one linking reads for this store alone.
-    wasmtime opens each grant here, and raises WasmtimeError for a folder it cannot open; the
-    caller reports that as the call's trap. Each mount is preopened last, in the order given,
-    read-only on the call's empty placeholder."""
+    stdout and stderr go to the streams `keys` names in `_outputs`, with no free. wasmtime opens
+    each grant here, and raises WasmtimeError for a folder it cannot open; the caller reports
+    that as the call's trap. Each mount is preopened last, in the order given, read-only on the
+    call's empty placeholder."""
+    from wasi_perl import _wasmtime_ffi
+
     wasi = wt.WasiConfig()
     wasi.argv = [ARGV0, *inputs.argv]
     wasi.env = sorted(guest_env.items())
-    wasi.stdout_custom = _writer(out)
-    wasi.stderr_custom = _writer(err)
+    _wasmtime_ffi.set_custom_outputs(wasi, *keys)
     _set_stdin(wt, wasi, inputs.stdin)
     wasi.preopen_dir(str(found.lib), LIBRARY_GUEST, False)
     wasi.preopen_dir(str(found.dev), DEV_GUEST, False)
@@ -495,6 +487,9 @@ def _call(
     table: _Files | None = None
     call: _Call | None = None
     files: FileRecord | None = None
+    # The streams' keys, dropped here once the store is closed, however the call ends: wasmtime
+    # is given no free, so it runs nothing of Python after the call has returned.
+    keys = _outputs.take(out, err)
     try:
         if metered:
             store.set_fuel(UNMETERED)
@@ -515,7 +510,7 @@ def _call(
             call = _Call(store, table, stop)
         try:
             where = None if placeholder is None else placeholder.path
-            _set_up(wt, store, found, placed, inputs, guest_env, out, err, mounts, where)
+            _set_up(wt, store, found, placed, inputs, guest_env, keys, mounts, where)
         except wt.WasmtimeError as e:  # a host failure at the guest's start: its trap
             files = None if table is None else table.record()
             return Completed(None, b"", b"", _error_words(str(e)), None, (), files)
@@ -533,7 +528,10 @@ def _call(
             table.walk()
             files = table.record()
     finally:
-        store.close()
+        try:
+            store.close()
+        finally:
+            _outputs.drop(keys)
         if table is not None:  # the rest dropped now
             table.release()
             table.context.leave()  # type: ignore[attr-defined]

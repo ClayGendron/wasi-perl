@@ -426,7 +426,8 @@ def test_missing_names_each_absent_name_in_order_and_all_lists_the_table() -> No
     assert ffi.missing(empty) == dotted(ffi.NEEDED)
     partial = real_holders()
     partial["wasmtime._bindings"] = SimpleNamespace(
-        _wasmtime_store_epoch_deadline_callback=SimpleNamespace(argtypes=[1, 2, 3])
+        _wasmtime_store_epoch_deadline_callback=SimpleNamespace(argtypes=[1, 2, 3]),
+        _wasi_config_set_stdout_custom=_bindings._wasi_config_set_stdout_custom,
     )
     partial["wasmtime.Func"] = type("F", (), {"__annotations__": {}})
     assert ffi.missing(partial) == [

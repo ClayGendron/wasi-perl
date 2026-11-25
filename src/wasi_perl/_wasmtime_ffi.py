@@ -11,10 +11,12 @@ neither.
 
 Adapted from wasi-python's `_wasmtime_ffi.py` at f9bf678 (same owner, Apache-2.0). Kept:
 `PIN`, `NEEDED`, `version`, `missing`, `check` and its call, `context_of`, `context_address`,
-`set_epoch_deadline`, `get_fuel`, `set_fuel`, `raw_func` and `PreparedCall`. Trimmed: the rest
-(the custom outputs, the async stack, the epoch callback's shared object, the judge's readers),
-which wasi-perl does not call. `NEEDED` is cut to the private names this module reaches, and
-holds the three wasi-perl had before: `set_stdin_bytes`, `error` and `on_epoch`.
+`set_epoch_deadline`, `get_fuel`, `set_fuel`, `raw_func`, `PreparedCall` and
+`set_custom_outputs`, the last given one write and a NULL free (the module docstring of
+`_outputs` says why). Trimmed: the rest (the async stack, the epoch callback's shared object,
+the judge's readers), which wasi-perl does not call. `NEEDED` is cut to the private names this
+module reaches, and holds the three wasi-perl had before: `set_stdin_bytes`, `error` and
+`on_epoch`.
 """
 
 from __future__ import annotations
@@ -34,6 +36,8 @@ from wasmtime import (
     _ffi,
 )
 
+from wasi_perl import _outputs
+
 __all__ = [
     "NEEDED",
     "PIN",
@@ -50,6 +54,7 @@ __all__ = [
     "raw_func",
     "set_epoch_deadline",
     "set_fuel",
+    "set_custom_outputs",
     "set_stdin_bytes",
     "version",
 ]
@@ -72,7 +77,10 @@ NEEDED: tuple[tuple[str, str], ...] = (
     ("wasmtime._ffi", "wasm_byte_vec_t"),
     ("wasmtime._ffi", "wasm_byte_vec_new"),
     ("wasmtime._ffi", "wasi_config_set_stdin_bytes"),
+    ("wasmtime._ffi", "wasi_config_set_stdout_custom"),
+    ("wasmtime._ffi", "wasi_config_set_stderr_custom"),
     ("wasmtime._bindings", "_wasmtime_store_epoch_deadline_callback"),
+    ("wasmtime._bindings", "_wasi_config_set_stdout_custom"),
     ("wasmtime.Trap", "_from_ptr"),
     ("wasmtime.WasmtimeError", "_from_ptr"),
     ("wasmtime.Caller", "_context"),
@@ -211,6 +219,21 @@ def set_stdin_bytes(wasi: Any, data: bytes) -> None:
     _ffi.wasi_config_set_stdin_bytes(wasi.ptr(), ctypes.byref(vec))
 
 
+# A custom output's write (key, bytes, size -> written) and free (key) C types, from the binding's
+# own record; the write made once and kept for the process's life, as wasmtime may call it while
+# any store lives, and the free a NULL pointer, so wasmtime runs nothing of Python when it drops
+# an output.
+_OUTPUT_WRITE = _bindings._wasi_config_set_stdout_custom.argtypes[1](_outputs.write)
+_NO_FREE = _bindings._wasi_config_set_stdout_custom.argtypes[3]()
+
+
+def set_custom_outputs(wasi: WasiConfig, out_key: int, err_key: int) -> None:
+    """The guest's stdout and stderr as `_outputs.write` under `out_key` and `err_key`, with no
+    free: the caller drops the keys itself once the store is closed."""
+    _ffi.wasi_config_set_stdout_custom(wasi.ptr(), _OUTPUT_WRITE, out_key, _NO_FREE)
+    _ffi.wasi_config_set_stderr_custom(wasi.ptr(), _OUTPUT_WRITE, err_key, _NO_FREE)
+
+
 def error(text: str) -> int:
     """A new wasmtime error naming `text`, as the address an epoch callback returns to stop."""
     err = _ffi.wasmtime_error_new(text.encode())
@@ -221,13 +244,13 @@ def on_epoch(store: Any, fn: Callable[[Any, Any], int]) -> list[Any]:
     """`fn(delta, kind)` called at each of `store`'s epoch deadlines, through
     `wasmtime_store_epoch_deadline_callback`: it returns 0 to go on, having set `delta[0]` to the
     ticks until the next and `kind[0]` to 0 (continue), or an `error()` to stop. Returns the C
-    callbacks, which the caller keeps alive as long as the store."""
+    callback, which the caller keeps alive as long as the store. It has no data, so a NULL free:
+    wasmtime runs nothing of Python when it drops the callback."""
     binding = _bindings._wasmtime_store_epoch_deadline_callback
     callback_type, finalizer_type = binding.argtypes[1], binding.argtypes[3]
     callback = callback_type(lambda _context, _data, delta, kind: fn(delta, kind))
-    finalizer = finalizer_type(lambda _data: None)
-    binding(store.ptr(), callback, None, finalizer)
-    return [callback, finalizer]
+    binding(store.ptr(), callback, None, finalizer_type())
+    return [callback]
 
 
 def raw_func(func: Func) -> Any:
