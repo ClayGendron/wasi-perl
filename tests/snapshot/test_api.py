@@ -110,7 +110,7 @@ def test_another_set_is_a_mismatch(small, tmp_path) -> None:
     lines = found.sums.read_text().splitlines()
     first_lib = next(i for i, ln in enumerate(lines) if "  lib/" in ln)
     lines[first_lib] = "0" * 64 + lines[first_lib][64:]
-    sums.write_text("\n".join(lines) + "\n")
+    sums.write_bytes(("\n".join(lines) + "\n").encode())
     with_library = Artifacts(found.perl, found.lib, found.dev, found.manifest, sums, found.reactor)
     for which, other_set in (("perl-reactor.wasm", with_reactor), ("library", with_library)):
         with pytest.raises(SnapshotMismatch, match=which):
@@ -286,7 +286,7 @@ def test_a_mount_serves_the_making_and_the_image_keeps_what_it_read() -> None:
 
 
 def test_a_grant_serves_the_making(tmp_path) -> None:
-    (tmp_path / "words.txt").write_text("alpha\nbeta\n")
+    (tmp_path / "words.txt").write_bytes(b"alpha\nbeta\n")
     snap = make_snapshot(
         'open my $f, "<", "/data/words.txt" or die; our @w = <$f>; close $f;',
         grants=[Grant(tmp_path, "/data")],

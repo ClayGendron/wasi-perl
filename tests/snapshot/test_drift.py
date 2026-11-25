@@ -104,8 +104,8 @@ ACCEPTED_PACKAGES = {"no_use_posix", "defined_sub", "inc_keys", "hash_seed"}
 def _data(root: Path) -> Path:
     d = root / f"data{len(list(root.iterdir()))}"
     d.mkdir()
-    (d / "f.txt").write_text("a b c\nb c d\n:x:y\n")
-    (d / "g.txt").write_text("abc\naaa\n")
+    (d / "f.txt").write_bytes(b"a b c\nb c d\n:x:y\n")
+    (d / "g.txt").write_bytes(b"abc\naaa\n")
     return d
 
 

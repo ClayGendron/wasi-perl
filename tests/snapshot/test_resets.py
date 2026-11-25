@@ -45,7 +45,7 @@ def test_the_environment_is_the_calls() -> None:
 
 
 def test_the_working_folder_is_the_calls(tmp_path) -> None:
-    (tmp_path / "here.txt").write_text("found\n")
+    (tmp_path / "here.txt").write_bytes(b"found\n")
     image = made("1;")
     code = 'open my $f, "<", "here.txt" or die "no: $!\\n"; print <$f>, "$ENV{PWD}\\n"'
     done = call(["-e", code], image, grants=[Grant(tmp_path, "/data")], cwd="/data")

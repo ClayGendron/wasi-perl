@@ -61,8 +61,8 @@ def test_the_makings_grants_are_not_the_calls(tmp_path) -> None:
     made_with, other = tmp_path / "made", tmp_path / "other"
     made_with.mkdir()
     other.mkdir()
-    (made_with / "f.txt").write_text("the making's\n")
-    (other / "f.txt").write_text("the call's\n")
+    (made_with / "f.txt").write_bytes(b"the making's\n")
+    (other / "f.txt").write_bytes(b"the call's\n")
     image = make_snapshot(
         'open my $f, "<", "/data/f.txt" or die; close $f;',
         grants=[Grant(made_with, "/data")],
