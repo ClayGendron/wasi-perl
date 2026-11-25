@@ -39,7 +39,7 @@ The same command wrote `run2.json`. Each run alternates perl.wasm and the image 
 | `-e 1` | 1.02 → 1.65; 1.23 → 1.96 ms | 0.99 → 1.68; 1.15 → 1.91 ms |
 
 - The cache columns load both modules from `.cwasm` files through spec 014's sealed `memfd`: the counts across those calls are 2 loaded, 0 compiled, 0 written (`cwasm_counts` in both files).
-- So the image costs a bare one-liner 0.6–0.7 ms and about 215 more faults. `docs/snapshots.md`'s rule, pass the image only to calls that load modules, stands.
+- **The one figure for a bare one-liner:** from the image, `-e 1` costs **0.64–0.76 ms more** than from perl.wasm (the four medians above: 0.64, 0.69, 0.73, 0.76), and about 215 more faults. `docs/snapshots.md` and the changelog quote this figure. `docs/snapshots.md`'s rule, pass the image only to calls that load modules, stands.
 
 ## 2. Copy-on-write on Linux (EXECUTED, the same runs)
 
@@ -130,5 +130,6 @@ The memo's driver reads `/proc/self/maps` and was not run on CI. So the macOS an
 ## 7. Limits
 
 - One shared x86-64 Linux machine. Times are medians of alternated calls; the two runs differ by up to 60% on the compiles and 15% on the calls. Instruction counts and faults are the primary evidence.
-- **The build is not reproducible across full rebuilds of step 20 here.** `perl.wasm`'s SHA-256 changed between rebuilds whose only changed input was `recipes/wasi-reactor.c`, which `perl.wasm` does not link: `3493714…` and then `fa24c9d…`, and after the final clean rebuild from an empty `build/`, `5556f69…` (EXECUTED: `sha256sum` after each). The cause was not looked into. A relink alone, as 021's review found, gives the same bytes.
+- **The build is not reproducible across full rebuilds of step 20 here.** `perl.wasm`'s SHA-256 changed between rebuilds whose only changed input was `recipes/wasi-reactor.c`, which `perl.wasm` does not link: `3493714…` and then `fa24c9d…`, and after the final clean rebuild from an empty `build/`, `5556f69…` (EXECUTED: `sha256sum` after each). A relink alone, as 021's review found, gives the same bytes.
+  - *The cause (added 2026-11-25, from the review, L2):* `perl.c` builds `PERL_BUILD_DATE` from `__DATE__` and `__TIME__` (READ: `build/target/perl.c:2117-2119`), which `perl -V` prints as "Compiled at". Both modules of the final build hold `Compiled at Nov 25 2026 00:21:50` (EXECUTED: `grep -a -o "Compiled at [A-Za-z0-9 :]*" build/artifacts/perl.wasm build/artifacts/perl-reactor.wasm`). So every recompile of `perl.c` changes both modules, on dev too, whatever else changed. `SOURCE_DATE_EPOCH`, which clang honours for these macros, or a recipe define, is a roadmap item.
 - The default image's data is 8.1 MB here and 8.1 MB in the prototype; another prelude may be sparser and may not be mapped (amendment A9).

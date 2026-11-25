@@ -45,9 +45,9 @@ A call from an image pays for the pages of the image it touches. That is less th
 |---|---|---|
 | `use strict; use warnings; use POSIX; use JSON::PP; use List::Util` | about 23 ms | about 5 ms |
 | `-MPOSIX -e 1` | about 13 ms | about 4.5 ms |
-| `-e 1` | about 1.1 ms | about 1.8 ms |
 
-So pass the image to calls that load modules, and not to bare one-liners. The runner never guesses from the program's text.
+
+A bare `-e 1` costs 0.64–0.76 ms more from the image than from `perl.wasm` ([the memo](../context/research/2026-11-24-the-preload-image-measured.md), §1). So pass the image to calls that load modules, and not to bare one-liners. The runner never guesses from the program's text.
 
 ## Save it and load it in another process
 
@@ -88,11 +88,19 @@ So give `make_snapshot` only code you would run in every call yourself. Never ma
 ## What is fresh in every call
 
 - `$0`, `@ARGV` and the switches; `%ENV`, exactly the call's; the working folder (`/` unless the call gives `cwd`); the grants and mounts; standard input.
+- `PERL5OPT`, `PERL5LIB`, `PERLLIB`, `PERL_USE_UNSAFE_INC`, `PERL5DB`, `PERL_SIGNALS`, `PERL_DESTRUCT_LEVEL`, `PERL_HASH_SEED_DEBUG`, `PATH` and `TMPDIR`, which Perl reads in each call's own parse, end or use.
 - The clock: `$^T` and `time` are the call's.
 - `rand` and the per-call hash-order bits, drawn from the call's own randomness. `PERL_RAND_SEED` is honoured.
 - The special variables with a built-in meaning that `perl.wasm` starts with a fixed value: `$_`, `$,`, `$\`, `$;`, `$^I`, `$.`, `$|` and the format variables among them.
 
-A call whose `env` names `PERL_HASH_SEED`, `PERL_PERTURB_KEYS` or `PERL_JSON_PP_USE_B` runs `perl.wasm` instead, since an image cannot honour them. Its `Completed.image_sha256` is then `None`; a call that started from the image has the image's hash there. A making may not set any of the three.
+Perl reads some variables only once, as it starts, or at the first open of a handle, and an image cannot honour a call's own value of those. A call whose `env` names any of them runs `perl.wasm` instead, and a making may not set them, so an image is made without them:
+
+- the hash seed's: `PERL_HASH_SEED` and `PERL_PERTURB_KEYS`;
+- the locale's: `LC_ALL`, `LC_CTYPE`, `LC_NUMERIC`, `LC_COLLATE`, `LC_TIME`, `LC_MESSAGES`, `LC_MONETARY`, `LANG`, `LANGUAGE`, `PERL_BADLANG`, `PERL_SKIP_LOCALE_INIT` and `PERL_DEBUG_LOCALE_INIT`;
+- `PERL_UNICODE`, `PERLIO` and `PERLIO_DEBUG`;
+- `PERL_JSON_PP_USE_B` and `PERL_RE_COLORS`.
+
+A call that ran `perl.wasm` this way has `Completed.image_sha256` `None`; a call that started from the image has the image's hash there. So a call that sets `LC_ALL=C` gets `perl.wasm`'s speed, not the image's.
 
 ## Avoid these in the image's code
 

@@ -280,8 +280,9 @@ def run(
         stdin: The guest's standard input, whole; `None` is empty.
         snapshot: `True` (the default) and `False` both run perl.wasm, the set's default start.
             A `Snapshot` starts the call from that preload image, with the modules its code
-            loaded already compiled, unless `env` names `PERL_HASH_SEED`, `PERL_PERTURB_KEYS`
-            or `PERL_JSON_PP_USE_B`, which an image cannot honour: that call runs perl.wasm.
+            loaded already compiled, unless `env` names a variable Perl reads only at start-up,
+            which an image cannot honour: the hash seed's, the locale's, `PERL_UNICODE`,
+            `PERLIO` and a few more (docs/snapshots.md lists them). That call runs perl.wasm.
             Pass an image to calls that load modules, not to bare one-liners.
         cwd: The guest's working folder: a guest path inside a grant or a mount. `None` leaves
             it at /, which no grant serves, so relative paths fail unless a mount is at /. In a

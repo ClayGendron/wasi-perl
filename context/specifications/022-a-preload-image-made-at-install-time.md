@@ -200,7 +200,7 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
 | hash seed and hash state | the making's | **kept**: every stash and shared key in the image was hashed with it (D §2.1) | seed checks 1 and 2 |
 | `@INC`, `PL_e_script` | the making's | cleared; the parse fills `@INC` as perl.wasm does | drift `inc_dirs` |
 | `main::`, `PL_isarev`, `%INC`, compiled subs | the code's | kept, by design: that is the preload | drift's visibility cases |
-| locale | set up at the making, under no `LC_*` | not redone; under wasi-libc's C and C.UTF-8 it agrees with perl.wasm (D §2.1) | drift `locale`, `lang_utf8` |
+| locale, `PERL_UNICODE`, `PERLIO` | set up at the making, with none of their names set (A15) | not redone: a call that names one runs perl.wasm (A15) | drift `locale`, `lang_utf8`, `lc_all_c`, `perl_unicode`, `perlio_crlf`; seed checks 7 and 4 |
 | the exit status that `wasi_perl_exit_status` keeps | −1, since `prepare` never exits | nothing | runner tests of exit codes |
 | errno at the second parse (A5) | what the making's last call left | set to what `perl_construct` left, then `isatty` and `lseek` asked of descriptors 0–2, before `perl_parse` | drift `bad_switch`, `no_code_e` |
 | punctuation and per-handle variables the parse does not set (A6) | the code's | set to perl.wasm's start values before the parse: the list below | drift `punctuation` |
@@ -293,6 +293,38 @@ The second `perl_parse` would undo the preload in three ways (D §2.1). Link wra
   - an image module would exceed the memory's maximum.
 - The checks of a fallen-back call are perl.wasm's. The image is still checked against the set, so a wrong image fails the same way whatever the environment.
 
+> **Amended 2026-11-25, from the review of PR #32 (H1): A15, the names read only at start-up.** The text said that under wasi-libc's C and C.UTF-8 the locale "agrees with perl.wasm". It does not for C. Perl reads the locale's names and `PERL_UNICODE` once, in `perl_construct`, and `PERLIO` at the first open of a handle, and `run` redoes neither. So a call from an image got the making's locale, Unicode switches and layers, silently, with `image_sha256` set: under `env={"LC_ALL": "C"}`, `${^UTF8LOCALE}` was 1 from the image and 0 from perl.wasm; under `PERL_UNICODE=S`, `print chr(233)` gave `e9` against `c3 a9`; under `PERLIO=:crlf` a file got `61 0a` against `61 0d 0a` (EXECUTED in the review, and again by the new drift cases on the unfixed head, which failed). The decision, the orchestrator's: **fall back, do not re-read.** `_snapshot.FROZEN_ENV` holds every name Perl reads before or outside what `run` redoes. A making refuses each (so an image is always made with them absent), and a call whose environment names any of them, with any value, runs perl.wasm with `image_sha256` `None`, as for the first three names. Re-reading them in `run`, so those calls keep the image, is a roadmap item.
+>
+> The audit, of every environment read in Perl 5.42.3's sources as built (READ: `grep -n 'PerlEnv_getenv\|getenv(\|my_getenv'` over `build/target/*.c`, with the enclosing function of each):
+>
+> | name | read in | when | here |
+> |---|---|---|---|
+> | `PERL_HASH_SEED`, `PERL_PERTURB_KEYS` | `util.c:4770`, `:4817`, `Perl_get_hash_seed` | `perl_construct` | falls back (Decision 6) |
+> | `PERL_JSON_PP_USE_B` | `JSON/PP.pm` line 48 | when JSON::PP compiles | falls back (Decision 6) |
+> | `LC_ALL`, `LANG` | `locale.c:9176-9177`, `Perl_init_i18nl10n`; `:3260`, `:3313`, `S_find_locale_from_environment` | `perl_construct` | **falls back** |
+> | `LC_CTYPE`, `LC_NUMERIC`, `LC_COLLATE`, `LC_TIME`, `LC_MESSAGES`, `LC_MONETARY` | `locale.c:3303`, `:8875`, through `category_names` (`:819`), one per category wasi-libc defines (READ: its `locale.h`, 23-29) | `perl_construct` | **falls back** |
+> | `LANGUAGE`, `PERL_BADLANG` | `locale.c:9002`, `:9009`, `Perl_init_i18nl10n` | `perl_construct` | **falls back** |
+> | `PERL_DEBUG_LOCALE_INIT`, `PERL_SKIP_LOCALE_INIT` | `locale.c:9023`, `:9227`, `Perl_init_i18nl10n` | `perl_construct` | **falls back** |
+> | `PERL_UNICODE` | `locale.c:9518`, `Perl_init_i18nl10n` | `perl_construct`; the parse reads only `-C` (`perl.c:3731`) | **falls back** |
+> | `PERLIO` | `perlio.c:1486`, `PerlIO_default_layers` | once, at the first open | **falls back** |
+> | `PERLIO_DEBUG` | `perlio.c:346`, `PerlIO_debug` | once, while `PL_perlio_debug_fd` is 0 | **falls back** |
+> | `PERL_RE_COLORS` | `regcomp.c:352`, `Perl_reginitcolors` | once per interpreter, at the first regex debug output | **falls back** |
+> | `PERL_RAND_SEED`, `PERL_INTERNAL_RAND_SEED` | `perl.c:278`, `:298`, `perl_construct` | `perl_construct`, and again in `run`'s `reseed` | per call |
+> | `PERL_DESTRUCT_LEVEL` | `perl.c:648`, `perl_destruct` | each call's `perl_destruct` | per call |
+> | `PERL5OPT`, `PERL_SIGNALS` | `perl.c:2405`, `:2667`, `S_parse_body` | each call's parse | per call |
+> | `PERL5LIB`, `PERLLIB`, `PERL_USE_UNSAFE_INC` | `perl.c:4903`, `:4907`, `:4955`, `S_init_perllib` | each call's parse | per call |
+> | `PERL_HASH_SEED_DEBUG` | `util.c:4870`, `Perl_debug_hash_seed`, from `perl_parse` (`perl.c:1792`) | each call's parse | per call (it prints the image's seed, the accepted drift) |
+> | `PERL5DB` | `toke.c:9173`, `yyl_try` | a call's `-d` | per call |
+> | `PATH`, `TMPDIR` | `util.c:3525`, `Perl_find_script`; `perlio.c:5464`, `PerlIO_tmpfile_flags` | each use | per call |
+> | `%ENV`'s values | `perl.c:4837`, `S_init_postdump_symbols` | each call's parse (A14) | per call |
+> | `PERL_TRACE_OPS`, `PERL_DUMP_RE_MAX_LEN` | `perl.c:723`; `regcomp.c:13943` | only in a `DEBUGGING` perl, which this is not | not compiled |
+> | `PERL_MEM_LOG`, `PERL_C_BACKTRACE_ON_ERROR` | `util.c:4952`; `:1595` | only with `PERL_MEM_LOG` or `USE_C_BACKTRACE`, neither defined (READ: `config.h`) | not compiled |
+> | `PERL_MALLOC_OPT`, `PERL_BADFREE`, `PERL_DEBUG_MSTATS` | `malloc.c:1667`, `:1830`; `perl.c:2717` | only with Perl's malloc; `usemymalloc='n'` (READ: `config.sh:1221`) | not compiled |
+>
+> - The names are exact. No prefix rule is needed: Perl reads only the `LC_*` categories `locale_table.h` lists under an `#ifdef`, and wasi-libc defines exactly six.
+> - The checks: drift `perl_unicode`, `perl_unicode_argv`, `perlio_crlf`, `lc_all_c`, `lc_all_c_csl`, `lc_all_c_locale_w`, `lang_c`, and the ported `env`, `locale` and `lang_utf8`, now fallback cases (byte equality with perl.wasm, `image_sha256` `None`); `env_plain` keeps `%ENV` from the image; seed check 7, a call naming each of the 19 names runs perl.wasm and answers as it does; seed check 4, a making refuses each of the 19. Each failed on the head before the fix (EXECUTED: 34 failed).
+> - wasi-python could adopt the same rule with its own list: the `PYTHON*` variables CPython reads once at start-up, such as `PYTHONHASHSEED`, `PYTHONIOENCODING`, `PYTHONUTF8` and `LC_*` for its locale coercion (INFERRED; row 4 of the table below). The API does not change.
+
 ### 7. The hash seed
 
 - The seed is drawn at the making, from `random_get`, through spec 013's `/dev/urandom`. It is frozen in the image, and every call from that image shares it.
@@ -333,7 +365,7 @@ D also read one case without running it: JSON::PP fixes `PERL_JSON_PP_USE_B` at 
 | 1 | `snapshot=True` means the set's default start, which is perl.wasm. `True` and `False` run the same binary | wasi-perl ships no snapshot binary (decision 6) | say "the set's default start" instead of naming `python-snapshot.wasm`; its behaviour is unchanged |
 | 2 | a call from a `Snapshot` instantiates a module the runner wrote. On Linux it is mapped copy-on-write, and there is no per-call copy. On macOS and Windows, wasmtime has no source to map, so each call writes the image into fresh memory, as wasi-python's copy does (decision 1) | on Linux, about 2.7 ms and 15 MiB a call saved; elsewhere about the same cost as a copy (decision 1, INFERRED) | adopt it inside the runner, with no change to the API or the file. It would pay one compile of its snapshot binary's code per image, cached. Its 203 MiB images exceed wasmtime's dense-image limit, so whether they still map is to be measured (INFERRED) |
 | 3 | the making pins the clocks but not entropy | the hash seed is frozen in the image (decision 7) | draw real entropy in `prepare` as well. That would close its own pydantic note (READ: `docs/explanation/security-model.md`). It gives up identical images from identical code, which its docs do not promise for a prelude (INFERRED) |
-| 4 | `make_snapshot`'s `env` refuses three names, and a call whose env has them runs the plain binary | an image cannot honour them (decision 6) | the same rule with its own list: for example `PYTHONHASHSEED`, if it ever honours one in an image |
+| 4 | `make_snapshot`'s `env` refuses the names Perl reads only at start-up (A15: 19 of them), and a call whose env has one runs the plain binary | an image cannot honour them (decision 6) | the same rule with its own list: for example `PYTHONHASHSEED`, `PYTHONIOENCODING`, `PYTHONUTF8`, if it ever honours one in an image |
 | 5 | `make_package_snapshot` takes CPAN distribution names or `Module::Names`, loads with `require`, and has no `root` keyword. Its default list is `_snapshot_make.PACKAGES`, in the runner's code; wasi-python reads its set's `x-snapshot-package` lines in `MANIFEST` | Perl's names and loading; wasi-perl's `run` has no root. wasi-perl's `MANIFEST` holds only `<sha256>  <path>` lines, which its build check enforces, and its eight packages are core modules every set holds (Decision 5) | the shared component asks each runtime for its package list through one function: wasi-python's reads `MANIFEST`, wasi-perl's returns `PACKAGES`. The rule for `None` and for a name given is the same in both, and neither API changes |
 | 6 | `make_snapshot` and `make_package_snapshot` take the keywords of wasi-perl's `run`: `grants`, `mounts`, `env`, `cwd`, `fuel`, `deadline_s`, `memory_bytes`, `output_bytes`, `cache_dir`, `artifacts`, `max_file_calls`, in wasi-python's order (Decision 5). wasi-python's `root`, `import_path`, `host` and `max_open_files` are absent | wasi-perl has none of the four; each joins, in wasi-python's place, when wasi-perl's `run` gains it | nothing to adopt for the four |
 | 7 | `code` may not hold NUL | it travels as argv, so no new export is needed to copy it in | nothing to adopt |
@@ -405,6 +437,7 @@ Everything else is wasi-python's, adapted from its files and saying so in their 
 4. `make_snapshot` refuses each of the three names in `env` with `ValueError`, before any instance is made.
 5. On POSIX, a saved file has mode 0600, and `load` refuses it at 0640 and at 0606 with `PermissionError`.
 6. A making with a marker in `env` gives an image that holds the marker exactly once, in `%ENV` (A10).
+7. A call from an image whose `env` names any of A15's 19 names runs perl.wasm: `image_sha256` is `None`, and its exit and output equal perl.wasm's. Check 4 refuses each of the 19 at a making (A15).
 
 **The API** (`tests/snapshot/test_api.py`)
 1. `Snapshot()` raises `TypeError`, pickling raises `TypeError`, and setting an attribute raises `AttributeError`.
@@ -479,3 +512,16 @@ Built on `spec/022-a-preload-image`, with dev at 388ddd3 merged in. The prototyp
 3. Perl's `t/`: from `make_snapshot("")`, the scoreboard equals perl.wasm's exactly; from the package image, too, but for `lib/deprecate.t`, already excluded, which fails the same way with another message because Carp is preloaded, so its `shows` pattern does not match. No file fails only from an image, so `exclusions-image.toml` is not needed; `exclusions.toml` is not touched (EXECUTED: the memo, §5).
 4. `../research/2026-11-24-the-preload-image-measured.md`. The macOS and Windows rows of Decision 1 stay INFERRED.
 5. `docs/snapshots.md`, `docs/sandbox.md`'s paragraph, the README's section and the changelog's lines.
+
+### Review round 1, `../reviews/022-a-preload-image-made-at-install-time-pr-2026-11-25.md`
+
+- **H1.** Fixed by falling back, the orchestrator's decision: amendment A15 above, with the audit of every environment read and the new checks, seen failing on `02e9994` (34 failed) and passing after. Decision 4's locale row, Decision 6 (through A15), row 4 of the table, `docs/snapshots.md` ("What is fresh") and the changelog say it. Re-reading the locale, `PERL_UNICODE` and `PERLIO` in `run` is on the roadmap.
+- **M1 (a).** `tests/oneliners/test_oneliners.py::test_guest_from_the_package_image_matches_native` runs all 226 corpus cases again, each from the package image, with `PERL_HASH_SEED`, `PERL_PERTURB_KEYS` and `LC_ALL` left out of the base environment, against the same native answers, and asserts that each call started from the image. Its name starts `test_guest_`, so the wheel legs' gate counts it. 226 passed (EXECUTED).
+- **M1 (b).** `WASI_PERL_TESTS_FROM_IMAGE=1` (`tests/conftest.py`) sends every call that can start from the package image there: a call with `snapshot` left at its default, on the set the image was made from, with room in its memory limit. The one accepted drift these suites can see, `test_every_call_has_its_own_seeds`, is a strict expected failure in that mode. The wheel legs run `tests/escapes` and `tests/mounts` this way, and a gate of its own counts them and requires at least one call from the image. Here: 234 passed, 1 xfailed, 218 calls from the image (EXECUTED). `tests/runner` is not run this way: most of its checks use stand-in sets with no reactor, and many count the module cache's compiles and loads, which an image's module changes by design.
+- **L1.** Damaged-file check: "another image", a sound zlib stream of the right size with one byte of the image changed, raises `SnapshotMismatch` "does not match its hash". It failed with the hash check removed (EXECUTED: 1 failed) and passes with it.
+- **L2.** The memo names the cause of the rebuild that is not byte-reproducible: `PERL_BUILD_DATE` from `__DATE__` and `__TIME__` in `perl.c`, "Compiled at" in `perl -V`. `SOURCE_DATE_EPOCH` is on the roadmap.
+- **L3.** `test_perturb_keys_and_the_internal_seed_work_as_natively` is a rare flake that predates 022: with `PERL_PERTURB_KEYS=1` its program has about 64 near-equal orders, so three equal runs come about once in 4,000 per side (the review's figures). It is left for a follow-up that takes more runs.
+- **L4.** `release.yml`'s six assets run only on a tag; they are to be checked on the first release candidate.
+- **L5.** `lib/deprecate.t` from the package image is an instance of the accepted drift `inc_keys`: it fails from perl.wasm too, so `exclusions-image.toml` does not apply.
+- **N1.** `docs/snapshots.md`'s "What is fresh" names the start-up variables each call reads, and lists those that send a call to perl.wasm.
+- **N2.** The memo states the `-e 1` overhead once, 0.64–0.76 ms (§1); the changelog and `docs/snapshots.md` quote it.

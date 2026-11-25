@@ -25,6 +25,10 @@ ISA = (
     ' " ", scalar(@{mro::get_isarev("JSON::PP::Boolean")}), "\\n"'
 )
 CHECK = 'print defined $POSIX::planted ? "LEAK" : "clean", " ", floor(1.5), "\\n"'
+OPEN_WRITE_READ = (
+    'open my $f, ">", "/data/o.txt" or die; print $f "a\\n"; close $f;'
+    ' open $f, "<:raw", "/data/o.txt" or die; print unpack("H*", <$f>), "\\n"'
+)
 H = 'my %h = map { $_ => 1 } "a" .. "p"; print join("", keys %h), "\\n";'
 SEED = ["-MHash::Util=hash_seed", "-e", 'print unpack("H*", hash_seed()), "\\n"']
 ZERO_SEED = {"PERL_HASH_SEED": "0", "PERL_PERTURB_KEYS": "0"}
@@ -95,8 +99,30 @@ CASES = [
     ("bad_switch", ["-Q", "-e", "1"], {}, None, "same"),
     ("no_code_e", ["-e"], {}, None, "same"),
     ("version", ["-v"], {}, None, "same"),
+    # %ENV from the image, with no variable Perl reads at start-up.
+    ("env_plain", ["-e", 'print join(",", map {"$_=$ENV{$_}"} sort keys %ENV), "\\n"'],
+     {"FOO": "bar", "EMPTY": ""}, None, "same"),
+    # Perl reads these once, in perl_construct or at its first open, so an image cannot honour
+    # a call's own: the call runs perl.wasm.
+    ("perl_unicode", ["-e", "print chr(233)"], {"PERL_UNICODE": "S"}, None, "falls back"),
+    ("perl_unicode_argv", ["-e", "print length($ARGV[0])", "\u00e9"], {"PERL_UNICODE": "A"},
+     None, "falls back"),
+    ("perlio_crlf", ["-e", OPEN_WRITE_READ], {"PERLIO": ":crlf"}, None, "falls back"),
+    ("lc_all_c", ["-MPOSIX", "-e", 'print "${^UTF8LOCALE} ", setlocale(LC_CTYPE), "\\n"'],
+     {"LC_ALL": "C"}, None, "falls back"),
+    ("lc_all_c_csl", ["-CSL", "-e", 'print qq{\\x{e9}\\n}'], {"LC_ALL": "C"}, None,
+     "falls back"),
+    ("lc_all_c_locale_w", ["-Mlocale", "-e", "print chr(0xC9) =~ /\\w/ ? 1 : 0"],
+     {"LC_ALL": "C"}, None, "falls back"),
+    ("lang_c", ["-MPOSIX", "-e", 'print "${^UTF8LOCALE} ", setlocale(LC_CTYPE), "\\n"'],
+     {"LANG": "C"}, None, "falls back"),
 ]  # fmt: skip
-FALLS_BACK = {"hash_seed_env", "hash_order_env", "perturb_env", "json_pp_use_b", "hash_seed_empty"}
+FALLS_BACK = {
+    "hash_seed_env", "hash_order_env", "perturb_env", "json_pp_use_b", "hash_seed_empty",
+    # the locale's, PERL_UNICODE's and PERLIO's names, read at start-up
+    "env", "locale", "lang_utf8", "perl_unicode", "perl_unicode_argv", "perlio_crlf", "lc_all_c",
+    "lc_all_c_csl", "lc_all_c_locale_w", "lang_c",
+}  # fmt: skip
 ACCEPTED_EMPTY = {"hash_seed"}
 ACCEPTED_PACKAGES = {"no_use_posix", "defined_sub", "inc_keys", "hash_seed"}
 

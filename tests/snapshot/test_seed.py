@@ -101,13 +101,53 @@ def test_under_the_real_runner_the_key_order_varies(empty_image) -> None:
 # 4
 
 
-@pytest.mark.parametrize("name", ["PERL_HASH_SEED", "PERL_PERTURB_KEYS", "PERL_JSON_PP_USE_B"])
+# Every variable Perl reads only at start-up (perl_construct, or the first open of a handle) or
+# once per interpreter, with a value that sets it. An image made with it would freeze it for
+# every call, and a call cannot change it, so a making refuses each and a call naming it runs
+# perl.wasm.
+READ_ONCE = {
+    "PERL_HASH_SEED": "0",
+    "PERL_PERTURB_KEYS": "0",
+    "PERL_JSON_PP_USE_B": "1",
+    "LC_ALL": "C",
+    "LC_CTYPE": "C",
+    "LC_NUMERIC": "C",
+    "LC_COLLATE": "C",
+    "LC_TIME": "C",
+    "LC_MESSAGES": "C",
+    "LC_MONETARY": "C",
+    "LANG": "C",
+    "LANGUAGE": "C",
+    "PERL_BADLANG": "0",
+    "PERL_SKIP_LOCALE_INIT": "1",
+    "PERL_DEBUG_LOCALE_INIT": "1",
+    "PERL_UNICODE": "S",
+    "PERLIO": ":crlf",
+    "PERLIO_DEBUG": "/nowhere/perlio.log",
+    "PERL_RE_COLORS": "",
+}
+
+
+@pytest.mark.parametrize("name", list(READ_ONCE))
+def test_a_call_naming_a_start_up_variable_runs_perl_wasm(empty_image, name) -> None:
+    argv = ["-e", 'print "\\x{e9}|", ${^UTF8LOCALE} // "", "\\n"']
+    env = {name: READ_ONCE[name], "OTHER": "x"}
+    from_image, plain = call(argv, empty_image, env=env), call(argv, False, env=env)
+    assert from_image.image_sha256 is None
+    assert (from_image.exit_code, from_image.stdout, from_image.stderr) == (
+        plain.exit_code,
+        plain.stdout,
+        plain.stderr,
+    )
+
+
+@pytest.mark.parametrize("name", list(READ_ONCE))
 def test_a_making_may_not_set_what_the_image_would_freeze(monkeypatch, name) -> None:
     calls: list = []
     for owner, attr in ((_artifacts, "checked"), (_cache, "every"), (_engines, "module")):
         monkeypatch.setattr(owner, attr, lambda *a, n=attr, **k: calls.append(n) or 1 / 0)
     with pytest.raises(ValueError, match=name):
-        make_snapshot("", env={name: "0"})
+        make_snapshot("", env={name: READ_ONCE[name]})
     assert calls == []
 
 

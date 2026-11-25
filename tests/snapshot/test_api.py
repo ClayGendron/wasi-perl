@@ -82,6 +82,14 @@ def _broken(small, tmp_path, how: str):
         magic, header, rest = bytes(data).split(b"\n", 2)
         header = header.replace(b'"format": 1', b'"format": 2')
         data = bytearray(magic + b"\n" + header + b"\n" + rest)
+    elif how == "another image":
+        # A sound stream, of the right size, of an image that is not the header's.
+        import zlib
+
+        magic, header, _ = bytes(data).split(b"\n", 2)
+        image = bytearray(small._image)
+        image[len(image) // 2] ^= 0xFF
+        data = bytearray(magic + b"\n" + header + b"\n" + zlib.compress(bytes(image), 1))
     elif how == "another runtime":
         data = bytearray(b"wasi-python snapshot\n" + bytes(data[len(_snapshot.MAGIC) :]))
     path.write_bytes(bytes(data))
@@ -89,9 +97,12 @@ def _broken(small, tmp_path, how: str):
     return path
 
 
-@pytest.mark.parametrize("how", ["truncated", "flipped", "newer", "another runtime"])
+@pytest.mark.parametrize(
+    "how", ["truncated", "flipped", "newer", "another image", "another runtime"]
+)
 def test_a_damaged_or_foreign_file_is_a_mismatch(small, tmp_path, how) -> None:
-    with pytest.raises(SnapshotMismatch):
+    match = "does not match its hash" if how == "another image" else None
+    with pytest.raises(SnapshotMismatch, match=match):
         Snapshot.load(_broken(small, tmp_path, how))
 
 

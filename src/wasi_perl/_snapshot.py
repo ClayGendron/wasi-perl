@@ -46,10 +46,35 @@ MAX_HEADER_BYTES = 17 << 20  # the code and room for the rest
 MAX_IMAGE_BYTES = 4 << 30  # the guest's 32-bit address space
 REASONS = ("exit", "trapped", "open file")
 KINDS = ("prelude",)  # what made an image: a making's code
-# Names an image cannot honour: the hash seed is frozen in it, and JSON::PP reads its switch
-# once, at compile time. A making may not set them, and a call whose environment has any of
-# them runs perl.wasm instead.
-FROZEN_ENV = ("PERL_HASH_SEED", "PERL_PERTURB_KEYS", "PERL_JSON_PP_USE_B")
+# Names an image cannot honour, because Perl reads each once, before or outside what a call
+# from the image redoes: the hash seed's two in perl_construct, whose seed is frozen in the
+# image; JSON::PP's switch, read when it is compiled; the locale's names, PERL_UNICODE and the
+# locale switches, read by the locale's set-up in perl_construct; PERLIO and PERLIO_DEBUG, read
+# at the first open of a handle; and PERL_RE_COLORS, read once per interpreter. A making may not
+# set them, so an image is always made without them, and a call whose environment has any of
+# them runs perl.wasm instead. The locale's names are exactly the categories wasi-libc defines,
+# which are all Perl reads, and LC_ALL, LANG and LANGUAGE.
+FROZEN_ENV = (
+    "PERL_HASH_SEED",
+    "PERL_PERTURB_KEYS",
+    "PERL_JSON_PP_USE_B",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_NUMERIC",
+    "LC_COLLATE",
+    "LC_TIME",
+    "LC_MESSAGES",
+    "LC_MONETARY",
+    "LANG",
+    "LANGUAGE",
+    "PERL_BADLANG",
+    "PERL_SKIP_LOCALE_INIT",
+    "PERL_DEBUG_LOCALE_INIT",
+    "PERL_UNICODE",
+    "PERLIO",
+    "PERLIO_DEBUG",
+    "PERL_RE_COLORS",
+)
 _NOT_PUBLIC = "make a Snapshot with make_snapshot, make_package_snapshot or Snapshot.load"
 _OWNED_RULE = (
     "a snapshot is loaded only from a file only you may read or write (mode 0600, as save makes "

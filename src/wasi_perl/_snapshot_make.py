@@ -78,8 +78,9 @@ def make_snapshot(
         code: The code to run, a str of at most 16 MiB as UTF-8, with no NUL.
         grants: As for `run`.
         mounts: As for `run`.
-        env: As for `run`; it may not set `PERL_HASH_SEED`, `PERL_PERTURB_KEYS` or
-            `PERL_JSON_PP_USE_B`. The origin keeps the names only, but the image holds the
+        env: As for `run`; it may not set a variable Perl reads only at start-up, such as
+            `PERL_HASH_SEED`, `LC_ALL`, `LANG`, `PERL_UNICODE` or `PERLIO`
+            (`_snapshot.FROZEN_ENV`). The origin keeps the names only, but the image holds the
             values.
         cwd: As for `run`; a call from the image starts in its own.
         fuel: A cap on the code's instructions, which the origin then records; `None`, none.
@@ -133,7 +134,7 @@ def _code(code: Any) -> str:
 def _refuse_frozen(env: Any) -> None:
     """A making's environment may not set a variable the image would freeze for every call:
     the hash seed's two, which would make the seed known to whoever knows the environment, and
-    JSON::PP's switch. `run`'s rules check the rest."""
+    every other name Perl reads only at start-up. `run`'s rules check the rest."""
     if env is None or not isinstance(env, Mapping):
         return
     for name in _snapshot.FROZEN_ENV:

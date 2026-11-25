@@ -114,3 +114,69 @@ def private_cache(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.
     folder = tmp_path_factory.getbasetemp() / "cache"
     monkeypatch.setenv("WASI_PERL_CACHE", str(folder))
     return folder
+
+
+# WASI_PERL_TESTS_FROM_IMAGE=1 runs the suite with every call that can start from the package
+# preload image started there: a call that leaves `snapshot` at its default, on the set the
+# image was made from, with room for the image in its memory limit. So the walls the escape and
+# mount checks hold are held on the image's path too. The one accepted difference an image makes
+# that these checks can see is the hash seed every call from one image shares.
+FROM_IMAGE = os.environ.get("WASI_PERL_TESTS_FROM_IMAGE") == "1"
+SHARED_SEED = {"tests/escapes/test_escapes.py::test_every_call_has_its_own_seeds"}
+_from_image: dict = {"image": None, "started": 0}
+
+
+def _route_to_the_image() -> None:
+    from wasi_perl import Artifacts, make_package_snapshot, runner
+
+    folder = _perl_dir()
+    if folder is None:
+        return
+    found = Artifacts.at(folder)
+    real = runner._run
+
+    def routed(argv, grants, mounts, env, stdin, snapshot, cwd, fuel, deadline_s, memory_bytes,
+               output_bytes, cache_dir, artifacts, max_file_calls, *, making=False):  # fmt: skip
+        if not making and snapshot is True and found.reactor is not None:
+            ours = artifacts is None or (
+                artifacts.reactor is not None
+                and Path(artifacts.reactor).resolve() == Path(found.reactor).resolve()
+            )
+            if _from_image["image"] is None and ours:
+                _from_image["image"] = make_package_snapshot(artifacts=found, cache_dir=False)
+            image = _from_image["image"]
+            room = not isinstance(memory_bytes, int) or memory_bytes >= image.origin.image_bytes
+            if ours and room:
+                snapshot = image
+        done = real(argv, grants, mounts, env, stdin, snapshot, cwd, fuel, deadline_s,
+                    memory_bytes, output_bytes, cache_dir, artifacts, max_file_calls,
+                    making=making)  # fmt: skip
+        if not making and getattr(done, "image_sha256", None) is not None:
+            _from_image["started"] += 1
+        return done
+
+    runner._run = routed
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if FROM_IMAGE:
+        _route_to_the_image()
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
+    if not FROM_IMAGE:
+        return
+    for item in items:
+        if item.nodeid.split("[")[0] in SHARED_SEED:
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason="from an image every call shares its hash seed", strict=True
+                )
+            )
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    if FROM_IMAGE:
+        terminalreporter.write_line(
+            f"calls started from the package image: {_from_image['started']}"
+        )
