@@ -137,3 +137,24 @@ The fallback costs calls that set `LANG` or `LC_ALL` the image's speed. Embedder
 ## Verdict, round 2
 
 **Lands.** H1 is fixed as the orchestrator decided. Every case I found gives perl.wasm's bytes, by a fallback that `Completed.image_sha256` shows. The audit behind it is right for Perl's C. M1 is fixed. The corpus and the escape and mount walls now run from an image on every wheel leg, and gates fail if they do not. L1's check is real. Nothing in the fix commit broke a check, here or in CI. R2-L1 and R2-L2 are follow-ups, not a third round.
+
+## Round 3
+
+- **Reviewed:** `git diff 7aa2b55 930bbb0`, the fix commit `930bbb0` (`930bbb0234d727db2e6c61ff842290274ecdbece`), 7 files. It changes no recipe or build script (READ).
+- **CI:** run 45531120337 is green on all seven jobs, at `930bbb0`. The ubuntu-24.04 wheel leg prints `845 guest checks (at least 433` and `226 corpus cases from the package image (exactly 226)` (EXECUTED: `gh api` of the run and the job's log).
+- **Here:** `ruff check` and `ruff format --check` are clean. `uv run pytest tests/snapshot`: 112 passed (EXECUTED: `build/logs/review/r3-snapshot.txt`).
+
+### The round 2 findings, checked
+
+- **R2-L1: fixed.** `PERL_ENCODE_DEBUG` is in `FROZEN_ENV`, and in `READ_ONCE`, so both per-name checks cover it. The drift case `encode_debug` falls back, so it must give perl.wasm's bytes with `image_sha256` `None`. A15 has a row for it and a paragraph on reads in Perl code as a module loads. That paragraph names the 25 files of the package image's `%INC`, which is my count too. `docs/snapshots.md`'s "What is frozen" says a loaded module keeps what it read from the environment (READ). I removed the name from `FROZEN_ENV` in my scratch copy: 3 checks fail (EXECUTED: `mutate.sh r3-noencode`).
+- **R2-L2: fixed.** The gate counts each `test_guest_from_the_package_image_matches_native[…]` testcase and exits 1 unless the count equals the corpus count `cases` (READ: `ci.yml`). CI printed 226 of exactly 226. Skips are still counted apart, so a case that is collected but skipped also fails the gate (READ).
+- **R2-N1: fixed.** The double blank line is gone (READ).
+- **R2-N2: fixed.** The drift case `locale_unset` is "same". It prints `setlocale(LC_ALL)` and `${^UTF8LOCALE}` with no locale variable set, from both images, against perl.wasm (READ; it passes in the snapshot run above).
+
+### New findings
+
+None. The commit adds one name, two drift cases, one gate count and prose. I found nothing it broke.
+
+## Verdict, round 3
+
+**Lands.** Every round 2 finding is fixed, with a check that fails without the fix. CI is green at `930bbb0`, and so are ruff and the snapshot suite here.
